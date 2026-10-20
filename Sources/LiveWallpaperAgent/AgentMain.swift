@@ -24,10 +24,13 @@ enum AgentEntry {
     private var statusItem: NSStatusItem?
     private let menu = NSMenu()
     private let statusLine = NSMenuItem()
+    private let lockLine = NSMenuItem()
     private let messageItem = NSMenuItem()
     private let toggleItem = NSMenuItem()
     private let pauseItem = NSMenuItem()
     private let nextItem = NSMenuItem()
+    private let nextLockItem = NSMenuItem()
+    private let muteItem = NSMenuItem()
     private var recentCommandIDs: [String] = []
     private var signalSources: [DispatchSourceSignal] = []
     private var workspaceObservers: [NSObjectProtocol] = []
@@ -44,9 +47,19 @@ enum AgentEntry {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard isActive else { return .terminateNow }
         orchestrator.shutdown(userQuit: false)
-        // Also sent for SIGTERM and logout, so Settings never mistakes those for a crash.
+        guard orchestrator.hostIsExiting else {
+            // Also sent for SIGTERM and logout, so Settings never mistakes those for a crash.
+            postStatus(reply: quitReplyID, quitting: true)
+            return .terminateNow
+        }
+        // The scene host has 2 s to quit (then it is force-terminated) before the agent goes.
+        orchestrator.onHostExited = { [weak self] in self?.finishTermination() }
+        return .terminateLater
+    }
+
+    private func finishTermination() {
         postStatus(reply: quitReplyID, quitting: true)
-        return .terminateNow
+        NSApp.reply(toApplicationShouldTerminate: true)
     }
 
     // Order matters (SPEC2.md 3.6.2): commands are listened for before the state is loaded, and the hello
@@ -138,8 +151,8 @@ enum AgentEntry {
         case .stop: orchestrator.stop()
         case .pause: orchestrator.setPaused(true)
         case .resume: orchestrator.setPaused(false)
-        case .next: orchestrator.next()
-        case .play: if let id = command.videoID { orchestrator.play(id) }
+        case .next: orchestrator.next(target: command.target)
+        case .play: if let id = command.videoID { orchestrator.play(id, target: command.target) }
         case .reload: orchestrator.reload(revision: command.revision)
         }
     }
@@ -162,25 +175,29 @@ enum AgentEntry {
         NSApp.terminate(nil)
     }
 
-    // MARK: Status item (menu spec: SPEC2.md section 5.2)
+    // MARK: Status item (menu spec: SPEC3.md section 6.5)
 
     private func buildStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem = item
         menu.autoenablesItems = false
         statusLine.isEnabled = false
+        lockLine.isEnabled = false
         messageItem.isEnabled = false
         messageItem.isHidden = true
         configure(toggleItem, title: "Start Wallpaper", action: #selector(toggleRunning))
         configure(pauseItem, title: "Pause Wallpaper", action: #selector(togglePause))
-        configure(nextItem, title: "Next Video", action: #selector(nextVideo))
+        configure(nextItem, title: "Next Wallpaper", action: #selector(nextDesktopWallpaper))
         nextItem.keyEquivalent = String(Character(UnicodeScalar(NSRightArrowFunctionKey)!))
+        configure(nextLockItem, title: "Next Lock Screen Wallpaper", action: #selector(nextLockWallpaper))
+        configure(muteItem, title: "Mute Sound", action: #selector(toggleMute))
         let settings = NSMenuItem(title: "Open Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         let quit = NSMenuItem(title: "Quit Wallpaper", action: #selector(quitFromMenu), keyEquivalent: "q")
         quit.target = self
         quit.toolTip = "Stops the wallpaper, restores your original wallpapers and quits this helper."
         menu.addItem(statusLine)
+        menu.addItem(lockLine)
         menu.addItem(messageItem)
         menu.addItem(.separator())
         menu.addItem(settings)
@@ -188,6 +205,8 @@ enum AgentEntry {
         menu.addItem(toggleItem)
         menu.addItem(pauseItem)
         menu.addItem(nextItem)
+        menu.addItem(nextLockItem)
+        menu.addItem(muteItem)
         menu.addItem(.separator())
         menu.addItem(quit)
         item.menu = menu
@@ -206,12 +225,10 @@ enum AgentEntry {
         image?.isTemplate = true
         statusItem?.button?.image = image
 
-        if running {
-            let name = "“\(orchestrator.currentItem?.name ?? "")”"
-            statusLine.title = orchestrator.isPaused ? "Paused · \(name)" : "Playing \(name)"
-        } else {
-            statusLine.title = "Stopped"
-        }
+        let together = showsOneWallpaper
+        statusLine.title = together ? sharedStatusText : statusText(for: .desktop)
+        lockLine.title = statusText(for: .lock)
+        lockLine.isHidden = together
         let message = orchestrator.message
         messageItem.isHidden = message == nil
         messageItem.toolTip = message
@@ -228,7 +245,35 @@ enum AgentEntry {
             : orchestrator.blockedReason ?? "Add a video and turn on Desktop or Lock Screen in Settings to start."
         pauseItem.title = orchestrator.isPaused ? "Resume Wallpaper" : "Pause Wallpaper"
         pauseItem.isEnabled = running
-        nextItem.isEnabled = running && orchestrator.canRotate
+        nextItem.title = together ? "Next Wallpaper" : "Next Desktop Wallpaper"
+        nextItem.isEnabled = orchestrator.canRotate(.desktop) || (together && orchestrator.canRotate(.lock))
+        nextLockItem.isHidden = together
+        nextLockItem.isEnabled = orchestrator.canRotate(.lock)
+        muteItem.state = orchestrator.muted ? .on : .off
+    }
+
+    // One wallpaper for both targets, both on, and no lock render in the way: one status line and one Next item.
+    private var showsOneWallpaper: Bool {
+        let state = orchestrator.state
+        return state.sameForBoth && state.isEnabled(.desktop) && state.isEnabled(.lock) && orchestrator.lockRender == nil
+    }
+
+    private var sharedStatusText: String {
+        guard orchestrator.isRunning else { return "Stopped" }
+        let name = "“\(orchestrator.currentItem(for: .desktop)?.name ?? "")”"
+        return orchestrator.isPaused ? "Paused · \(name)" : "Playing \(name) on desktop and lock screen"
+    }
+
+    private func statusText(for target: WallpaperTarget) -> String {
+        let label = target.label
+        guard orchestrator.state.isEnabled(target) else { return "\(label): Off" }
+        guard orchestrator.isRunning else { return "\(label): Stopped" }
+        if target == .lock, let render = orchestrator.lockRender, render.state == .queued || render.state == .rendering {
+            return render.state == .queued ? "\(label): Waiting to render…" : "\(label): Rendering \(Int(render.progress * 100))%…"
+        }
+        guard let item = orchestrator.currentItem(for: target) else { return "\(label): Off" }
+        let name = "“\(item.name)”"
+        return target == .desktop && orchestrator.isPaused ? "\(label): Paused · \(name)" : "\(label): Playing \(name)"
     }
 
     @objc private func toggleRunning() {
@@ -236,7 +281,9 @@ enum AgentEntry {
     }
 
     @objc private func togglePause() { orchestrator.setPaused(!orchestrator.isPaused) }
-    @objc private func nextVideo() { orchestrator.next() }
+    @objc private func nextDesktopWallpaper() { orchestrator.next(target: showsOneWallpaper ? nil : .desktop) }
+    @objc private func nextLockWallpaper() { orchestrator.next(target: .lock) }
+    @objc private func toggleMute() { orchestrator.setMuted(!orchestrator.muted) }
     @objc private func quitFromMenu() { quitWallpaper(replyTo: nil) }
 
     // The agent lives at <Settings.app>/Contents/Library/LoginItems/LiveWallpaperAgent.app.
