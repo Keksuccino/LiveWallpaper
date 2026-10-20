@@ -198,6 +198,8 @@ private final class LockObserver: NSObject {
     private var nextInstall = ContinuousClock().now
     private var isLocked = false
     private var lockObserver: LockObserver?
+    /// Called with true when the screen locks and false when it unlocks (also while nothing is installed).
+    var onScreenLock: (@MainActor (Bool) -> Void)?
 
     var hasAppliedStill: Bool { currentStill != nil || !aerialSlots.isEmpty }
 
@@ -245,7 +247,7 @@ private final class LockObserver: NSObject {
         ticket += 1
         wanted = nil
         isLocked = false
-        lockObserver = nil
+        if onScreenLock == nil { lockObserver = nil }
         for (center, token) in observers { center.removeObserver(token) }
         observers = []
         let saved = originals
@@ -374,7 +376,7 @@ private final class LockObserver: NSObject {
         }
     }
 
-    private func startObservingLock() {
+    func startObservingLock() {
         guard lockObserver == nil else { return }
         lockObserver = LockObserver { [weak self] locked in self?.screenLockChanged(locked) }
     }
@@ -383,6 +385,7 @@ private final class LockObserver: NSObject {
     // That restart also picks up a file swapped while the screen was locked.
     private func screenLockChanged(_ locked: Bool) {
         isLocked = locked
+        onScreenLock?(locked)
         if !locked, !aerialSlots.isEmpty { Self.killall("WallpaperAerialsExtension") }
     }
 
@@ -418,7 +421,7 @@ private final class LockObserver: NSObject {
         try NSWorkspace.shared.setDesktopImageURL(url, for: screen, options: options)
     }
 
-    private static func largestScreenPixelSize() -> CGSize? {
+    static func largestScreenPixelSize() -> CGSize? {
         NSScreen.screens
             .map { CGSize(width: $0.frame.width * $0.backingScaleFactor, height: $0.frame.height * $0.backingScaleFactor) }
             .max { $0.width * $0.height < $1.width * $1.height }
