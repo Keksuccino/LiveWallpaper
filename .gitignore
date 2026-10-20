@@ -8,3 +8,10 @@ DerivedData/
 *.xcodeproj
 .worktrees/
 dist/
+
+# Never commit Wallpaper Engine content or downloaded Steam tools
+*.pkg
+*.tex
+WallpaperEngineAssets/
+SteamCMD/
+SteamHome/

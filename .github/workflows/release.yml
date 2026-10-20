@@ -8,7 +8,6 @@ name: release
 on:
   push:
     tags: ['v*']
-    branches: ['feat-pkg-renderer']   # TEMPORARY: dry run of the pipeline from the feature branch (removed before merging)
   workflow_dispatch:
     inputs:
       version:
