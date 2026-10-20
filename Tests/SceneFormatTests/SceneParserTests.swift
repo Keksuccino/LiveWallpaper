@@ -127,7 +127,7 @@ final class SceneParserTests: XCTestCase {
         let archive = try PKGArchive(data: pkg)
         let document = try SceneLoader.parseDocument(sceneJSON: try archive.data(at: "scene.json"), files: archive)
         let analysis = SceneAnalyzer.analyze(document: document, files: archive)
-        XCTAssertEqual(analysis.unsupported, [.missingTexture])
+        XCTAssertEqual(analysis.unsupported, [.missingTexture, .noRenderableLayer])
         XCTAssertEqual(analysis.support, .previewOnly)
         XCTAssertTrue(analysis.needsSharedAssets)
 

@@ -45,7 +45,7 @@ final class TexTests: XCTestCase {
         XCTAssertEqual(image.payload, .image(fileExtension: "png"))
     }
 
-    func testUnknownFreeImageFormatAssumesJPG() throws {
+    func testUnknownFreeImageFormatAssumesPNG() throws {
         var fixture = TexFixture()
         fixture.containerMagic = "TEXB0003"
         fixture.imageFormat = 999               // not in the table → png (renderer retries)
@@ -65,7 +65,7 @@ final class TexTests: XCTestCase {
     func testVideoTextureViaTEXB0004Flag() throws {
         var fixture = TexFixture()
         fixture.containerMagic = "TEXB0004"
-        fixture.imageFormat = 0
+        fixture.imageFormat = -1         // spec 5.2: imageFormat -1 + isVideoMp4 == 1 means MP4
         fixture.isVideoMp4 = 1
         let image = try TexDecoder.decode(fixture.build())
         XCTAssertEqual(image.payload, .video(fileExtension: "mp4"))

@@ -16,11 +16,17 @@ struct DataWriter {
         int32(Int32(bitPattern: value.bitPattern))
     }
 
-    /// Length-prefixed string (Int32 count + bytes, no terminator).
+    /// Length-prefixed string (Int32 count + bytes, no terminator) — the .pkg layout (Reader.readBytes).
     mutating func string(_ value: String) {
         let bytes = Array(value.utf8)
         int32(Int32(bytes.count))
         data.append(contentsOf: bytes)
+    }
+
+    /// Null-terminated string WITHOUT a count — the .tex and TEXS layout (Reader.readCString).
+    mutating func cstring(_ value: String) {
+        data.append(contentsOf: value.utf8)
+        data.append(contentsOf: [0x00])
     }
 
     mutating func bytes(_ value: Data) {
@@ -75,8 +81,9 @@ func lz4Block(outputCount: Int, pixel: UInt8) -> Data {
 
 // MARK: - .tex
 
-/// rgba8888 texture: 4x4 image, one 2x2 mip then one 1x1 mip; `lz4` switches both mips to the LZ4 fields.
-///
+/// RGBA8888 texture: pixel-format payload with two mips (2x2 and 1x1) of `pixelValue` bytes each;
+/// `lz4` switches the mips to the LZ4 fields. `imageFormat` (spec: FreeImage ids; -1 marks an MP4 v4 texture)
+/// selects the encoded-image payload instead. `frameTable` appends a sprite-table when set.
 
 struct TexFixture {
     var format: Int32 = 0                 // pixel format id (0 = rgba8888)
@@ -87,17 +94,16 @@ struct TexFixture {
     var imageHeight: Int = 4
     var containerMagic: String = "TEXB0002"
     var imageCount: Int32 = 1
-    var imageFormat: Int? = nil           // TEXB0003+: FreeImage id; 35 = mp4 video
-    var isVideoMp4: Int? = nil            // TEXB0004 extra field
+    var imageFormat: Int? = nil           // TEXB0003+: FreeImage id; MP4 textures write -1
+    var isVideoMp4: Int? = nil            // TEXB0004 extra field (MP4 when 1 and imageFormat is -1)
     var lz4: Bool = false
     var pixelValue: UInt8 = 16
     var frameTable: () -> Data = { Data() }
 
-    /// One image with mips [2x2, 1x1]; LZ4 blocks decode to w*h*4 bytes of `pixelValue`.
     func build() -> Data {
         var writer = DataWriter()
-        writer.string("TEXV0005")
-        writer.string("TEXI0001")
+        writer.cstring("TEXV0005")
+        writer.cstring("TEXI0001")
         writer.int32(format)
         writer.int32(flags)
         writer.int32(Int32(textureWidth))
@@ -105,7 +111,7 @@ struct TexFixture {
         writer.int32(Int32(imageWidth))
         writer.int32(Int32(imageHeight))
         writer.int32(0)                       // reserved
-        writer.string(containerMagic)
+        writer.cstring(containerMagic)
         writer.int32(imageCount)
         let containerVersion = Int(containerMagic.dropFirst("TEXB".count)) ?? 0
         if containerVersion >= 3, let imageFormat {
@@ -115,7 +121,8 @@ struct TexFixture {
             }
         }
         let isVideo = imageFormat == 35 || flags & 32 != 0
-        if !isVideo {            for image in 0..<max(1, Int(imageCount)) {
+        if !isVideo {
+            for image in 0..<max(1, Int(imageCount)) {
                 writer.int32(2)                                  // mipmap count
                 for mip in 0..<2 {
                     let width = mip == 0 ? 2 : 1
@@ -124,7 +131,7 @@ struct TexFixture {
                     writer.int32(Int32(width))
                     writer.int32(Int32(height))
                     if containerVersion >= 2 {
-                        writer.int32(isVideo ? 0 : (lz4 ? 1 : 0))
+                        writer.int32(lz4 ? 1 : 0)
                         writer.int32(Int32(lz4 ? required : 0))
                         writer.int32(Int32(required))
                     } else {
@@ -145,7 +152,7 @@ struct TexFixture {
 }
 
 /// A valid 2x2 rgba8888 texture (one 2x2 mip and one 1x1 mip of the same pixel value bytes).
-func smallRGBA8888(containerMagic: String = "TEXB0002", imageFormat: Int? = nil, isVideoMp4: Int? = nil) -> Data {
+func smallRGBA8888() -> Data {
     var fixture = TexFixture()
     fixture.textureWidth = 2
     fixture.textureHeight = 2
@@ -159,7 +166,7 @@ func smallRGBA8888(containerMagic: String = "TEXB0002", imageFormat: Int? = nil,
 /// TEXS0002 sprite frame table with 1 frame (float fields everywhere except count).
 func framesTEXS0002(count: Int32 = 1) -> Data {
     var writer = DataWriter()
-    writer.string("TEXS0002")
+    writer.cstring("TEXS0002")
     writer.int32(count)
     writer.int32(0)                       // image id of frame 0
     writer.float32(0.5)                   // seconds frame 0 is shown
