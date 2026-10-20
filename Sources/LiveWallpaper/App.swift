@@ -48,6 +48,8 @@ struct LiveWallpaperApp: App {
 
     func applicationWillTerminate(_ notification: Notification) {
         WorkshopModel.shared.cancelAll()
+        SteamSetupModel.shared.cancelSignIn()   // never leave a steamcmd sign-in waiting on a prompt
+        SteamSetupModel.shared.cancelInstall()
         SettingsModel.shared.shutdown()
     }
 
@@ -113,12 +115,12 @@ struct RootView: View {
     @ViewBuilder private var section: some View {
         switch tab {
         case .library:
-            LibraryView(model: model, openWorkshop: { tab = .workshop })
+            LibraryView(model: model, openWorkshop: { tab = .workshop }, openSteamSetup: { tab = .steamSetup })
         case .workshop:
             WorkshopView(model: model, workshop: workshop,
                          openSteamSetup: { tab = .steamSetup }, openLibrary: { tab = .library })
         case .steamSetup:
-            SteamSetupView(workshop: workshop)
+            SteamSetupView(workshop: workshop, setup: SteamSetupModel.shared)
         }
     }
 

@@ -2,10 +2,9 @@ import SwiftUI
 import AppKit
 import Core
 
-// Owner: SETTINGS. The Workshop detail pane (SPEC3.md section 6.3): opens when a result is clicked. Large preview
-// that ANIMATES (Workshop previews are often GIFs), title, tags, size, description, Download; after the download
-// the pane shows the real preview of the library item (the video, or the scene preview with its support badge).
-// This file is a stub with the final types. It is not wired into WorkshopView yet.
+// The Workshop detail pane (SPEC3.md 6.3): opens when a result is clicked. Large preview that ANIMATES (Workshop
+// previews are often GIFs), title, tags, size, description, Download; after the download the pane shows the
+// library item's own preview (the muted looping video, or the scene preview with its support badge).
 
 /// NSImageView with `animates = true`, so animated GIF previews play. SwiftUI's Image and AsyncImage show frame 1.
 struct AnimatedImageView: NSViewRepresentable {
@@ -35,10 +34,48 @@ struct AnimatedImageView: NSViewRepresentable {
         guard let url else { return }
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
+            if Task.isCancelled { return }
             if let loaded = NSImage(data: data) { image = loaded } else { failed = true }
         } catch {
-            failed = true
+            if !Task.isCancelled { failed = true }
         }
+    }
+}
+
+/// Lays chips and small buttons out in rows that wrap at the available width.
+fileprivate struct WrappingRows: Layout {
+    private let gap: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        place(subviews, width: proposal.width ?? .infinity).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let placed = place(subviews, width: bounds.width)
+        for (subview, origin) in zip(subviews, placed.origins) {
+            subview.place(at: CGPoint(x: bounds.minX + origin.x, y: bounds.minY + origin.y), proposal: .unspecified)
+        }
+    }
+
+    private func place(_ subviews: Subviews, width: CGFloat) -> (origins: [CGPoint], size: CGSize) {
+        var origins: [CGPoint] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var widest: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > width {
+                x = 0
+                y += rowHeight + gap
+                rowHeight = 0
+            }
+            origins.append(CGPoint(x: x, y: y))
+            x += size.width + gap
+            rowHeight = max(rowHeight, size.height)
+            widest = max(widest, x - gap)
+        }
+        return (origins, CGSize(width: widest, height: y + rowHeight))
     }
 }
 
@@ -49,17 +86,140 @@ struct WorkshopDetailView: View {
     let item: WorkshopItem
     let close: () -> Void
     let openSteamSetup: () -> Void
+    let openLibrary: () -> Void
     @StateObject private var preview = WorkshopPreviewLoader()
 
+    init(model: SettingsModel, workshop: WorkshopModel, item: WorkshopItem, close: @escaping () -> Void,
+         openSteamSetup: @escaping () -> Void, openLibrary: @escaping () -> Void) {
+        self._model = ObservedObject(wrappedValue: model)
+        self._workshop = ObservedObject(wrappedValue: workshop)
+        self.item = item
+        self.close = close
+        self.openSteamSetup = openSteamSetup
+        self.openLibrary = openLibrary
+    }
+
+    private var libraryItem: VideoItem? { model.videos.first { $0.workshopID == item.id } }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            AnimatedImageView(image: preview.image)
-                .frame(maxWidth: .infinity, minHeight: 200, maxHeight: 320)
-            Text(item.title).font(.title2)
-            Text(item.summary).font(.callout).foregroundStyle(.secondary)
-            Button("Close", action: close)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Button("‹ Results", action: close).buttonStyle(.link).keyboardShortcut(.cancelAction)
+                previewArea
+                Text(item.title).font(.title2).textSelection(.enabled)
+                if let author = item.author { Text(author).foregroundStyle(.secondary) }
+                chips
+                tags
+                Text(item.summary.isEmpty ? "No description." : item.summary)
+                    .font(.callout).foregroundStyle(item.summary.isEmpty ? .secondary : .primary)
+                    .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                actions
+                steamLink
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(16)
         .task(id: item.id) { await preview.load(item.previewURL) }
+    }
+
+    // MARK: Preview
+
+    @ViewBuilder private var previewArea: some View {
+        if let video = libraryItem {
+            ItemPreviewPane(item: video, broken: !FileManager.default.fileExists(atPath: video.path),
+                            openSteamSetup: openSteamSetup)
+        } else {
+            ZStack {
+                Rectangle().fill(.quaternary)
+                if let image = preview.image {
+                    AnimatedImageView(image: image)
+                } else if preview.failed || item.previewURL == nil {
+                    Image(systemName: "photo").font(.system(size: 32)).foregroundStyle(.secondary)
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .frame(maxHeight: 320)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(item.title)
+        }
+    }
+
+    // MARK: Facts
+
+    private var chips: some View {
+        WrappingRows {
+            if item.kind != .unknown {
+                WorkshopChip(text: item.kind.rawValue.capitalized, tint: item.isImportable ? Color.accentColor : Color.orange)
+            }
+            if let resolution = item.resolutionTag { WorkshopChip(text: resolution) }
+            if let rating = item.ratingTag { WorkshopChip(text: rating) }
+            if item.sizeBytes > 0 {
+                WorkshopChip(text: ByteCountFormatter.string(fromByteCount: item.sizeBytes, countStyle: .file))
+            }
+            if let subscriptions = item.subscriptions { WorkshopChip(text: "\(subscriptions.formatted()) subscribers") }
+        }
+    }
+
+    // Tags that are not already shown as chips.
+    private var otherTags: [String] {
+        let shown = Set([item.resolutionTag, item.ratingTag, item.kind.rawValue].compactMap { $0?.lowercased() })
+        return item.tags.filter { !shown.contains($0.lowercased()) }
+    }
+
+    @ViewBuilder private var tags: some View {
+        if !otherTags.isEmpty {
+            WrappingRows {
+                ForEach(otherTags, id: \.self) { WorkshopChip(text: $0) }
+            }
+        }
+    }
+
+    // MARK: Actions
+
+    private var cardAction: WorkshopCardAction {
+        WorkshopCardAction.make(item: item, state: workshop.downloads[item.id], inLibrary: libraryItem != nil)
+    }
+
+    @ViewBuilder private var actions: some View {
+        if let video = libraryItem, case .inLibrary = cardAction {
+            librarySection(video)
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                WorkshopCardActions(item: item, action: cardAction, ready: workshop.setup.canDownload, compact: false,
+                                    workshop: workshop, openSteamSetup: openSteamSetup, showInLibrary: showInLibrary)
+                if case .download = cardAction, !workshop.setup.canDownload { setupHint }
+            }
+        }
+    }
+
+    private var setupHint: some View {
+        HStack(spacing: 6) {
+            Text(WorkshopCardActions.setupFirst).font(.caption).foregroundStyle(.orange)
+            Button("Set up Steam…", action: openSteamSetup).buttonStyle(.link).font(.caption)
+        }
+    }
+
+    private func librarySection(_ video: VideoItem) -> some View {
+        WrappingRows {
+            Button("Set as Desktop") { model.assign(video.id, to: [.desktop]) }
+            Button("Set as Lock Screen") { model.assign(video.id, to: [.lock]) }
+            Button("Set as Both") { model.assign(video.id, to: [.desktop, .lock]) }
+            Button("Show in Library", action: showInLibrary)
+        }
+        .controlSize(.small)
+    }
+
+    private func showInLibrary() {
+        if let video = libraryItem { model.focusedID = video.id }
+        openLibrary()
+    }
+
+    @ViewBuilder private var steamLink: some View {
+        if let url = URL(string: "https://steamcommunity.com/sharedfiles/filedetails/?id=\(item.id)") {
+            Link("Open on Steam", destination: url).font(.caption)
+        }
     }
 }

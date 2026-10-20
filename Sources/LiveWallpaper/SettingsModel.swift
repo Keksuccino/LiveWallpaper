@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import Combine
 import Core
+import SceneFormat
 
 // The Settings app's model: the only writer of state.json and the only IPC client of the wallpaper agent.
 // It never plays anything. Persisted changes are committed and announced with a `.reload` command; the agent
@@ -36,18 +37,29 @@ enum AgentPresence: Equatable {
     @Published var intervalUnit: IntervalUnit = .minutes { didSet { persist() } }
     @Published var applyToDesktop: Bool = true { didSet { persist() } }
     @Published var applyToLockScreen: Bool = true { didSet { persist() } }
-    // Schema v2 (scaffold; SETTINGS builds the UI on these). `selectedID`, `rotateEnabled`, `intervalValue`,
-    // `intervalUnit` and `applyToDesktop` above are the DESKTOP config (shared with the lock screen while
-    // `sameForBoth`); `lockConfig` is the lock screen's own config, used only while !sameForBoth, and its
-    // `enabled` is always `applyToLockScreen`. `muted` is written through StateStore.setMuted, never by persist().
-    @Published var sameForBoth: Bool = true { didSet { persist() } }
-    @Published var lockConfig: TargetConfig = TargetConfig() { didSet { persist() } }
+    // Schema v2. `selectedID`, `rotateEnabled`, `intervalValue`, `intervalUnit` and `applyToDesktop` above are
+    // the DESKTOP config (shared with the lock screen while `sameForBoth`); `lockConfig` is the lock screen's own
+    // config, used only while !sameForBoth, and its `enabled` is always `applyToLockScreen`. `sameForBoth` is
+    // changed through `setSameForBoth` so the lock config starts from what the lock screen showed. `muted` is
+    // written through StateStore.setMuted, never by persist().
+    @Published private(set) var sameForBoth: Bool = true { didSet { persist() } }
+    @Published var lockConfig: TargetConfig = TargetConfig() {
+        didSet {
+            let clamped = LibraryState.clampedInterval(lockConfig.intervalValue)
+            if clamped != lockConfig.intervalValue { lockConfig.intervalValue = clamped }
+            persist()
+        }
+    }
     @Published var muted: Bool = true {
         didSet {
             guard !writesSuspended, muted != oldValue else { return }
             changeMuted(muted)
         }
     }
+
+    /// The library item shown in the Library's preview pane. UI state only (never written to state.json), kept here
+    /// so "Show in Library" in the Workshop can point the Library at an item without changing any wallpaper.
+    @Published var focusedID: VideoItem.ID? = nil
 
     // Agent mirror (read-only for views).
     @Published private(set) var presence: AgentPresence = .unknown
@@ -101,6 +113,21 @@ enum AgentPresence: Equatable {
     /// Roles of an item for the badges: the enabled targets it is currently selected for.
     func roles(of id: VideoItem.ID) -> Set<WallpaperTarget> { snapshot.targets(of: id) }
 
+    /// The wallpaper source of `target` as the agent sees it: the library item currently shown there.
+    func currentID(for target: WallpaperTarget) -> VideoItem.ID? {
+        target == .desktop ? currentID : lockID
+    }
+
+    /// The "Same wallpaper for desktop and lock screen" switch. Turning it off gives the lock screen its own copy
+    /// of what it showed so far; turning it on makes it follow the desktop again.
+    func setSameForBoth(_ value: Bool) {
+        guard value != sameForBoth else { return }
+        batch {
+            if !value { lockConfig = snapshot.config(for: .lock) }
+            sameForBoth = value
+        }
+    }
+
     /// "Set as Desktop / Lock Screen / Both" (SPEC3.md 6.2). Commits and tells the agent (`.reload`); starts nothing.
     func assign(_ id: VideoItem.ID, to targets: Set<WallpaperTarget>) {
         var state = snapshot
@@ -140,6 +167,8 @@ enum AgentPresence: Equatable {
         let loaded = StateStore.loadOrMigrate()
         batch(persisting: false) { apply(loaded.state) }
         written = loaded.state
+        focusedID = selectedID
+        reanalyzeStaleScenes()
         importedFromPhase1 = loaded.importedCount
         legacyAppRunning = Self.otherInstances().contains { $0.legacy }
         endpoint.onStatus = { [weak self] status in self?.received(status) }
@@ -172,6 +201,7 @@ enum AgentPresence: Equatable {
         batch {
             videos += added
             if selectedItem == nil { selectedID = first.id }
+            if focusedID == nil { focusedID = first.id }
         }
         return added.count
     }
@@ -204,6 +234,8 @@ enum AgentPresence: Equatable {
             if selectedItem == nil {
                 selectedID = videos.isEmpty ? nil : videos[min(firstIndex, videos.count - 1)].id
             }
+            if !videos.contains(where: { $0.id == lockConfig.selectedID }) { lockConfig.selectedID = selectedID }
+            if !videos.contains(where: { $0.id == focusedID }) { focusedID = selectedID }
         }
         for item in removed { Self.deleteDownloadedFiles(of: item) }
     }
@@ -216,7 +248,7 @@ enum AgentPresence: Equatable {
 
     /// Starts the agent if needed, then sends `.start` once it answers (queued, 10 s timeout -> localMessage).
     func start() {
-        deliver(AgentCommand(kind: .start, videoID: selectedID))
+        deliver(AgentCommand(kind: .start))   // no video: each target starts with its own selection
     }
 
     func stop() {
@@ -228,11 +260,12 @@ enum AgentPresence: Equatable {
         if isRunning { stop() } else { start() }
     }
 
-    /// Selects `id` and jumps to it (starting playback, and the agent, if needed).
-    func play(_ id: VideoItem.ID) {
+    /// Selects `id` for `target` (nil = both) and jumps to it, starting playback, and the agent, if needed.
+    func play(_ id: VideoItem.ID, target: WallpaperTarget? = nil) {
         guard videos.contains(where: { $0.id == id }) else { return }
-        if selectedID != id { selectedID = id }
-        deliver(AgentCommand(kind: .play, videoID: id))
+        let targets: Set<WallpaperTarget> = target.map { Set([$0]) } ?? Set(WallpaperTarget.allCases)
+        assign(id, to: targets)
+        deliver(AgentCommand(kind: .play, videoID: id, target: target))
     }
 
     /// Terminates the agent (`.quit`: it restores Apple's wallpapers first).
@@ -302,7 +335,27 @@ enum AgentPresence: Equatable {
             return
         }
         written = state
+        if state.muted != muted { batch(persisting: false) { muted = state.muted } }   // the menu toggled it meanwhile
         sendReload(revision: state.revision)
+    }
+
+    /// Scenes analysed by an older analyzer get a fresh support verdict (off the main thread; the files are tiny
+    /// to read but can be large to scan).
+    private func reanalyzeStaleScenes() {
+        let stale = videos.filter { ($0.scene?.analysisRevision).map { $0 != SceneAnalysis.revision } ?? false }
+        guard !stale.isEmpty else { return }
+        Task { @MainActor [weak self] in
+            let fresh = await Task.detached(priority: .utility) { stale.map { SceneImporter.reanalyze($0) } }.value
+            self?.replace(fresh)
+        }
+    }
+
+    private func replace(_ items: [VideoItem]) {
+        batch {
+            for item in items {
+                if let index = videos.firstIndex(where: { $0.id == item.id }) { videos[index] = item }
+            }
+        }
     }
 
     private func apply(_ state: LibraryState) {
