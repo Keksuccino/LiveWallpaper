@@ -35,6 +35,8 @@ struct WorkshopItem: Identifiable, Hashable {
     var subscriptions: Int?
 
     var isVideo: Bool { kind == .video }
+    /// Kinds the app can import: videos, and (schema v2) scenes. Web and application wallpapers never.
+    var isImportable: Bool { kind == .video || kind == .scene }
     /// "1920 x 1080", "Other resolution", ... whichever resolution tag the item carries.
     var resolutionTag: String? { tags.first { $0.contains(" x ") || $0.hasSuffix("resolution") } }
     /// "Everyone", "Questionable" or "Mature".

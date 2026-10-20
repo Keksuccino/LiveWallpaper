@@ -36,6 +36,18 @@ enum AgentPresence: Equatable {
     @Published var intervalUnit: IntervalUnit = .minutes { didSet { persist() } }
     @Published var applyToDesktop: Bool = true { didSet { persist() } }
     @Published var applyToLockScreen: Bool = true { didSet { persist() } }
+    // Schema v2 (scaffold; SETTINGS builds the UI on these). `selectedID`, `rotateEnabled`, `intervalValue`,
+    // `intervalUnit` and `applyToDesktop` above are the DESKTOP config (shared with the lock screen while
+    // `sameForBoth`); `lockConfig` is the lock screen's own config, used only while !sameForBoth, and its
+    // `enabled` is always `applyToLockScreen`. `muted` is written through StateStore.setMuted, never by persist().
+    @Published var sameForBoth: Bool = true { didSet { persist() } }
+    @Published var lockConfig: TargetConfig = TargetConfig() { didSet { persist() } }
+    @Published var muted: Bool = true {
+        didSet {
+            guard !writesSuspended, muted != oldValue else { return }
+            changeMuted(muted)
+        }
+    }
 
     // Agent mirror (read-only for views).
     @Published private(set) var presence: AgentPresence = .unknown
@@ -54,6 +66,10 @@ enum AgentPresence: Equatable {
     var currentID: VideoItem.ID? { agentStatus?.currentID }
     var failedIDs: Set<VideoItem.ID> { Set(agentStatus?.failedIDs ?? []) }
     var lockBusy: Bool { agentStatus?.lockBusy ?? false }
+    /// The item the lock screen channel currently shows (the desktop one is `currentID`).
+    var lockID: VideoItem.ID? { agentStatus?.lockID }
+    /// Progress of the scene -> lock screen video render, nil when none is running or reported.
+    var lockRender: LockRenderStatus? { agentStatus?.lockRender }
     var statusMessage: String? { localMessage ?? agentStatus?.message }
 
     /// An agent process exists (whether or not it answers).
@@ -67,9 +83,30 @@ enum AgentPresence: Equatable {
 
     /// The persisted fields as one value (what gets written to state.json).
     var snapshot: LibraryState {
-        LibraryState(videos: videos, selectedID: selectedID, rotateEnabled: rotateEnabled,
-                     intervalValue: intervalValue, intervalUnit: intervalUnit,
-                     applyToDesktop: applyToDesktop, applyToLockScreen: applyToLockScreen)
+        // Starts from what state.json last held so fields this model does not edit (playlists, muted) survive.
+        var state = written
+        state.videos = videos
+        state.sameForBoth = sameForBoth
+        state.desktop = TargetConfig(enabled: applyToDesktop, selectedID: selectedID, playlist: written.desktop.playlist,
+                                     rotateEnabled: rotateEnabled, intervalValue: intervalValue,
+                                     intervalUnit: intervalUnit)
+        var lock = lockConfig
+        lock.enabled = applyToLockScreen
+        state.lock = lock
+        state.muted = muted
+        state.normalize()
+        return state
+    }
+
+    /// Roles of an item for the badges: the enabled targets it is currently selected for.
+    func roles(of id: VideoItem.ID) -> Set<WallpaperTarget> { snapshot.targets(of: id) }
+
+    /// "Set as Desktop / Lock Screen / Both" (SPEC3.md 6.2). Commits and tells the agent (`.reload`); starts nothing.
+    func assign(_ id: VideoItem.ID, to targets: Set<WallpaperTarget>) {
+        var state = snapshot
+        state.assign(id, to: targets)
+        guard state != snapshot else { return }
+        batch { apply(state) }
     }
 
     var selectedItem: VideoItem? { videos.first { $0.id == selectedID } }
@@ -276,6 +313,21 @@ enum AgentPresence: Equatable {
         intervalUnit = state.intervalUnit
         applyToDesktop = state.applyToDesktop
         applyToLockScreen = state.applyToLockScreen
+        sameForBoth = state.sameForBoth
+        lockConfig = state.lock
+        muted = state.muted
+    }
+
+    /// Mute toggle: written on its own (StateStore.setMuted) so a stale snapshot can never undo the agent menu's
+    /// toggle, then announced like any other change.
+    private func changeMuted(_ value: Bool) {
+        guard let updated = StateStore.setMuted(value) else {
+            localMessage = "Couldn’t save your changes."
+            return
+        }
+        written.muted = updated.muted
+        written.revision = max(written.revision, updated.revision)
+        sendReload(revision: updated.revision)
     }
 
     /// Another writer (a second Settings process) committed while this one was in the background.
@@ -344,6 +396,8 @@ enum AgentPresence: Equatable {
     private func received(_ status: AgentStatus) {
         if let reply = status.reply { awaiting.removeValue(forKey: reply)?.cancel() }
         guard accept(status) else { return }
+        // The agent's menu can change `muted` (StateStore.setMuted bumps the revision): pick that up.
+        if status.stateRevision > written.revision { adoptDiskStateIfNewer() }
         if status.quitting {
             expectedExit = true
             markAgentGone()
