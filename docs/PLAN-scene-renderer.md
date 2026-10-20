@@ -63,3 +63,9 @@ Not done:
 - Scene engine (SceneFormat parsers, Metal renderer, scene host, offline lock-screen render): not started beyond the stubs.
 - Merging, CI fix rounds, and the real-Mac tests (T1 to T17 in the spec).
 Because the Settings UI now expects the new agent and Steam behavior, this branch is not releasable until those land.
+
+## Status (phase 3 implementation)
+- The two WIP branches (`feat/agent`, `feat/steam`) are merged into `feat-pkg-renderer` with `--no-ff` (review pending, both compiled clean).
+- Scene engine M0 implemented on this Mac (Apple Swift 6.3.2, arm64): `.pkg` archives, LZ4/`.tex` decoding, `scene.json` parsing with the y-mirror coordinate convention (UNVERIFIED against real content), analyzer with fixed note order, Metal scene renderer (blend modes, parallax), the scene host (live windows, occlusion-aware pump, IPC), and the offline lock render (LoopPlan, HEVC/H.264 via AVAssetWriter, `.partial` then atomic move, preview fallback).
+- `swift build` green with zero warnings. `swift test` CANNOT run here: only Command Line Tools are installed (no Xcode), and CLT ships no XCTest module. The new test files (`Tests/SceneFormatTests/`) have never been compiled or run — they need verification on a machine with Xcode (T-runs in the spec). Files: fixtures (PKG/TEX/LZ4/TEXS byte builders), PKG tests, TEX tests, scene parser/analyzer tests; `CoreTests` predates this.
+- Still not done: running the tests, real-Mac comparison of the coordinate convention (task T10), the agent/steam review, and the real-Mac tests T1–T17.

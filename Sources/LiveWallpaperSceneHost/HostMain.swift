@@ -24,6 +24,14 @@ enum HostEntry {
     }
 }
 
+/// A Sendable cancellation flag shared between the main actor and the render task.
+final class RenderCancel: @unchecked Sendable {
+    private enum Box { case live, cancelled, cancelledOfPreviousScene }
+    private var state: Box = .live
+    func cancel() { state = .cancelled }
+    var isCancelled: Bool { if case .live = state { return false }; return true }
+}
+
 enum ProbeCommand {
     /// nil when `--probe` is not among the arguments.
     static func runIfRequested(_ arguments: [String]) -> Int32? {
@@ -69,6 +77,8 @@ enum ProbeCommand {
     private var jobProgress = 0.0
     private var jobMessage: String?
     private var signalSources: [DispatchSourceSignal] = []
+    private var renderTask: Task<Void, Never>?
+    private var renderCancel = RenderCancel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installTerminationSignals()
@@ -112,14 +122,9 @@ enum ProbeCommand {
         case .setMuted:
             player.setMuted(command.muted ?? true)
         case .renderLock:
-            // SCENERENDER: run LockVideoRenderer.render on a utility-priority Task, keep the Task handle for
-            // cancelRender, and report progress through postStatus. The stub fails at once.
-            jobID = command.jobID
-            jobState = .failed
-            jobProgress = 0
-            jobMessage = "Lock screen rendering is not implemented yet."
+            startJob(command)
         case .cancelRender:
-            if jobID == command.jobID, jobState == .rendering { jobState = .cancelled }
+            if jobID == command.jobID, jobState == .rendering { renderCancel.cancel() }
         case .quit:
             postStatus(reply: command.id)
             NSApp.terminate(nil)
@@ -136,6 +141,56 @@ enum ProbeCommand {
                                  hostVersion: version, sceneItemID: player.itemID, sceneState: player.state,
                                  sceneMessage: nil, jobID: jobID, jobState: jobState, jobProgress: jobProgress,
                                  jobMessage: jobMessage, residentMB: 0, quitting: quitting))
+    }
+
+    // MARK: Lock rendering
+
+    /// Starts the offline render on a utility-priority task. Only one job at a time: a new command cancels the
+    /// running one (SPEC3.md section 1.5: a new job replaces a queued one).
+    private func startJob(_ command: HostCommand) {
+        jobState = .idle
+        renderCancel.cancel()
+        renderCancel = RenderCancel()
+        guard let job = command.jobID, let scenePath = command.scenePath, let outputPath = command.outputPath else {
+            jobID = command.jobID
+            jobState = .failed
+            jobMessage = "the renderLock command is missing job, scene or output"
+            return
+        }
+        jobID = job
+        jobState = .rendering
+        jobProgress = 0
+        jobMessage = nil
+        let cancel = renderCancel
+        let request = LockRenderRequest(
+            scenePath: URL(fileURLWithPath: scenePath),
+            previewPath: command.previewPath.map { URL(fileURLWithPath: $0) },
+            assetsPath: command.assetsPath.map { URL(fileURLWithPath: $0) },
+            outputURL: URL(fileURLWithPath: outputPath),
+            pixelWidth: command.width ?? 1920,
+            pixelHeight: command.height ?? 1080,
+            fps: command.fps ?? 30,
+            loopSeconds: command.loopSeconds)
+        renderTask = Task(priority: .utility) { [weak self] in
+            guard let self else { return }
+            do {
+                let seconds = try await LockVideoRenderer.render(request, progress: { fraction in
+                    Task { @MainActor [weak self] in
+                        guard let self, self.jobID == job, self.jobState == .rendering else { return }
+                        self.jobProgress = fraction
+                        self.postStatus(reply: nil)
+                    }
+                }, isCancelled: { cancel.isCancelled })
+                guard self.jobID == job else { return }
+                self.jobState = .finished
+                self.jobMessage = String(format: "loop %.2f s", seconds)
+            } catch {
+                guard self.jobID == job else { return }
+                self.jobState = (error as? LockRenderError) == .cancelled ? .cancelled : .failed
+                self.jobMessage = error.localizedDescription
+            }
+            self.postStatus(reply: nil)
+        }
     }
 
     // MARK: Lifetime
