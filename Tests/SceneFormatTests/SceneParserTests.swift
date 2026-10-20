@@ -93,8 +93,7 @@ final class SceneParserTests: XCTestCase {
 
     func testScriptAndUserPropertyBindings() throws {
         let (_, analysis) = try parsedDocument(of: try scenePackage(objects: [
-            #"{"id": 1, "image": "models/bg.json", "brightness": {"value": 1, "script": "foo.lua"},
-               "color": {"value": "1 1 1", "user": "mycolor"}}"#]))
+            #"{"id": 1, "image": "models/bg.json", "brightness": {"value": 1, "script": "foo.lua"}, "color": {"value": "1 1 1", "user": "mycolor"}}"#]))
         XCTAssertTrue(analysis.notes.contains("Scripted behaviour isn’t supported yet."))
         XCTAssertTrue(analysis.notes.contains("User settings of this wallpaper aren’t supported yet."))
         XCTAssertEqual(analysis.support, .partial)
@@ -125,19 +124,22 @@ final class SceneParserTests: XCTestCase {
             ("materials/bg.json", jsonBytes(material)),
         ])
         let archive = try PKGArchive(data: pkg)
-        let document = try SceneLoader.parseDocument(sceneJSON: try archive.data(at: "scene.json"), files: archive)
+        let json = try archive.data(at: "scene.json")
+        let document = try SceneLoader.parseDocument(sceneJSON: json, files: archive)
         let analysis = SceneAnalyzer.analyze(document: document, files: archive)
         XCTAssertEqual(analysis.unsupported, [.missingTexture, .noRenderableLayer])
         XCTAssertEqual(analysis.support, .previewOnly)
         XCTAssertTrue(analysis.needsSharedAssets)
 
-        // with a fallback directory that has the texture: playable, but it must be shipped along (shared assets)
+        // with a fallback directory that has the texture: playable; the parse sees the texture through the
+        // fallback (like SceneLoader.load(packageAt:sharedAssets:)), so the analyzer flags the dependency
         let assets = tempDirectory()
         try FileManager.default.createDirectory(at: assets.appendingPathComponent("materials"),
                                                 withIntermediateDirectories: true)
         try smallTex().write(to: assets.appendingPathComponent("materials/bg.tex"))
         let layered = LayeredSource(primary: archive, fallback: DirectorySource(root: assets))
-        let analysisWithAssets = SceneAnalyzer.analyze(document: document, files: layered)
+        let documentWithAssets = try SceneLoader.parseDocument(sceneJSON: json, files: layered)
+        let analysisWithAssets = SceneAnalyzer.analyze(document: documentWithAssets, files: layered)
         XCTAssertEqual(analysisWithAssets.support, .full)
         XCTAssertTrue(analysisWithAssets.notes.isEmpty)
         XCTAssertTrue(analysisWithAssets.needsSharedAssets, "the texture is only in the fallback")
@@ -145,13 +147,15 @@ final class SceneParserTests: XCTestCase {
 
     func testParentCycleBrokenWithoutCrash() throws {
         let archive = try PKGArchive(data: try scenePackage(objects: [
-            #"{"id": 1, "parent": 2}"#, #"{"id": 2, "parent": 1}"#, #"{"id": 3, "parent": 55}"#,
-            imageObject,
+            #"{"id": 11, "parent": 22}"#, #"{"id": 22, "parent": 11}"#, #"{"id": 33, "parent": 55}"#,
         ]))
         let document = try SceneLoader.parseDocument(sceneJSON: try archive.data(at: "scene.json"), files: archive)
-        XCTAssertEqual(document.objects.count, 4)
-        // the a -> b -> a cycle is closed by dropping the link of the second object
+        XCTAssertEqual(document.objects.count, 3)
+        // every link of the a -> b -> a cycle is dropped (each member is re-visited as a start);
+        // the object with an unknown parent keeps its link
+        XCTAssertEqual(document.objects[0].parentID, nil)
         XCTAssertEqual(document.objects[1].parentID, nil)
+        XCTAssertEqual(document.objects[2].parentID, 55)
     }
 
     func testTextureResolutionVariants() throws {

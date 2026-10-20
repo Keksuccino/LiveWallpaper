@@ -167,13 +167,24 @@ public final class DirectorySource: SceneFileSource {
         let fm = FileManager.default
         guard let contents = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isRegularFileKey])
         else { return [:] }
+        // contentsOfDirectory resolves symlinked path components (/var -> /private/var and /tmp alike),
+        // so relative paths must be cut off the resolved root, not the root as constructed.
+        let basePath = root.resolvingSymlinksInPath().path
         var table: [String: URL] = [:]
         for url in contents {
-            let relative = root.path == url.path ? "" : String(url.path.dropFirst(root.path.count + 1))
-            var isDir: ObjCBool = false
-            if fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+            let resolved = url.resolvingSymlinksInPath().path
+            let isDir: Bool
+            var flag: ObjCBool = false
+            if fm.fileExists(atPath: url.path, isDirectory: &flag) { isDir = flag.boolValue } else { continue }
+            let relative: String
+            if resolved.hasPrefix(basePath + "/") {
+                relative = String(resolved.dropFirst(basePath.count + 1))
+            } else {
+                relative = url.lastPathComponent
+            }
+            if isDir {
                 for (key, file) in enumerate(url) {
-                    let joined = normalizedPath(relative).isEmpty ? key : normalizedPath(relative) + "/" + key
+                    let joined = relative.isEmpty ? key : (normalizedPath(relative) + "/" + key)
                     table[joined.lowercased()] = file
                 }
             } else {

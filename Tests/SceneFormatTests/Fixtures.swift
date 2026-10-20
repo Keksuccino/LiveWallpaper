@@ -122,26 +122,24 @@ struct TexFixture {
         }
         let isVideo = imageFormat == 35 || flags & 32 != 0
         if !isVideo {
-            for image in 0..<max(1, Int(imageCount)) {
+            for _ in 0..<max(1, Int(imageCount)) {
                 writer.int32(2)                                  // mipmap count
                 for mip in 0..<2 {
                     let width = mip == 0 ? 2 : 1
                     let height = width
-                    let required = width * height * 4            // rgba8888
+                    let required = width * height * 4            // decompressed rgba8888 size
+                    let payload = lz4 ? lz4Block(outputCount: required, pixel: pixelValue)
+                                      : Data(repeating: pixelValue, count: required)
                     writer.int32(Int32(width))
                     writer.int32(Int32(height))
                     if containerVersion >= 2 {
                         writer.int32(lz4 ? 1 : 0)
-                        writer.int32(Int32(lz4 ? required : 0))
-                        writer.int32(Int32(required))
+                        writer.int32(Int32(required))            // decompressedSize announcement
+                        writer.int32(Int32(payload.count))       // stored byte count
                     } else {
                         writer.int32(Int32(required))
                     }
-                    if lz4 {
-                        writer.bytes(lz4Block(outputCount: required, pixel: pixelValue))
-                    } else {
-                        writer.bytes(Data(repeating: pixelValue, count: required))
-                    }
+                    writer.bytes(payload)
                 }
             }
         }

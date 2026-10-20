@@ -13,6 +13,11 @@ import PackageDescription
 let package = Package(
     name: "LiveWallpaper",
     platforms: [.macOS(.v13)],
+    products: [
+        .library(name: "Core", targets: ["Core"]),
+        .library(name: "SceneFormat", targets: ["SceneFormat"]),
+        .library(name: "SceneEngine", targets: ["SceneEngine"]),
+    ],
     targets: [
         .target(
             name: "Core",

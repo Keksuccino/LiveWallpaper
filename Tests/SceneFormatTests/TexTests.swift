@@ -4,7 +4,7 @@ import XCTest
 final class TexTests: XCTestCase {
     func testPixelsRaw() throws {
         var fixture = TexFixture()
-        fixture.flags = TexFlags.clampUVs.rawValue
+        fixture.flags = Int32(TexFlags.clampUVs.rawValue)
         let data = fixture.build()
         let image = try TexDecoder.decode(data)
         XCTAssertEqual(image.containerMagic, "TEXB0002")
@@ -80,7 +80,7 @@ final class TexTests: XCTestCase {
 
     func testSpriteSheetFrame0() throws {
         var fixture = TexFixture()
-        fixture.flags = TexFlags.isGif.rawValue
+        fixture.flags = Int32(TexFlags.isGif.rawValue)
         fixture.frameTable = { framesTEXS0002() }
         let image = try TexDecoder.decode(fixture.build())
         XCTAssertEqual(image.frames.count, 1)
