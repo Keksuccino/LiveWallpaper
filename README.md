@@ -83,7 +83,12 @@ Prefer H.264 or HEVC videos at or near your screen resolution. Higher resolution
 
 ## Credits
 
-The lock screen technique is prior art from [vlzuiev/animated](https://github.com/vlzuiev/animated) (MIT). This app is an independent implementation and is not affiliated with it, with Apple, Valve or Wallpaper Engine.
+This app is an independent implementation and is not affiliated with Apple, Valve or Wallpaper Engine. Ideas and format knowledge came from these projects; no code is copied from them:
+
+- [vlzuiev/animated](https://github.com/vlzuiev/animated) (MIT): the lock screen technique of swapping a converted video into an Apple Aerial slot.
+- [MozeeB/OpenWallpaperMac](https://github.com/MozeeB/OpenWallpaperMac) (MIT): reference for scene wallpaper structure on macOS.
+- [Almamu/linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine) (GPL-3.0), [deepratna-awale/open-wallpaper-engine-mac](https://github.com/deepratna-awale/open-wallpaper-engine-mac) (GPL-3.0), [Leshao-Zhang/WallpaperMachine](https://github.com/Leshao-Zhang/WallpaperMachine) and [ayasa520/wallpaper-scene-renderer](https://github.com/ayasa520/wallpaper-scene-renderer): existing scene renderers studied for how Wallpaper Engine scenes work.
+- [kageroumado/phosphene](https://github.com/kageroumado/phosphene) (MIT): considered as an alternative lock screen approach.
 
 ## Possible future extras
 
