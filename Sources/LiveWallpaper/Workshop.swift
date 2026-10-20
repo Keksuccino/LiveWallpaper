@@ -10,9 +10,9 @@ import AVFoundation
 // Design, endpoints, steamcmd invocation and the error taxonomy: SPEC2.md section 4.
 //
 // Legitimacy rules (non-negotiable): the only download path is Valve's steamcmd with the user's own Steam
-// account, signed in once by the user in Terminal. The password and Steam Guard code are never read, stored or
-// logged (steamcmd runs with stdin closed and +@NoPromptForPassword 1). The only network calls are the Steam Web
-// API endpoints named in SPEC2.md 4.1 plus the item's own preview image; no HTML scraping; no third-party
+// account, signed in through the wizard (SteamTools.swift). Downloads themselves never see a password or Steam
+// Guard code: steamcmd runs with stdin closed and +@NoPromptForPassword 1. The only network calls are the Steam
+// Web API endpoints named in SPEC2.md 4.1 plus the item's own preview image; no HTML scraping; no third-party
 // downloader sites. The Web API key is sent only to api.steampowered.com and is never logged or cached.
 
 // MARK: - Value types
@@ -79,7 +79,7 @@ enum WorkshopError: Error, Equatable {
         case .itemNotFound: return "Item not found"
         case .itemUnavailable: return "This item isn’t available"
         case .notWallpaperEngineItem: return "Not a Wallpaper Engine item"
-        case .unsupportedType: return "Not a video wallpaper"
+        case .unsupportedType: return "Not a supported wallpaper"
         case .unsupportedFormat: return "Video format not supported"
         case .unsupportedCodec: return "This video can’t be played"
         case .steamcmdMissing: return "SteamCMD isn’t installed"
@@ -89,8 +89,8 @@ enum WorkshopError: Error, Equatable {
         case .notOwned: return "Steam refused the download"
         case .steamcmdFailed: return "Download failed"
         case .timedOut: return "Steam took too long"
-        case .contentMissing: return "The download finished without a video"
-        case .importFailed: return "Couldn’t add the video"
+        case .contentMissing: return "The download finished without a wallpaper"
+        case .importFailed: return "Couldn’t add the wallpaper"
         case .apiKeyRejected: return "Steam rejected the API key"
         case .cancelled: return "Cancelled"
         }
@@ -112,23 +112,22 @@ enum WorkshopError: Error, Equatable {
             return "This item belongs to a different game’s Workshop. Only Wallpaper Engine wallpapers work here."
         case .unsupportedType(let kind):
             switch kind {
-            case .scene: return "Scene wallpapers need Wallpaper Engine’s own renderer. Only video wallpapers can play here."
-            case .web: return "Web wallpapers need a browser-based renderer. Only video wallpapers can play here."
-            case .application: return "Application wallpapers are programs, not videos. Only video wallpapers can play here."
-            default: return "Only video wallpapers can play here."
+            case .web: return "Web wallpapers need a browser-based renderer. Only video and scene wallpapers can play here."
+            case .application: return "Application wallpapers are programs, not videos. Only video and scene wallpapers can play here."
+            default: return "Only video and scene wallpapers can play here."
             }
         case .unsupportedFormat(let ext):
             return "This wallpaper’s video is a .\(ext) file. Live Wallpaper plays MP4, MOV and M4V and doesn’t convert other formats."
         case .unsupportedCodec:
             return "macOS can’t decode this video (probably VP9 or AV1). Choose a wallpaper with an H.264 or HEVC video."
         case .steamcmdMissing:
-            return "Install it with Homebrew (brew install --cask steamcmd), or choose an existing copy in Steam Setup."
+            return "Open Steam Setup and choose Install Steam tools. Live Wallpaper downloads Valve’s tool for you."
         case .rosettaMissing:
             return "SteamCMD is an Intel program. On Apple silicon install Rosetta once: softwareupdate --install-rosetta --agree-to-license"
         case .usernameMissing:
-            return "Open Steam Setup and enter the name of the Steam account that owns Wallpaper Engine."
+            return "Open Steam Setup and sign in with the Steam account that owns Wallpaper Engine."
         case .needsLogin:
-            return "Sign in once in Terminal so SteamCMD remembers the account. Live Wallpaper never sees your password."
+            return "Open Steam Setup and sign in, so Steam’s tool can download with your account."
         case .notOwned:
             return "The most common reason is that this Steam account doesn’t own Wallpaper Engine, which is a paid app. Sign in with the account that does."
         case .steamcmdFailed(let detail):
@@ -136,7 +135,7 @@ enum WorkshopError: Error, Equatable {
         case .timedOut:
             return "SteamCMD stopped responding. Try again; the first run after installing can take a few minutes."
         case .contentMissing:
-            return "SteamCMD reported success but no video file was found. Try downloading again."
+            return "SteamCMD reported success but no wallpaper file was found. Try downloading again."
         case .importFailed(let detail):
             return "The file was downloaded but couldn’t be saved to your library. (\(detail))"
         case .apiKeyRejected:
@@ -148,10 +147,8 @@ enum WorkshopError: Error, Equatable {
 
     var fix: WorkshopFix? {
         switch self {
-        case .steamcmdMissing: return .copyBrewCommand
+        case .steamcmdMissing, .usernameMissing, .needsLogin: return .openSteamSetup
         case .rosettaMissing: return .copyRosettaCommand
-        case .usernameMissing: return .openSteamSetup
-        case .needsLogin: return .copyLoginCommand
         case .apiKeyRejected: return .openAPIKeyPage
         case .network, .rateLimited, .timedOut, .steamcmdFailed, .contentMissing: return .retry
         default: return nil
@@ -225,10 +222,18 @@ enum WorkshopListState: Equatable {
     // Setup. Persisted by this model in the Settings app's UserDefaults (username, path override, API key).
     // The password and Steam Guard codes are never stored anywhere.
     @Published var steamUsername: String = WorkshopKit.Prefs.username.value {
-        didSet { WorkshopKit.Prefs.username.value = steamUsername; recheckSetup() }
+        didSet {
+            WorkshopKit.Prefs.username.value = steamUsername
+            if SteamSetupModel.shared.username != steamUsername { SteamSetupModel.shared.username = steamUsername }
+            recheckSetup()
+        }
     }
     @Published var steamcmdPathOverride: String = WorkshopKit.Prefs.steamcmd.value {   // "" = auto-detect
-        didSet { WorkshopKit.Prefs.steamcmd.value = steamcmdPathOverride; recheckSetup() }
+        didSet {
+            WorkshopKit.Prefs.steamcmd.value = steamcmdPathOverride
+            recheckSetup()
+            SteamSetupModel.shared.refresh()
+        }
     }
     @Published var apiKey: String = WorkshopKit.Prefs.apiKey.value {                     // optional, enables browsing
         didSet {
@@ -290,7 +295,15 @@ enum WorkshopListState: Equatable {
     private var searchGeneration = 0
     private var nextCursor: String?
 
-    init() { recheckSetup() }
+    /// True while steamcmd runs for a download or a sign-in check (the wizard refuses to start then).
+    var isBusyWithSteam: Bool { runner != nil || hasActiveDownloads }
+
+    init() {
+        SteamRunGate.onRelease = { [weak self] in self?.pump() }
+        SteamSetupModel.shared.onChange = { [weak self] in self?.wizardChanged() }
+        recheckSetup()
+        SteamSetupModel.shared.refresh()
+    }
 
     // MARK: Wiring (SETTINGS calls this once from applicationDidFinishLaunching)
 
@@ -307,29 +320,43 @@ enum WorkshopListState: Equatable {
 
     // MARK: Setup
 
+    /// The wizard signed in (or out): follow its user name, then recompute the setup status.
+    private func wizardChanged() {
+        if case .signedIn(let user) = SteamSetupModel.shared.account, user != trimmedUsername { steamUsername = user }
+        recheckSetup()
+    }
+
     /// Fast and side-effect free (no process): resolves the steamcmd path, Rosetta, username validity.
     func recheckSetup() {
         let name = trimmedUsername
+        let wizard = SteamSetupModel.shared
+        let legacy = WorkshopKit.Locate.steamcmd(override: steamcmdPathOverride, home: WorkshopKit.home)
+        var path = legacy
+        var rosettaOK = WorkshopKit.Locate.rosettaReady()    // until the wizard has looked at the real binary
+        switch wizard.tools {
+        case .ready(let info): path = info.path; rosettaOK = true
+        case .rosettaRequired: path = WorkshopKit.Locate.managedSteamcmd() ?? path; rosettaOK = false
+        default: break
+        }
+        var login = loginOwner == name ? loginState : .unknown
+        if case .signedIn(let user) = wizard.account, user.caseInsensitiveCompare(name) == .orderedSame { login = .loggedIn }
         let next = SteamSetupStatus(
-            steamcmdPath: WorkshopKit.Locate.steamcmd(override: steamcmdPathOverride, home: WorkshopKit.home),
-            rosettaOK: WorkshopKit.Locate.rosettaReady(),
-            usernameValid: WorkshopKit.Invocation.isValidUsername(name),
-            login: loginOwner == name ? loginState : .unknown,
-            hasAPIKey: canBrowse)
+            steamcmdPath: path, rosettaOK: rosettaOK, usernameValid: WorkshopKit.Invocation.isValidUsername(name),
+            login: login, hasAPIKey: canBrowse)
         if next != setup { setup = next }
     }
 
     /// Runs steamcmd once (`+@NoPromptForPassword 1 +login <user> +quit`, stdin closed) to see whether the
     /// cached session works. Sets setup.login. Never prompts, never reads a password.
     func checkLogin() {
-        guard runner == nil else { return }
+        guard runner == nil, !SteamRunGate.busy else { return }
         let name = trimmedUsername
         switch prerequisites() {
         case .failure(let error):
             setLogin(.failed(error), for: name)
         case .success(let path):
             setLogin(.checking, for: name)
-            let runner = WorkshopKit.Runner(executable: path)
+            let runner = WorkshopKit.Runner(executable: path, environment: SteamSetupModel.environment(forTool: path))
             self.runner = runner
             Task { @MainActor [weak self] in
                 let state: SteamLoginState
@@ -342,6 +369,7 @@ enum WorkshopListState: Equatable {
                 }
                 guard let self else { return }
                 self.setLogin(state, for: name)
+                SteamSetupModel.shared.noteLogin(state, user: name)
                 self.finishRun()
             }
         }
@@ -359,6 +387,7 @@ enum WorkshopListState: Equatable {
         guard let path = setup.steamcmdPath else { return .failure(.steamcmdMissing) }
         guard setup.rosettaOK else { return .failure(.rosettaMissing) }
         guard setup.usernameValid else { return .failure(.usernameMissing) }
+        if SteamSetupModel.shared.ownership == .notOwned { return .failure(.notOwned) }
         return .success(path)
     }
 
@@ -423,15 +452,15 @@ enum WorkshopListState: Equatable {
 
     // MARK: Downloads
 
-    /// Queues the item. Only video items; other kinds fail immediately with .unsupportedType. Downloads run
-    /// one at a time (steamcmd cannot run twice against one data directory).
+    /// Queues the item. Videos and scenes; other kinds fail immediately with .unsupportedType. Downloads run
+    /// one at a time (steamcmd cannot run twice against one data directory) and never while a wizard action runs.
     func download(_ item: WorkshopItem) {
         switch downloads[item.id] {
         case .queued?, .signingIn?, .downloading?, .importing?: return
         case .done? where isInLibrary(item.id): return
         default: break
         }
-        guard item.isVideo else {
+        guard item.isImportable else {
             downloads[item.id] = .failed(.unsupportedType(item.kind))
             return
         }
@@ -467,19 +496,20 @@ enum WorkshopListState: Equatable {
         queue = []
         if let id = runningID { downloads[id] = nil }
         runner?.cancel()
+        SteamSetupModel.shared.shutdown()
         lookupTask?.cancel()
         searchTask?.cancel()
     }
 
     private func pump() {
-        guard runner == nil, !queue.isEmpty else { return }
+        guard runner == nil, !queue.isEmpty, !SteamRunGate.busy else { return }
         switch prerequisites() {
         case .failure(let error):
             for item in queue { downloads[item.id] = .failed(error) }
             queue = []
         case .success(let path):
             let item = queue.removeFirst()
-            let runner = WorkshopKit.Runner(executable: path)
+            let runner = WorkshopKit.Runner(executable: path, environment: SteamSetupModel.environment(forTool: path))
             self.runner = runner
             runningID = item.id
             polledBytes = 0
@@ -492,7 +522,9 @@ enum WorkshopListState: Equatable {
         switch await fetch(item, runner) {
         case .success(let video): downloads[item.id] = .done(videoID: video.id)
         case .failure(.cancelled): downloads[item.id] = nil
-        case .failure(let error): downloads[item.id] = .failed(error)
+        case .failure(let error):
+            if error == .notOwned { SteamSetupModel.shared.noteNotOwned() }
+            downloads[item.id] = .failed(error)
         }
         WorkshopKit.Staging.wipe()
         finishRun()
@@ -541,10 +573,13 @@ enum WorkshopListState: Equatable {
         switch event {
         case .signedIn:
             setLogin(.loggedIn, for: trimmedUsername)
+            SteamSetupModel.shared.noteLogin(.loggedIn, user: trimmedUsername)
             advance(id, to: nil)
         case .downloading: advance(id, to: nil)
         case .progress(let value): advance(id, to: min(value, 0.99))
-        case .failure(.needsLogin): setLogin(.needsLogin, for: trimmedUsername)
+        case .failure(.needsLogin):
+            setLogin(.needsLogin, for: trimmedUsername)
+            SteamSetupModel.shared.noteLogin(.needsLogin, user: trimmedUsername)
         case .selfUpdating, .success, .failure: break
         }
     }
@@ -574,9 +609,10 @@ enum WorkshopListState: Equatable {
     }
 }
 
-// MARK: - Backend (file-private; one namespace, so nothing else in the Settings module can collide)
+// MARK: - Backend (one namespace, so nothing else in the Settings module can collide; SteamTools.swift and
+// SceneImport.swift share its steamcmd runner, preferences and import helpers)
 
-private enum WorkshopKit {
+enum WorkshopKit {
     static let appID = "431960"
     static var home: URL { FileManager.default.homeDirectoryForCurrentUser }
 
@@ -598,6 +634,8 @@ private enum WorkshopKit {
         case username = "LiveWallpaper.steam.username"
         case steamcmd = "LiveWallpaper.steam.steamcmdPath"
         case apiKey = "LiveWallpaper.steam.apiKey"
+        case signedOut = "LiveWallpaper.steam.signedOut"       // the user signed out; ignore a token that is still around
+        case tokenShared = "LiveWallpaper.steam.tokenShared"   // SteamCMD keeps its login outside the app's own HOME
 
         var value: String {
             get { UserDefaults.standard.string(forKey: rawValue) ?? "" }
@@ -1085,16 +1123,14 @@ extension WorkshopKit {
         private let pipe = Pipe()
         private var ticker: Task<Void, Never>?
 
-        init(executable: String, arguments: [String], directory: URL) {
+        init(executable: String, arguments: [String], directory: URL, environment: [String: String] = [:]) {
             var made: AsyncStream<Event>.Continuation!
             events = AsyncStream { made = $0 }
             continuation = made
             process.executableURL = URL(fileURLWithPath: executable)
             process.arguments = arguments
             process.currentDirectoryURL = directory
-            var environment = ProcessInfo.processInfo.environment
-            environment["TERM"] = "dumb"
-            process.environment = environment
+            process.environment = SteamKit.childEnvironment(environment)
             process.standardInput = FileHandle.nullDevice
             process.standardOutput = pipe
             process.standardError = pipe
@@ -1131,12 +1167,7 @@ extension WorkshopKit {
         /// SIGTERM to steamcmd and everything it started (steamcmd.sh does not exec the binary, so ending only the
         /// script would orphan it), SIGKILL for whatever is left two seconds later.
         func terminate() {
-            guard process.isRunning else { return }
-            let targets = Self.descendants(of: process.processIdentifier) + [process.processIdentifier]
-            for target in targets { kill(target, SIGTERM) }
-            DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
-                for target in targets where kill(target, 0) == 0 { kill(target, SIGKILL) }
-            }
+            if process.isRunning { SteamProcess.terminateTree(process.processIdentifier) }
         }
 
         func finish() {
@@ -1144,31 +1175,6 @@ extension WorkshopKit {
             pipe.fileHandleForReading.readabilityHandler = nil
             process.terminationHandler = nil
             continuation.finish()
-        }
-
-        /// Children and grandchildren of `root`, deepest first.
-        static func descendants(of root: Int32) -> [Int32] {
-            let ps = Process()
-            ps.executableURL = URL(fileURLWithPath: "/bin/ps")
-            ps.arguments = ["-axo", "pid=,ppid="]
-            let output = Pipe()
-            ps.standardInput = FileHandle.nullDevice
-            ps.standardOutput = output
-            ps.standardError = FileHandle.nullDevice
-            guard (try? ps.run()) != nil else { return [] }
-            try? output.fileHandleForWriting.close()
-            var children: [Int32: [Int32]] = [:]
-            let table = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-            for line in table.split(separator: "\n") {
-                let numbers = line.split(separator: " ").compactMap { Int32($0) }
-                if numbers.count == 2 { children[numbers[1], default: []].append(numbers[0]) }
-            }
-            var found: [Int32] = []
-            var frontier = [root]
-            while let parent = frontier.popLast() {
-                for child in children[parent] ?? [] { found.append(child); frontier.append(child) }
-            }
-            return found.reversed()
         }
     }
 
@@ -1179,15 +1185,18 @@ extension WorkshopKit {
             var idle: TimeInterval = 120         // no output and no growth of the download folder
             var selfUpdate: TimeInterval = 600   // the same while steamcmd updates itself (first run)
             var grace: TimeInterval = 5          // from a decisive line to ending the process
+            var hard: TimeInterval = .infinity   // wall-clock cap for the whole run
         }
 
         private let executable: String
+        private let environment: [String: String]
         private let limits: Limits
         private var child: Child?
         private var cancelled = false
 
-        init(executable: String, limits: Limits = Limits()) {
+        init(executable: String, environment: [String: String] = [:], limits: Limits = Limits()) {
             self.executable = executable
+            self.environment = environment
             self.limits = limits
         }
 
@@ -1197,14 +1206,17 @@ extension WorkshopKit {
         }
 
         /// `onEvent` sees every classified line; `onTick` runs every 500 ms and returns true when the download
-        /// folder grew. `stopOn` marks extra events decisive (a sign-in check stops at `.signedIn`).
+        /// folder grew. `stopOn` marks extra events decisive (a sign-in check stops at `.signedIn`). `onLine` sees
+        /// every raw output line first.
         func run(arguments: [String], stopOn: (Output.Event) -> Bool = { _ in false },
-                 onEvent: (Output.Event) -> Void, onTick: () -> Bool) async throws -> Run {
+                 onEvent: (Output.Event) -> Void, onTick: () -> Bool, onLine: (String) -> Void = { _ in }) async throws -> Run {
             var run = Run()
             if cancelled { run.cancelled = true; return run }
             try? AppPaths.ensureDirectory(AppPaths.steamStagingDirectory)
-            let child = Child(executable: executable, arguments: arguments, directory: AppPaths.steamStagingDirectory)
+            let child = Child(executable: executable, arguments: arguments, directory: AppPaths.steamStagingDirectory,
+                              environment: environment)
             try child.start()
+            let startedAt = Date()
             self.child = child
             defer { child.finish(); self.child = nil }
 
@@ -1226,6 +1238,7 @@ extension WorkshopKit {
                 if Output.endsAtOnce(event) { end() }
             }
             func consume(_ line: String) {
+                onLine(line)
                 run.lastLine = Output.clean(line)
                 let text = line.lowercased()
                 if text.contains("error") || text.contains("fail") { run.errorLine = run.lastLine }
@@ -1244,7 +1257,8 @@ extension WorkshopKit {
                     if onTick() { idleSince = now }
                     if let decidedAt {
                         if now.timeIntervalSince(decidedAt) >= limits.grace { end() }
-                    } else if now.timeIntervalSince(idleSince) >= (selfUpdating ? limits.selfUpdate : limits.idle) {
+                    } else if now.timeIntervalSince(idleSince) >= (selfUpdating ? limits.selfUpdate : limits.idle)
+                                || now.timeIntervalSince(startedAt) >= limits.hard {
                         run.timedOut = true
                         end()
                     }
@@ -1297,7 +1311,14 @@ extension WorkshopKit {
                 && FileManager.default.isExecutableFile(atPath: path)
         }
 
-        /// steamcmd is an Intel binary: Apple silicon needs Rosetta (presence heuristic; "Bad CPU type" is the proof).
+        /// The copy of SteamCMD this app installed itself, if it is there.
+        static func managedSteamcmd() -> String? {
+            let path = AppPaths.steamToolsDirectory.appendingPathComponent("steamcmd.sh").path
+            return runnable(path) ? path : nil
+        }
+
+        /// Apple silicon without the wizard's verdict yet: assume the Intel binary and look for Rosetta (presence
+        /// heuristic; "Bad CPU type" is the proof). SteamSetupModel replaces this with a real `lipo` check.
         static func rosettaReady() -> Bool {
             #if arch(arm64)
             return ["/Library/Apple/usr/libexec/oah/libRosettaRuntime", "/Library/Apple/usr/share/rosetta/rosetta"]
@@ -1310,7 +1331,8 @@ extension WorkshopKit {
         /// Where steamcmd may keep `steamapps/workshop` (unverified on macOS, so all of them are checked): the staging
         /// folder, Steam's macOS data folder, next to steamcmd, ~/Steam.
         static func roots(steamcmd: String?, home: URL, staging: URL = AppPaths.steamStagingDirectory) -> [URL] {
-            var roots = [staging, home.appendingPathComponent("Library/Application Support/Steam", isDirectory: true)]
+            var roots = [staging, home.appendingPathComponent("Library/Application Support/Steam", isDirectory: true),
+                         AppPaths.steamHomeDirectory.appendingPathComponent("Library/Application Support/Steam", isDirectory: true)]
             if let steamcmd {
                 roots.append(URL(fileURLWithPath: steamcmd).resolvingSymlinksInPath().deletingLastPathComponent())
             }
@@ -1329,11 +1351,11 @@ extension WorkshopKit {
         /// Bytes on disk for the item under `root` so far (steamcmd writes downloads/ first, then moves to content/).
         static func bytes(id: String, in root: URL) -> Int64 {
             ["downloads", "content"].map {
-                folderSize(root.appendingPathComponent("steamapps/workshop/\($0)/\(appID)/\(id)"))
+                folderBytes(root.appendingPathComponent("steamapps/workshop/\($0)/\(appID)/\(id)"))
             }.max() ?? 0
         }
 
-        private static func folderSize(_ url: URL) -> Int64 {
+        static func folderBytes(_ url: URL) -> Int64 {
             let keys: [URLResourceKey] = [.fileSizeKey, .isRegularFileKey]
             guard let files = FileManager.default.enumerator(at: url, includingPropertiesForKeys: keys) else { return 0 }
             var total: Int64 = 0
@@ -1428,6 +1450,9 @@ extension WorkshopKit {
             let fileManager = FileManager.default
             let projectFile = content.appendingPathComponent("project.json")
             let project = parseProject((try? Data(contentsOf: projectFile)) ?? Data())
+            if (project.type ?? item.kind.rawValue) == "scene" {
+                return try await importScene(item, project: project, content: content)
+            }
             if let type = project.type, type != "video" {
                 throw WorkshopError.unsupportedType(WorkshopItem.Kind(rawValue: type) ?? .unknown)
             }
@@ -1480,13 +1505,37 @@ extension WorkshopKit {
                (try? place(source, at: directory.appendingPathComponent("preview." + ext), move: move)) != nil {
                 return "preview." + ext
             }
-            let request = remote.map { URLRequest(url: $0, timeoutInterval: 20) }
-            if let request, request.url?.scheme == "https", let (data, response) = try? await API.fetch(request),
-               (response as? HTTPURLResponse)?.statusCode == 200, data.count <= 8_000_000, let ext = imageExtension(of: data),
-               (try? data.write(to: directory.appendingPathComponent("preview." + ext))) != nil {
-                return "preview." + ext
+            if let image = await remotePreview(remote),
+               (try? image.data.write(to: directory.appendingPathComponent("preview." + image.ext))) != nil {
+                return "preview." + image.ext
             }
             return nil
+        }
+
+        /// The item's preview_url (https only, at most 8 MB, type from the bytes).
+        private static func remotePreview(_ remote: URL?) async -> (data: Data, ext: String)? {
+            let request = remote.map { URLRequest(url: $0, timeoutInterval: 20) }
+            guard let request, request.url?.scheme == "https", let (data, response) = try? await API.fetch(request),
+                  (response as? HTTPURLResponse)?.statusCode == 200, data.count <= 8_000_000,
+                  let ext = imageExtension(of: data) else { return nil }
+            return (data, ext)
+        }
+
+        /// A scene goes to SceneImporter (SceneImport.swift), which copies the scene files, analyses them and builds
+        /// the library item. The preview comes from project.json, a preview.* file, or the item's preview_url.
+        private static func importScene(_ item: WorkshopItem, project: Project, content: URL) async throws -> VideoItem {
+            var preview = project.preview.flatMap { safeChild(of: content, $0) }
+                ?? ["jpg", "png", "gif"].map { content.appendingPathComponent("preview." + $0) }
+                    .first { FileManager.default.fileExists(atPath: $0.path) }
+            var downloaded: URL?
+            defer { if let file = downloaded { try? FileManager.default.removeItem(at: file) } }
+            if preview == nil, let image = await remotePreview(item.previewURL) {
+                let file = AppPaths.steamStagingDirectory.appendingPathComponent("preview-\(item.id).\(image.ext)")
+                if (try? image.data.write(to: file)) != nil { downloaded = file; preview = file }
+            }
+            return try await SceneImporter.importScene(SceneImportInput(
+                workshopID: item.id, title: project.title ?? item.title, author: item.author, tags: item.tags,
+                contentFolder: content, previewSource: preview))
         }
 
         private static func place(_ source: URL, at target: URL, move: Bool) throws {
