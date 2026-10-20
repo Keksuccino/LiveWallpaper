@@ -59,35 +59,40 @@ fi
 plutil -lint "$APP/Contents/Info.plist" "$AGENT/Contents/Info.plist" "$HOST/Contents/Info.plist"
 
 # Guards (RAM plan, SPEC3.md section 8). Executable targets link their library targets statically, so a library is
-# detected by the module name that Swift embeds in symbol names ("<length><name>", e.g. 11SceneEngine).
+# detected by the module name that Swift embeds in symbol names ("<length><name>", e.g. 11SceneEngine). The Metal
+# framework itself is NOT a usable signal: the AppKit Swift overlays pull Metal into every AppKit app, so the check
+# looks for Metal API use by our code (mangled module name 5Metal, MTL/CAMetalLayer symbols) and for MetalKit.
 AGENT_BIN="$AGENT/Contents/MacOS/LiveWallpaperAgent"
 AGENT_LIBS="$(otool -L "$AGENT_BIN")"
+AGENT_STRINGS="$(strings -a "$AGENT_BIN")"
+echo "--- libraries linked by the agent ---"
+echo "$AGENT_LIBS"
 if grep -q "SwiftUI" <<<"$AGENT_LIBS"; then
   echo "::error::LiveWallpaperAgent links SwiftUI; the agent must stay AppKit only."
   exit 1
 fi
-if grep -Eq "Metal|MetalKit" <<<"$AGENT_LIBS"; then
-  echo "::error::LiveWallpaperAgent links Metal; scenes belong in LiveWallpaperSceneHost."
+if grep -q "MetalKit" <<<"$AGENT_LIBS" || grep -Eq "5Metal[A-Z]|MTLCreateSystemDefaultDevice|CAMetalLayer" <<<"$AGENT_STRINGS"; then
+  echo "::error::LiveWallpaperAgent uses Metal; scenes belong in LiveWallpaperSceneHost."
   exit 1
 fi
-if strings -a "$AGENT_BIN" | grep -Eq "11SceneEngine|11SceneFormat"; then
+if grep -Eq "11SceneEngine|11SceneFormat" <<<"$AGENT_STRINGS"; then
   echo "::error::LiveWallpaperAgent contains SceneEngine or SceneFormat code; it must only depend on Core."
   exit 1
 fi
 if grep -q "Combine" <<<"$AGENT_LIBS"; then
-  echo "warning: LiveWallpaperAgent links Combine; something imports it (check Core and the agent files)." >&2
+  echo "warning: LiveWallpaperAgent links Combine; something imports it (check Core and the agent files)."
 fi
 SETTINGS_BIN="$APP/Contents/MacOS/LiveWallpaper"
-if strings -a "$SETTINGS_BIN" | grep -q "11SceneEngine"; then
+if grep -q "11SceneEngine" <<<"$(strings -a "$SETTINGS_BIN")"; then
   echo "::error::the Settings app contains SceneEngine code; it may use SceneFormat (parsing) but never the renderer."
   exit 1
 fi
 HOST_BIN="$HOST/Contents/MacOS/LiveWallpaperSceneHost"
-if ! strings -a "$HOST_BIN" | grep -q "11SceneEngine"; then
-  echo "warning: LiveWallpaperSceneHost does not contain SceneEngine code (is the target wired up?)." >&2
+if ! grep -q "11SceneEngine" <<<"$(strings -a "$HOST_BIN")"; then
+  echo "warning: LiveWallpaperSceneHost does not contain SceneEngine code (is the target wired up?)."
 fi
 if grep -q "SwiftUI" <<<"$(otool -L "$HOST_BIN")"; then
-  echo "warning: LiveWallpaperSceneHost links SwiftUI; the host has no UI, keep it AppKit + Metal." >&2
+  echo "warning: LiveWallpaperSceneHost links SwiftUI; the host has no UI, keep it AppKit + Metal."
 fi
 
 # Sign the nested helpers first, then the outer app. No --deep: each bundle is signed on its own.

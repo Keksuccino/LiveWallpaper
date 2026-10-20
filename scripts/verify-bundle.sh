@@ -41,7 +41,7 @@ echo "--- version $V_APP ---"
 for bin in "$APP/Contents/MacOS/LiveWallpaper" "$AGENT/Contents/MacOS/LiveWallpaperAgent" "$HOST/Contents/MacOS/LiveWallpaperSceneHost"; do
   echo "$(basename "$bin"): $(lipo -archs "$bin")  $(du -h "$bin" | cut -f1)"
 done
-echo "--- libraries linked by the agent (must not include SwiftUI or Metal) ---"
+echo "--- libraries linked by the agent (must not include SwiftUI) ---"
 otool -L "$AGENT/Contents/MacOS/LiveWallpaperAgent"
 echo "--- libraries linked by the scene host ---"
 otool -L "$HOST/Contents/MacOS/LiveWallpaperSceneHost"
