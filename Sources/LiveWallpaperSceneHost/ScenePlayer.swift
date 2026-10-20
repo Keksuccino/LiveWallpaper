@@ -43,7 +43,9 @@ import SceneEngine
             self.layer = layer
             let window = ScenePlayerWindow(contentRect: screen.frame, styleMask: .borderless,
                                            backing: .buffered, defer: false)
-            window.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
+            // Same level as the agent's video windows (WallpaperWindows): desktop level + 1. The shielding
+            // level would sit above every other window incl. the menu bar and lock the whole screen out.
+            window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) + 1)
             window.backgroundColor = .black
             window.isOpaque = true
             window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
@@ -79,8 +81,9 @@ import SceneEngine
         self.itemID = itemID
         generation += 1
         let current = generation
+        // .loading only: no windows yet. The agent keeps its own wallpaper up until it receives .playing
+        // (or .fallbackStill), so a slow load or an unreadable scene can never black out or lock the desktop.
         setState(.loading, nil)
-        openWindows()
         setFPSCap(fpsCap)
 
         Task { @MainActor [weak self] in
@@ -92,29 +95,44 @@ import SceneEngine
                 } else {
                     loaded = try SceneLoader.load(directory: scenePath, sharedAssets: assetsPath)
                 }
-                guard current == self.generation, let device = self.device else { return }
+                guard current == self.generation else { return }
+                guard self.ensureDevice() != nil else { return self.failedToMount(current, previewPath, "no Metal device") }
                 let options = RenderOptions(pixelWidth: 0, pixelHeight: 0, pixelFormat: .bgra8Unorm,
                                             textureBudgetBytes: 400 * 1024 * 1024, fitMode: .fill)
-                var renderer = try SceneRenderer(scene: loaded, device: device, options: fillOptions(options))
+                let renderer = try SceneRenderer(scene: loaded, device: self.device!, options: fillOptions(options))
                 try renderer.prepare()
                 guard current == self.generation else { renderer.releaseGPUResources(); return }
+                self.openWindows()
                 self.replaceLoaded(renderer: renderer)
                 self.setState(.playing, nil)
             } catch {
-                if current != self.generation { return }
+                guard current == self.generation else { return }
                 self.fallbackStill(previewPath, reason: error.localizedDescription)
             }
         }
     }
 
-    /// Closes the windows, drops every GPU resource, stops the pump.
-    func hide() {
-        generation += 1
+    /// Windows off, pump stopped, GPU resources freed (windows only when `dropWindows`).
+    private func tearDownVisuals() {
         stopPump()
         for slot in slots { slot.window.orderOut(nil) }
         slots.removeAll()
         engine?.releaseGPUResources()
         engine = nil
+    }
+
+    /// Nothing renderable at all (not even the preview image): close everything and report failure so
+    /// the agent brings its own wallpaper back.
+    private func failedToMount(_ generationAtStart: Int, _ previewPath: URL?, _ reason: String) {
+        guard generation == generationAtStart else { return }
+        tearDownVisuals()
+        setState(.failed, reason)
+    }
+
+    /// Closes the windows, drops every GPU resource, stops the pump.
+    func hide() {
+        generation += 1
+        tearDownVisuals()
         commandQueue = nil
         itemID = nil
         setState(.none, nil)
@@ -144,18 +162,23 @@ import SceneEngine
 
     // MARK: Window setup
 
-    private func openWindows() {
-        guard device == nil else { return }   // windows stay up while a scene is swapped
-        device = SceneRenderer.deviceDefault()
-        commandQueue = device?.makeCommandQueue()
-        guard let device, let queue = commandQueue else { return }
-        for screen in NSScreen.screens {
-            slots.append(ScreenSlot(screen: screen, device: device))
+    /// The GPU device/queue live for the whole host; windows are created fresh whenever something must show.
+    private func ensureDevice() -> MTLDevice? {
+        if device == nil {
+            device = SceneRenderer.deviceDefault()
+            commandQueue = device?.makeCommandQueue()
         }
+        return commandQueue != nil ? device : nil
+    }
+
+    private func openWindows() {
+        guard ensureDevice() != nil else { return }
+        for old in slots { old.window.orderOut(nil) }
+        slots = NSScreen.screens.map { ScreenSlot(screen: $0, device: device!) }
     }
 
     private func fillOptions(_ options: RenderOptions) -> RenderOptions {
-        guard let biggest = slots.map(\.layer).max(by: {
+        guard ensureDevice() != nil, let biggest = slots.map(\.layer).max(by: {
             $0.drawableSize.width * $0.drawableSize.height < $1.drawableSize.width * $1.drawableSize.height
         }) else { return options }
         return RenderOptions(pixelWidth: Int(biggest.drawableSize.width),
@@ -176,13 +199,14 @@ import SceneEngine
     }
 
     private func fallbackStill(_ previewPath: URL?, reason: String) {
-        if let previewPath, let device = device ?? SceneRenderer.deviceDefault(),
+        if let previewPath, ensureDevice() != nil,
            let image = Self.previewImage(from: previewPath) {
             let options = RenderOptions(pixelWidth: 0, pixelHeight: 0, pixelFormat: .bgra8Unorm,
                                         textureBudgetBytes: 16 * 1024 * 1024, fitMode: .fill)
             do {
-                let still = try SceneRenderer(previewImage: image, device: device, options: fillOptions(options))
+                let still = try SceneRenderer(previewImage: image, device: device!, options: fillOptions(options))
                 try still.prepare()
+                openWindows()
                 replaceLoaded(renderer: still)
                 setState(.fallbackStill, reason)
                 return
