@@ -3,12 +3,15 @@
 # signatures that verify. Used by build.yml and release.yml.
 #   scripts/verify-bundle.sh [path/to/LiveWallpaper.app] [expected-version]
 set -euo pipefail
+if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+  trap 'echo "::error::verify-bundle.sh failed at line $LINENO: $BASH_COMMAND"' ERR
+fi
 APP="${1:-build/LiveWallpaper.app}"
 EXPECTED_VERSION="${2:-}"
 AGENT="$APP/Contents/Library/LoginItems/LiveWallpaperAgent.app"
 HOST="$APP/Contents/Library/LoginItems/LiveWallpaperSceneHost.app"
 
-fail() { echo "error: $*" >&2; exit 1; }
+fail() { echo "::error::$*"; echo "error: $*" >&2; exit 1; }
 
 test -x "$APP/Contents/MacOS/LiveWallpaper" || fail "missing Settings executable"
 test -x "$AGENT/Contents/MacOS/LiveWallpaperAgent" || fail "missing agent executable"
