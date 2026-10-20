@@ -53,3 +53,13 @@ Design rule from the start: the renderer is time-driven (`render(at: t)`), not o
 - Private-framework-free, but the Aerial file swap depends on undocumented macOS behavior and may break on OS updates.
 - Rosetta availability for Intel-only tools is time-limited by Apple (a limited version from macOS 28).
 - Scene helper and lock render add a third process and GPU/disk load; measure with `footprint` and Instruments before shipping.
+
+## Status (work paused)
+Done on this branch: schema v2 and the scaffold (new state shape, scene host stub, release workflow, `docs/SPEC3-contracts.md` = the full contracts and per-worker checklists), and the Settings app side (role badges, Set as Desktop / Lock Screen / Both, same-for-both, per-target rotation, mute toggle, Workshop detail pane, 3-step Steam wizard screens).
+
+Not done:
+- Agent side (two channels, mute in the player, scene host hand-off, lock render install): partial work saved on branch `feat/agent` (WIP, unreviewed, never compiled).
+- Steam side (SteamCMD installer, pty sign-in, ownership check, Wallpaper Engine assets, scene import): partial work saved on branch `feat/steam` (WIP, unreviewed, never compiled). Until it lands the wizard has nothing behind it.
+- Scene engine (SceneFormat parsers, Metal renderer, scene host, offline lock-screen render): not started beyond the stubs.
+- Merging, CI fix rounds, and the real-Mac tests (T1 to T17 in the spec).
+Because the Settings UI now expects the new agent and Steam behavior, this branch is not releasable until those land.
