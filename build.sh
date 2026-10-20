@@ -63,15 +63,15 @@ plutil -lint "$APP/Contents/Info.plist" "$AGENT/Contents/Info.plist" "$HOST/Cont
 AGENT_BIN="$AGENT/Contents/MacOS/LiveWallpaperAgent"
 AGENT_LIBS="$(otool -L "$AGENT_BIN")"
 if grep -q "SwiftUI" <<<"$AGENT_LIBS"; then
-  echo "::error::LiveWallpaperAgent links SwiftUI; the agent must stay AppKit only." >&2
+  echo "::error::LiveWallpaperAgent links SwiftUI; the agent must stay AppKit only."
   exit 1
 fi
 if grep -Eq "Metal|MetalKit" <<<"$AGENT_LIBS"; then
-  echo "::error::LiveWallpaperAgent links Metal; scenes belong in LiveWallpaperSceneHost." >&2
+  echo "::error::LiveWallpaperAgent links Metal; scenes belong in LiveWallpaperSceneHost."
   exit 1
 fi
 if strings -a "$AGENT_BIN" | grep -Eq "11SceneEngine|11SceneFormat"; then
-  echo "::error::LiveWallpaperAgent contains SceneEngine or SceneFormat code; it must only depend on Core." >&2
+  echo "::error::LiveWallpaperAgent contains SceneEngine or SceneFormat code; it must only depend on Core."
   exit 1
 fi
 if grep -q "Combine" <<<"$AGENT_LIBS"; then
@@ -79,7 +79,7 @@ if grep -q "Combine" <<<"$AGENT_LIBS"; then
 fi
 SETTINGS_BIN="$APP/Contents/MacOS/LiveWallpaper"
 if strings -a "$SETTINGS_BIN" | grep -q "11SceneEngine"; then
-  echo "::error::the Settings app contains SceneEngine code; it may use SceneFormat (parsing) but never the renderer." >&2
+  echo "::error::the Settings app contains SceneEngine code; it may use SceneFormat (parsing) but never the renderer."
   exit 1
 fi
 HOST_BIN="$HOST/Contents/MacOS/LiveWallpaperSceneHost"
