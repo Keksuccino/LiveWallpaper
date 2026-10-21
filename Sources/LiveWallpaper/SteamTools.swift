@@ -91,6 +91,7 @@ enum SteamSetupError: Error, Equatable {
     case extractFailed(String)
     case toolsBroken(String)              // no executable / unreadable architecture after install
     case rosettaMissing
+    case rosettaInstallFailed
     case firstRunFailed(String)
     case badPassword
     case badCode
@@ -110,6 +111,7 @@ enum SteamSetupError: Error, Equatable {
         case .downloadFailed: return "Couldn’t download Steam’s command-line tool"
         case .extractFailed, .toolsBroken: return "The Steam tool didn’t install correctly"
         case .rosettaMissing: return "Rosetta is needed"
+        case .rosettaInstallFailed: return "Rosetta didn’t install"
         case .firstRunFailed: return "Steam’s tool couldn’t finish its first start"
         case .badPassword: return "Steam didn’t accept that password"
         case .badCode: return "That Steam Guard code didn’t work"
@@ -131,6 +133,7 @@ enum SteamSetupError: Error, Equatable {
         case .downloadFailed(let detail): return "Check your internet connection and try again. (\(detail))"
         case .extractFailed(let detail), .toolsBroken(let detail): return "Remove it in Steam Setup and install it again. (\(detail))"
         case .rosettaMissing: return "Steam’s tool is built for Intel Macs. Install Rosetta, then try again."
+        case .rosettaInstallFailed: return "Check your internet connection and try again. If this Mac has only standard accounts, ask an administrator to install Rosetta."
         case .firstRunFailed(let detail): return "Try again. If it keeps failing, remove the tool and reinstall. (\(detail))"
         case .badPassword: return "Check the password and try again. After several wrong tries Steam makes you wait."
         case .badCode: return "Enter the newest code. Codes from the Steam Mobile app change every 30 seconds."
@@ -440,6 +443,15 @@ enum SteamKit {
         #else
         return false
         #endif
+    }
+
+    /// Installs Rosetta behind macOS's own administrator prompt, so no Terminal is needed. Blocking: call off the
+    /// main thread. nil on success. Error -128 is the user pressing Cancel on that prompt.
+    static func installRosetta() -> SteamSetupError? {
+        let script = "do shell script \"softwareupdate --install-rosetta --agree-to-license\" with administrator privileges"
+        guard let result = SteamProcess.capture("/usr/bin/osascript", ["-e", script]) else { return .rosettaInstallFailed }
+        if result.status == 0 { return nil }
+        return result.output.contains("-128") ? .cancelled : .rosettaInstallFailed
     }
 
     static func rosettaInstalled() -> Bool {
@@ -754,6 +766,7 @@ final class SteamDownload: NSObject, URLSessionDownloadDelegate, @unchecked Send
     }
     /// The last error, for the card to show; cleared when a new action starts.
     @Published private(set) var lastError: SteamSetupError?
+    @Published private(set) var rosettaInstalling = false
 
     /// Called after tools, account or ownership changed (the Workshop model recomputes its setup status).
     var onChange: (() -> Void)?
@@ -853,6 +866,20 @@ final class SteamDownload: NSObject, URLSessionDownloadDelegate, @unchecked Send
 
     /// Downloads steamcmd_osx.tar.gz from Valve, extracts it into AppPaths.steamToolsDirectory, runs it once
     /// (`+quit`) so it can update itself, then checks the architecture. Reports `.installing(step)`.
+    /// One button for the Rosetta step: macOS asks for an administrator password, then the state is checked again.
+    func installRosetta() {
+        guard case .rosettaRequired = tools, !rosettaInstalling else { return }
+        lastError = nil
+        rosettaInstalling = true
+        Task { @MainActor [weak self] in
+            let failure = await Task.detached { SteamKit.installRosetta() }.value
+            guard let self else { return }
+            self.rosettaInstalling = false
+            self.lastError = failure
+            if failure == nil { self.refresh() }
+        }
+    }
+
     func installTools() {
         if case .installing = tools { return }
         lastError = nil

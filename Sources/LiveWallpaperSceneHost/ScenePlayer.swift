@@ -89,19 +89,21 @@ import SceneEngine
 
         // The ported engine draws everything (effects, particles, puppets); the Metal path below is the fallback.
         tearDownVisuals()
-        runner.onUnexpectedExit = { [weak self] in
-            guard let self, current == self.generation else { return }
-            self.setState(.failed, "the scene engine stopped unexpectedly")
-        }
+        // Armed only once the engine survived its start: an exit in the first seconds (e.g. no shared assets) must
+        // reach the Metal fallback below, not be reported as a failure.
+        runner.onUnexpectedExit = nil
         if runner.start(projectFolder: scenePath.deletingLastPathComponent(), assets: assetsPath, fps: fpsCap) {
             Task { @MainActor [weak self] in
                 // A scene the engine cannot load exits within a moment; only then is it playing.
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 guard let self, current == self.generation else { return }
                 if self.runner.isRunning {
+                    self.runner.onUnexpectedExit = { [weak self] in
+                        guard let self, current == self.generation else { return }
+                        self.setState(.failed, "the scene engine stopped unexpectedly")
+                    }
                     self.setState(self.isPaused ? .paused : .playing, nil)
                 } else {
-                    self.runner.onUnexpectedExit = nil
                     self.showWithMetal(itemID: itemID, scenePath: scenePath, previewPath: previewPath,
                                        assetsPath: assetsPath, current: current)
                 }

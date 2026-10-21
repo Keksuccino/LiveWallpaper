@@ -9,7 +9,6 @@ import Core
 // forms below, are handed to the model and cleared in the same call, and are cleared again when the form goes away.
 // Nothing here logs, stores or displays them.
 
-private let rosettaCommand = "softwareupdate --install-rosetta --agree-to-license"
 private let terminalApp = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
 
 @MainActor
@@ -262,7 +261,7 @@ private struct ToolsContent: View {
         case .installing(let step):
             InstallProgress(step: step, cancel: { setup.cancelInstall() })
         case .rosettaRequired:
-            RosettaContent(recheck: { setup.refresh() })
+            RosettaContent(setup: setup)
         case .failed(let error):
             VStack(alignment: .leading, spacing: 8) {
                 ErrorLines(error: error)
@@ -307,23 +306,31 @@ private struct InstallProgress: View {
     }
 }
 
-/// Shown only when the tools state says this Mac needs Rosetta for Steam’s Intel-only tool.
+/// Shown only when the tools state says this Mac needs Rosetta for Steam’s Intel-only tool. One button: macOS asks
+/// for an administrator password and the app does the rest. Apple's license is shown before anything is installed.
 @MainActor
 private struct RosettaContent: View {
-    let recheck: () -> Void
+    @ObservedObject var setup: SteamSetupModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Steam’s tool is built for Intel Macs and this Mac needs Rosetta to run it. Install it once, then press Check again.")
+            Text("Steam’s tool is built for Intel Macs. Rosetta is Apple’s free translator that lets this Mac run it. It installs once.")
                 .foregroundStyle(.secondary)
-            Text(rosettaCommand)
-                .font(.system(.callout, design: .monospaced)).textSelection(.enabled)
-                .padding(6)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.15)))
+            Text("Installing it means accepting Apple’s Rosetta software license.")
+                .font(.callout).foregroundStyle(.secondary)
+            Link("Read Apple’s license", destination: URL(string: "https://www.apple.com/legal/sla/")!).font(.callout)
             HStack {
-                Button("Copy command") { copyText(rosettaCommand) }.buttonStyle(.borderedProminent)
-                Button("Open Terminal") { NSWorkspace.shared.open(terminalApp) }
-                Button("Check again", action: recheck)
+                Button("Install Rosetta", action: setup.installRosetta)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(setup.rosettaInstalling)
+                if setup.rosettaInstalling {
+                    ProgressView().controlSize(.small)
+                    Text("Installing… this can take a few minutes. Your Mac may ask for your password.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+            }
+            if let error = setup.lastError {
+                Text(error.message).font(.callout).foregroundStyle(.orange)
             }
         }
     }
