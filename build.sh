@@ -2,8 +2,9 @@
 # Builds build/LiveWallpaper.app (the UI) with the background service nested inside it at
 #   Contents/Library/LoginItems/LiveWallpaperService.app   (plays wallpapers, menu bar item, Unix socket server;
 #                                                           launched by the UI, optionally an SMAppService login item)
-# and signs everything ad hoc, inner bundles first. The old agent and scene host targets still compile but are
-# no longer bundled.
+# The service's renderer libraries (Homebrew dylibs, MoltenVK, its ICD manifest) are copied into
+#   Contents/Library/LoginItems/LiveWallpaperService.app/Contents/Frameworks
+# and everything is signed ad hoc, inner bundles first.
 #   CONFIG=debug ./build.sh      debug build (default: release)
 #   UNIVERSAL=1 ./build.sh       arm64 + x86_64 binaries
 #   VERSION=1.2.3 ./build.sh     writes the version into both Info.plists (digits and dots only; default: as in the plists)
@@ -77,7 +78,43 @@ if grep -q "11SceneEngine" <<<"$(strings -a "$SETTINGS_BIN")"; then
   exit 1
 fi
 
-# Sign the nested helpers first, then the outer app. No --deep: each bundle is signed on its own.
+# Bundle the runtime libraries: the service links the renderer's Homebrew dylibs (vulkan, lz4, freetype, the
+# LGPL mwe-ffmpeg libav*, qjs, glslang). Copy them into the service with @rpath load paths so the app runs on a
+# Mac without Homebrew, and ship MoltenVK + an ICD manifest for the Vulkan scene path (loaded with dlopen, so
+# otool cannot see it; SceneRenderService points VK_ICD_FILENAMES at the bundled manifest).
+FRAMEWORKS="$SERVICE/Contents/Frameworks"
+python3 scripts/bundle-dylibs.py "$SERVICE_BIN" "$FRAMEWORKS"
+
+MOLTENVK_PREFIX="$(brew --prefix molten-vk 2>/dev/null || true)"
+if [[ -z "$MOLTENVK_PREFIX" || ! -f "$MOLTENVK_PREFIX/lib/libMoltenVK.dylib" ]]; then
+  echo "::error::libMoltenVK.dylib not found; install molten-vk (brew install molten-vk) so the app can ship it."
+  exit 1
+fi
+cp "$MOLTENVK_PREFIX/lib/libMoltenVK.dylib" "$FRAMEWORKS/libMoltenVK.dylib"
+install_name_tool -id @rpath/libMoltenVK.dylib "$FRAMEWORKS/libMoltenVK.dylib"
+# The manifest is a resource (not code: codesign --deep rejects unsigned items in Frameworks). library_path is
+# relative to the manifest's folder, hence ../Frameworks.
+cat > "$SERVICE/Contents/Resources/MoltenVK_icd.json" <<'ICD'
+{
+    "file_format_version" : "1.0.0",
+    "ICD": {
+        "library_path": "../Frameworks/libMoltenVK.dylib",
+        "api_version" : "1.4.0",
+        "is_portability_driver" : true
+    }
+}
+ICD
+
+# A release that still loads anything from Homebrew only runs on the machine that built it.
+if otool -L "$SERVICE_BIN" | grep -Eq '/opt/homebrew|/usr/local/(opt|Cellar)'; then
+  echo "::error::LiveWallpaperService still loads dylibs from Homebrew:"
+  otool -L "$SERVICE_BIN" | grep -E '/opt/homebrew|/usr/local/(opt|Cellar)'
+  exit 1
+fi
+
+# Sign the bundled libraries, then the nested helpers, then the outer app. No --deep: each bundle is signed on
+# its own (bundle-dylibs.py already re-signed the libraries it rewrote).
+codesign --force --sign - "$FRAMEWORKS/libMoltenVK.dylib"
 codesign --force --sign - "$SERVICE"
 codesign --force --sign - "$APP"
 codesign --verify --strict --deep "$APP"

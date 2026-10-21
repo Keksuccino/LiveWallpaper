@@ -8,7 +8,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RENDERER="$ROOT/RenderService"
 OUT="$ROOT/Sources/RenderBridge"
-CARGO="${CARGO:-$HOME/.cargo/bin/cargo}"
+# rustup installs into ~/.cargo/bin, but GitHub's macOS runners also ship cargo/rustup in Homebrew's bin,
+# so resolve it from PATH when the user-local copy is absent.
+CARGO="${CARGO:-$(command -v cargo || echo "$HOME/.cargo/bin/cargo")}"
+[ -x "$CARGO" ] || { echo "cargo not found (set CARGO=/path/to/cargo); rustup is required." >&2; exit 1; }
 PREFIX="$(brew --prefix)"
 
 [ -f "$PREFIX/opt/mwe-ffmpeg/lib/pkgconfig/libavcodec.pc" ] || {

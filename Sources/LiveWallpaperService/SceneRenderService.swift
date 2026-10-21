@@ -29,9 +29,13 @@ import RenderBridge
         setenv("WALLPAPER_MACHINE_USER_ASSETS_ROOT", support.appendingPathComponent("UserAssets").path, 1)
         setenv("WALLPAPER_MACHINE_LIBRARY_ROOT", AppPaths.libraryDirectory.path, 1)
         setenv("WALLPAPER_MACHINE_ASSETS_ROOT", AppPaths.sharedAssetsDirectory.path, 1)
-        // MoltenVK for the Vulkan scene path. Homebrew's install here; a shipped app bundles its own (build.sh).
-        let icd = "/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
-        if getenv("VK_ICD_FILENAMES") == nil, FileManager.default.fileExists(atPath: icd) {
+        // MoltenVK for the Vulkan scene path: the copy shipped inside the bundle (build.sh) when there is one,
+        // else Homebrew's for a dev build.
+        let candidates = [
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/MoltenVK_icd.json").path,
+            "/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json",
+        ]
+        if getenv("VK_ICD_FILENAMES") == nil, let icd = candidates.first(where: FileManager.default.fileExists(atPath:)) {
             setenv("VK_ICD_FILENAMES", icd, 1)
         }
     }

@@ -59,6 +59,26 @@
             "target": "LiveWallpaperSceneHost",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release LiveWallpaperSceneHost"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:LiveWallpaper}",
+            "name": "Debug LiveWallpaperService",
+            "target": "LiveWallpaperService",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug LiveWallpaperService"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:LiveWallpaper}",
+            "name": "Release LiveWallpaperService",
+            "target": "LiveWallpaperService",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release LiveWallpaperService"
         }
     ]
 }

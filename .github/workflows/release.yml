@@ -15,15 +15,17 @@ on:
         default: '0.0.0'
         required: true
       universal:
-        description: 'Build arm64 + x86_64 (false = arm64 only)'
+        description: 'Build arm64 + x86_64 (not supported yet: the renderer is arm64-only)'
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: write
 
 jobs:
   dmg:
+    # Apple silicon runner: Homebrew lives in /opt/homebrew (Package.swift hardcodes it for linking) and the
+    # Rust renderer is built for aarch64-apple-darwin only.
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -50,15 +52,16 @@ jobs:
           swift --version
           xcodebuild -version
 
-      - name: Tests (Core and SceneFormat)
-        run: swift test
-
       # The scene renderer: WallpaperMachine's Rust core (RenderService/), built and bindgen'd for Swift.
+      # It must come before `swift test` too, because SwiftPM builds every target of the package.
       - name: Install renderer dependencies
-        run: brew install cmake pkg-config glfw glm glew mpv ffmpeg lz4 freetype sdl2-compat
+        run: scripts/install-render-deps.sh
 
       - name: Build the render service
         run: scripts/build-render-service.sh
+
+      - name: Tests (Core and SceneFormat)
+        run: swift test
 
       - name: Build and assemble the app
         env:
@@ -66,8 +69,13 @@ jobs:
           BUILD_NUMBER: ${{ github.run_number }}
           UNIVERSAL_INPUT: ${{ inputs.universal }}
         run: |
-          # Tags and unset inputs build universal; a dry run can ask for arm64 only.
-          if [[ "$UNIVERSAL_INPUT" == "false" ]]; then export UNIVERSAL=0; else export UNIVERSAL=1; fi
+          # Tags and unset inputs build arm64 only: the renderer static library and every Homebrew dependency
+          # it links are arm64, so a universal build cannot link the x86_64 slice. Revisit if that changes.
+          if [[ "$UNIVERSAL_INPUT" == "true" ]]; then
+            echo "::error::universal builds are not supported: the Rust renderer is arm64-only"
+            exit 1
+          fi
+          export UNIVERSAL=0
           ./build.sh
 
       - name: Verify the bundle
@@ -95,6 +103,8 @@ jobs:
           Ad-hoc signed, not notarized. On first launch macOS will say it cannot verify the app:
           open System Settings > Privacy & Security, scroll down and press "Open Anyway" once, or run
           `xattr -dr com.apple.quarantine /Applications/LiveWallpaper.app` in Terminal. Details are in the README.
+
+          Apple silicon (arm64) only: the scene renderer is built for arm64.
 
           Verify the download with the `.sha256` file: `shasum -a 256 -c LiveWallpaper-__VERSION__.dmg.sha256`.
 

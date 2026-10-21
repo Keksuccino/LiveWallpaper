@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Checks the layout of an assembled LiveWallpaper.app: the settings app and its background service, executables,
-# ids, matching versions, ad-hoc signatures that verify. Used by build.yml and release.yml.
+# ids, matching versions, ad-hoc signatures that verify, bundled renderer libraries and no Homebrew load paths.
+# Used by build.yml and release.yml.
 #   scripts/verify-bundle.sh [path/to/LiveWallpaper.app] [expected-version]
 set -euo pipefail
 if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
@@ -30,6 +31,17 @@ fi
 
 codesign --verify --strict --deep "$APP" || fail "codesign verify (app)"
 codesign --verify --strict "$SERVICE" || fail "codesign verify (service)"
+
+# The renderer's Homebrew dylibs and MoltenVK must be inside the bundle, or the app only runs on a Mac that
+# happens to have Homebrew.
+FRAMEWORKS="$SERVICE/Contents/Frameworks"
+test -f "$FRAMEWORKS/libMoltenVK.dylib" || fail "missing bundled libMoltenVK.dylib"
+test -f "$SERVICE/Contents/Resources/MoltenVK_icd.json" || fail "missing bundled MoltenVK_icd.json"
+test -n "$(ls "$FRAMEWORKS"/lib*.dylib 2>/dev/null)" || fail "no bundled renderer libraries"
+if otool -L "$SERVICE/Contents/MacOS/LiveWallpaperService" | grep -Eq '/opt/homebrew|/usr/local/(opt|Cellar)'; then
+  otool -L "$SERVICE/Contents/MacOS/LiveWallpaperService" | grep -E '/opt/homebrew|/usr/local/(opt|Cellar)' >&2
+  fail "the service still loads dylibs from Homebrew (not distributable)"
+fi
 
 echo "--- version $V_APP ---"
 for bin in "$APP/Contents/MacOS/LiveWallpaper" "$SERVICE/Contents/MacOS/LiveWallpaperService"; do
