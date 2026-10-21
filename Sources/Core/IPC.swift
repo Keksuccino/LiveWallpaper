@@ -9,7 +9,9 @@ import Foundation
 // (phase 1 learned this with the lock/unlock notifications).
 
 public enum IPC {
-    public static let version = 1
+    /// Payload version ("v" key). 2 = per-target commands and status fields (additive over 1: the notification
+    /// names stay ".v1" and receivers ignore keys they do not know; see SPEC3.md section 3.2).
+    public static let version = 2
     public static let settingsBundleID = "com.noob3301.LiveWallpaper"
     public static let agentBundleID = "com.noob3301.LiveWallpaper.agent"
     /// Info.plist key that tells the two apps (and the phase-1 app, which lacks it) apart: "settings" or "agent".
@@ -29,7 +31,7 @@ public struct AgentCommand: Equatable, Sendable {
         case pause
         case resume
         case next
-        case play      // `videoID`: jump to it, starting playback if needed
+        case play      // `videoID`: jump to it, starting playback if needed (on `target`, nil = both targets)
         case reload    // state.json changed; `revision` is what Settings just wrote
         case quit      // stop, restore, terminate the agent
     }
@@ -38,18 +40,23 @@ public struct AgentCommand: Equatable, Sendable {
     public var kind: Kind
     public var videoID: UUID?
     public var revision: Int?
+    /// v2: which target `play` and `next` apply to; nil = both (the phase-2 behaviour).
+    public var target: WallpaperTarget?
 
-    public init(kind: Kind, videoID: UUID? = nil, revision: Int? = nil, id: String = UUID().uuidString) {
+    public init(kind: Kind, videoID: UUID? = nil, revision: Int? = nil, target: WallpaperTarget? = nil,
+                id: String = UUID().uuidString) {
         self.id = id
         self.kind = kind
         self.videoID = videoID
         self.revision = revision
+        self.target = target
     }
 
     public var userInfo: [String: Any] {
         var info: [String: Any] = ["v": IPC.version, "id": id, "cmd": kind.rawValue]
         if let videoID { info["video"] = videoID.uuidString }
         if let revision { info["rev"] = revision }
+        if let target { info["target"] = target.rawValue }
         return info
     }
 
@@ -63,10 +70,30 @@ public struct AgentCommand: Equatable, Sendable {
         self.kind = kind
         self.videoID = (info["video"] as? String).flatMap { UUID(uuidString: $0) }
         self.revision = info["rev"] as? Int
+        self.target = (info["target"] as? String).flatMap { WallpaperTarget(rawValue: $0) }
     }
 }
 
 // MARK: - Status (agent -> Settings)
+
+/// The pre-rendered lock screen video of a scene (SPEC3.md section 1.5). At most one is reported at a time.
+public struct LockRenderStatus: Equatable, Sendable {
+    public enum State: String, Sendable {
+        case queued, rendering, finished, failed
+    }
+
+    public var itemID: UUID
+    public var state: State
+    public var progress: Double          // 0...1, meaningful while rendering
+    public var message: String?          // user-facing reason when failed
+
+    public init(itemID: UUID, state: State, progress: Double = 0, message: String? = nil) {
+        self.itemID = itemID
+        self.state = state
+        self.progress = progress
+        self.message = message
+    }
+}
 
 public struct AgentStatus: Equatable, Sendable {
     public var seq: Int                 // increases with every post within one agent process
@@ -81,11 +108,18 @@ public struct AgentStatus: Equatable, Sendable {
     public var lockBusy: Bool           // the lock screen video is being prepared
     public var stateRevision: Int       // state.json revision the agent has applied
     public var quitting: Bool           // last post before the agent terminates
+    // v2 additions. `currentID` is the DESKTOP item; `lockID` is the lock screen item.
+    public var lockID: UUID?
+    public var muted: Bool
+    public var sceneHostRunning: Bool
+    public var lockRender: LockRenderStatus?
 
     public init(seq: Int = 0, reply: String? = nil, pid: Int32 = 0, agentVersion: String = "",
                 isRunning: Bool = false, isPaused: Bool = false, currentID: UUID? = nil,
                 failedIDs: [UUID] = [], message: String? = nil, lockBusy: Bool = false,
-                stateRevision: Int = 0, quitting: Bool = false) {
+                stateRevision: Int = 0, quitting: Bool = false,
+                lockID: UUID? = nil, muted: Bool = true, sceneHostRunning: Bool = false,
+                lockRender: LockRenderStatus? = nil) {
         self.seq = seq
         self.reply = reply
         self.pid = pid
@@ -98,6 +132,10 @@ public struct AgentStatus: Equatable, Sendable {
         self.lockBusy = lockBusy
         self.stateRevision = stateRevision
         self.quitting = quitting
+        self.lockID = lockID
+        self.muted = muted
+        self.sceneHostRunning = sceneHostRunning
+        self.lockRender = lockRender
     }
 
     public var userInfo: [String: Any] {
@@ -105,7 +143,15 @@ public struct AgentStatus: Equatable, Sendable {
             "v": IPC.version, "seq": seq, "pid": Int(pid), "version": agentVersion,
             "running": isRunning, "paused": isPaused, "failed": failedIDs.map(\.uuidString),
             "lockBusy": lockBusy, "rev": stateRevision, "quitting": quitting,
+            "muted": muted, "host": sceneHostRunning,
         ]
+        if let lockID { info["lockCur"] = lockID.uuidString }
+        if let lockRender {
+            info["lrItem"] = lockRender.itemID.uuidString
+            info["lrState"] = lockRender.state.rawValue
+            info["lrProg"] = lockRender.progress
+            if let message = lockRender.message { info["lrMsg"] = message }
+        }
         if let reply { info["reply"] = reply }
         if let currentID { info["current"] = currentID.uuidString }
         if let message { info["message"] = message }
@@ -129,6 +175,17 @@ public struct AgentStatus: Equatable, Sendable {
         self.lockBusy = info["lockBusy"] as? Bool ?? false
         self.stateRevision = info["rev"] as? Int ?? 0
         self.quitting = info["quitting"] as? Bool ?? false
+        self.lockID = (info["lockCur"] as? String).flatMap { UUID(uuidString: $0) }
+        self.muted = info["muted"] as? Bool ?? true
+        self.sceneHostRunning = info["host"] as? Bool ?? false
+        if let item = (info["lrItem"] as? String).flatMap({ UUID(uuidString: $0) }),
+           let state = (info["lrState"] as? String).flatMap({ LockRenderStatus.State(rawValue: $0) }) {
+            self.lockRender = LockRenderStatus(itemID: item, state: state,
+                                               progress: info["lrProg"] as? Double ?? 0,
+                                               message: info["lrMsg"] as? String)
+        } else {
+            self.lockRender = nil
+        }
     }
 }
 

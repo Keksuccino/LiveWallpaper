@@ -26,18 +26,16 @@ jobs:
       - name: Swift build (release)
         run: swift build -c release
 
+      - name: Tests (Core and SceneFormat)
+        run: swift test
+
       - name: Package app bundle
         run: ./build.sh
 
-      - name: Verify bundle layout
+      - name: Verify bundle layout (app + agent + scene host)
         run: |
-          AGENT=build/LiveWallpaper.app/Contents/Library/LoginItems/LiveWallpaperAgent.app
-          test -x build/LiveWallpaper.app/Contents/MacOS/LiveWallpaper
-          test -x "$AGENT/Contents/MacOS/LiveWallpaperAgent"
-          codesign -dv "$AGENT"
-          echo "--- libraries linked by the agent ---"
-          otool -L "$AGENT/Contents/MacOS/LiveWallpaperAgent"
-          ls -l "$AGENT/Contents/MacOS/LiveWallpaperAgent" build/LiveWallpaper.app/Contents/MacOS/LiveWallpaper
+          scripts/verify-bundle.sh build/LiveWallpaper.app
+          ls -l build/LiveWallpaper.app/Contents/Library/LoginItems/*/Contents/MacOS/*
 
       - name: Zip app bundle
         run: ditto -c -k --keepParent build/LiveWallpaper.app LiveWallpaper-${{ matrix.os }}.zip

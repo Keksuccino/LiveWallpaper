@@ -32,6 +32,16 @@ private func observeFailures(of looper: AVPlayerLooper, item: AVPlayerItem,
     ]
 }
 
+/// Fires for the first and every later item of the queue (AVPlayerLooper swaps items in and out).
+private func observeCurrentItem(of player: AVQueuePlayer,
+                                changed: @escaping @Sendable () -> Void) -> NSKeyValueObservation {
+    player.observe(\.currentItem, options: [.initial, .new]) { _, _ in changed() }
+}
+
+private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable () -> Void) -> NSKeyValueObservation {
+    item.observe(\.status) { _, _ in changed() }
+}
+
 @MainActor final class WallpaperWindowManager {
     private static let pauseWhenOccluded = true
     // A fully covered desktop needs no decoder: the player (the biggest allocation) is released after this long.
@@ -45,6 +55,8 @@ private func observeFailures(of looper: AVPlayerLooper, item: AVPlayerItem,
     private var player: AVQueuePlayer?
     private var looper: AVPlayerLooper?  // looping silently stops if this is released
     private var statusObservations: [NSKeyValueObservation] = []
+    private var itemObservation: NSKeyValueObservation?  // the current item, until its tracks are known
+    private var muted = true
     private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     private var wakeTask: Task<Void, Never>?
     private var releaseTask: Task<Void, Never>?
@@ -53,6 +65,7 @@ private func observeFailures(of looper: AVPlayerLooper, item: AVPlayerItem,
     private var userPaused = false
     private var occluded = false
     private var sleeping = false
+    private var screenLocked = false  // nothing plays under the lock screen, not even sound
     private var playerReleased = false  // the windows stay (black) while the player is gone
 
     init() {}
@@ -93,6 +106,18 @@ private func observeFailures(of looper: AVPlayerLooper, item: AVPlayerItem,
         applyPlayback()
     }
 
+    /// Mutes the player and, while muted, disables the audio tracks so the audio decoder idles.
+    func setMuted(_ muted: Bool) {
+        self.muted = muted
+        player?.isMuted = muted
+        syncAudioTracks()
+    }
+
+    func setScreenLocked(_ locked: Bool) {
+        screenLocked = locked
+        applyPlayback()
+    }
+
     // MARK: Windows
 
     private static func makeWindow(on screen: NSScreen) -> NSWindow {
@@ -128,7 +153,7 @@ private func observeFailures(of looper: AVPlayerLooper, item: AVPlayerItem,
 
     private func startPlayer(for url: URL) {
         let queue = AVQueuePlayer()
-        queue.isMuted = true
+        queue.isMuted = muted
         queue.preventsDisplaySleepDuringVideoPlayback = false
         queue.allowsExternalPlayback = false
         let item = AVPlayerItem(url: url)
@@ -141,7 +166,9 @@ private func observeFailures(of looper: AVPlayerLooper, item: AVPlayerItem,
         tearDownPlayer()  // the old player goes only after its replacement exists
         player = queue
         looper = newLooper
-        statusObservations = observations
+        statusObservations = observations + [observeCurrentItem(of: queue) { [weak self] in
+            Task { @MainActor [weak self] in self?.syncAudioTracks() }
+        }]
         playerReleased = false
         releaseTask?.cancel()  // it belonged to the player that was just replaced
         releaseTask = nil
@@ -154,9 +181,23 @@ private func observeFailures(of looper: AVPlayerLooper, item: AVPlayerItem,
         if occluded { scheduleRelease() }
     }
 
+    // The tracks exist once the item is ready; until then the status is watched.
+    private func syncAudioTracks() {
+        itemObservation = nil
+        guard let item = player?.currentItem else { return }
+        guard item.status == .readyToPlay else {
+            itemObservation = observeStatus(of: item) { [weak self] in
+                Task { @MainActor [weak self] in self?.syncAudioTracks() }
+            }
+            return
+        }
+        for track in item.tracks where track.assetTrack?.mediaType == .audio { track.isEnabled = !muted }
+    }
+
     private func tearDownPlayer() {
         statusObservations.forEach { $0.invalidate() }
         statusObservations.removeAll()
+        itemObservation = nil
         looper?.disableLooping()
         player?.pause()
         player?.removeAllItems()
@@ -196,7 +237,7 @@ private func observeFailures(of looper: AVPlayerLooper, item: AVPlayerItem,
 
     /// Plays only when neither the user nor the manager itself (sleep, occlusion) wants it paused.
     private func applyPlayback() {
-        if userPaused || sleeping || (Self.pauseWhenOccluded && occluded) {
+        if userPaused || sleeping || screenLocked || (Self.pauseWhenOccluded && occluded) {
             player?.pause()
         } else {
             player?.play()

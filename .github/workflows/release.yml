@@ -1,0 +1,134 @@
+name: release
+
+# Builds the app, packs a DMG and, for a version tag, attaches it (with its SHA-256) to a GitHub Release.
+#   git tag v1.2.3 && git push origin v1.2.3        -> release
+#   Actions > release > Run workflow                  -> dry run: same build, the DMG is only uploaded as an artifact
+# The app is signed ad hoc and NOT notarized (no Apple Developer account); README.md explains the first launch.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version written into the Info.plists for a dry run (digits and dots)'
+        default: '0.0.0'
+        required: true
+      universal:
+        description: 'Build arm64 + x86_64 (false = arm64 only)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${INPUT_VERSION:-0.0.0}"
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]]; then
+            echo "::error::'$VERSION' is not a version (use digits and dots, tag like v1.2.3)"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION"
+
+      - name: Toolchain versions
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: Tests (Core and SceneFormat)
+        run: swift test
+
+      # The scene renderer (a macOS port of linux-wallpaperengine, built from our fork's mac-port branch). Without it
+      # the app falls back to the basic Metal renderer, which draws many scenes wrongly.
+      - name: Install renderer dependencies
+        run: brew install cmake pkg-config glfw glm glew mpv ffmpeg lz4 freetype sdl2-compat
+
+      - name: Build the scene renderer
+        run: |
+          LOG="$RUNNER_TEMP/wpengine-build.log"
+          if ! scripts/build-wpengine.sh "$RUNNER_TEMP/wpengine" > "$LOG" 2>&1; then
+            # Job logs need a sign-in to read; annotations do not, so surface the errors as annotations too.
+            ERRORS="$(grep -nE 'error:|\*\*\*|CMake Error|undefined symbol|ld: |fatal' "$LOG" | head -25 | cut -c1-300)"
+            TAIL="$(tail -15 "$LOG" | cut -c1-300)"
+            for var in ERRORS TAIL; do
+              value="${!var}"; value="${value//'%'/'%25'}"; value="${value//$'\n'/'%0A'}"
+              echo "::error title=wpengine build $var::$value"
+            done
+            tail -60 "$LOG"
+            exit 1
+          fi
+
+      - name: Build and assemble the app
+        env:
+          WPENGINE_BIN: ${{ runner.temp }}/wpengine/wpengine
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          UNIVERSAL_INPUT: ${{ inputs.universal }}
+        run: |
+          # Tags and unset inputs build universal; a dry run can ask for arm64 only.
+          if [[ "$UNIVERSAL_INPUT" == "false" ]]; then export UNIVERSAL=0; else export UNIVERSAL=1; fi
+          ./build.sh
+
+      - name: Check the renderer is in the app
+        run: |
+          HOST=build/LiveWallpaper.app/Contents/Library/LoginItems/LiveWallpaperSceneHost.app/Contents
+          test -x "$HOST/MacOS/wpengine" || { echo "::error::wpengine is not bundled in the scene host"; exit 1; }
+          test -n "$(ls "$HOST/Frameworks" 2>/dev/null)" || { echo "::error::no dylibs bundled next to wpengine"; exit 1; }
+          # a renderer that still points at Homebrew would only run on this machine
+          if otool -L "$HOST/MacOS/wpengine" | grep -E '/opt/homebrew|/usr/local/(opt|Cellar)'; then
+            echo "::error::wpengine still links against Homebrew paths"; exit 1
+          fi
+
+      - name: Verify the bundle
+        run: scripts/verify-bundle.sh build/LiveWallpaper.app "${{ steps.version.outputs.version }}"
+
+      - name: Make the DMG
+        run: scripts/make-dmg.sh build/LiveWallpaper.app "${{ steps.version.outputs.version }}"
+
+      - name: Upload the DMG (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: LiveWallpaper-${{ steps.version.outputs.version }}-dmg
+          path: |
+            dist/LiveWallpaper-${{ steps.version.outputs.version }}.dmg
+            dist/LiveWallpaper-${{ steps.version.outputs.version }}.dmg.sha256
+          if-no-files-found: error
+
+      - name: Publish the GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cat > release-notes.md <<'NOTES'
+          Ad-hoc signed, not notarized. On first launch macOS will say it cannot verify the app:
+          open System Settings > Privacy & Security, scroll down and press "Open Anyway" once, or run
+          `xattr -dr com.apple.quarantine /Applications/LiveWallpaper.app` in Terminal. Details are in the README.
+
+          Verify the download with the `.sha256` file: `shasum -a 256 -c LiveWallpaper-__VERSION__.dmg.sha256`.
+
+          Not affiliated with Valve or Wallpaper Engine. Steam downloads use Valve's own SteamCMD with your own account.
+          NOTES
+          sed -i '' "s/__VERSION__/$VERSION/g" release-notes.md
+          FILES=("dist/LiveWallpaper-$VERSION.dmg" "dist/LiveWallpaper-$VERSION.dmg.sha256")
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${FILES[@]}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${FILES[@]}" --title "LiveWallpaper $VERSION" \
+              --notes-file release-notes.md --generate-notes
+          fi

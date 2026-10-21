@@ -2,9 +2,9 @@ import SwiftUI
 import AppKit
 import Core
 
-// Views for the Workshop and Steam Setup tabs, built strictly on the WorkshopModel surface in Workshop.swift.
-// Layout, states and microcopy: SPEC2.md sections 5.4 to 5.6. No password or Steam Guard field exists here;
-// signing in happens once in Terminal.
+// Views for the Workshop and Steam Setup tabs, built on the WorkshopModel surface in Workshop.swift. Result cards
+// open the detail pane (WorkshopDetailView.swift). Steam Setup is the in-app wizard (SteamWizardView.swift) plus an
+// Advanced section. Layout, states and microcopy: SPEC2.md 5.4 to 5.6, SPEC3.md 6.3 and 6.4.
 
 // MARK: - Shared pieces
 
@@ -79,7 +79,7 @@ private struct FixButton: View {
 
 /// An error in the words of `WorkshopError`: bold orange title, secondary message, the fix button if any.
 @MainActor
-private struct FailureView: View {
+struct WorkshopFailureView: View {
     let error: WorkshopError
     let workshop: WorkshopModel
     let retry: () -> Void
@@ -122,7 +122,7 @@ private struct PreviewImage: View {
 }
 
 @MainActor
-private struct Chip: View {
+struct WorkshopChip: View {
     let text: String
     var tint: Color? = nil
 
@@ -141,12 +141,12 @@ private struct ChipRow: View {
     var body: some View {
         HStack(spacing: 6) {
             if item.kind != .unknown {
-                Chip(text: item.kind.rawValue.capitalized, tint: item.isVideo ? Color.accentColor : Color.orange)
+                WorkshopChip(text: item.kind.rawValue.capitalized, tint: item.isImportable ? Color.accentColor : Color.orange)
             }
-            if let resolution = item.resolutionTag { Chip(text: resolution) }
-            if let rating = item.ratingTag { Chip(text: rating) }
+            if let resolution = item.resolutionTag { WorkshopChip(text: resolution) }
+            if let rating = item.ratingTag { WorkshopChip(text: rating) }
             if isHighResolution(item) {
-                Chip(text: "High resolution", tint: .orange).help("Large videos use more memory and battery")
+                WorkshopChip(text: "High resolution", tint: .orange).help("Large videos use more memory and battery")
             }
         }
     }
@@ -155,12 +155,12 @@ private struct ChipRow: View {
 // MARK: - Item cards
 
 /// What a card's action area shows, from the download state and the library.
-private enum CardAction {
+enum WorkshopCardAction {
     case download, cantPlay, inLibrary(added: Bool)
     case queued, signingIn, downloading(Double?), importing
     case failed(WorkshopError)
 
-    static func make(item: WorkshopItem, state: WorkshopDownloadState?, inLibrary: Bool) -> CardAction {
+    static func make(item: WorkshopItem, state: WorkshopDownloadState?, inLibrary: Bool) -> WorkshopCardAction {
         switch state {
         case .queued?: return .queued
         case .signingIn?: return .signingIn
@@ -171,19 +171,22 @@ private enum CardAction {
         case nil: break
         }
         if inLibrary { return .inLibrary(added: false) }
-        return item.isVideo ? .download : .cantPlay
+        return item.isImportable ? .download : .cantPlay
     }
 }
 
 @MainActor
-private struct CardActions: View {
+struct WorkshopCardActions: View {
     let item: WorkshopItem
-    let action: CardAction
+    let action: WorkshopCardAction
     let ready: Bool          // Steam setup is complete
     let compact: Bool
     let workshop: WorkshopModel
     let openSteamSetup: () -> Void
     let showInLibrary: () -> Void
+
+    /// Why Download is disabled until Steam Setup is complete.
+    static let setupFirst = "Finish Steam Setup first"
 
     var body: some View {
         switch action {
@@ -195,7 +198,7 @@ private struct CardActions: View {
         case .downloading(let value): downloading(value)
         case .importing: progress("Adding to your library…", spinner: true, cancellable: false)
         case .failed(let error):
-            FailureView(error: error, workshop: workshop, retry: { workshop.download(item) },
+            WorkshopFailureView(error: error, workshop: workshop, retry: { workshop.download(item) },
                         openSteamSetup: openSteamSetup, dismiss: { workshop.dismissDownload(item.id) })
         }
     }
@@ -206,7 +209,7 @@ private struct CardActions: View {
             .buttonStyle(.borderedProminent)
             .controlSize(compact ? .small : .regular)
             .disabled(!ready)
-            .help(ready ? "" : "Finish Steam Setup first")
+            .help(ready ? "" : WorkshopCardActions.setupFirst)
     }
 
     private var cantPlay: some View {
@@ -300,6 +303,7 @@ struct WorkshopView: View {
     let openSteamSetup: () -> Void
     let openLibrary: () -> Void
     @State private var browsed = false
+    @State private var detail: WorkshopItem?   // the result whose detail pane is open
 
     // RootView (another file) builds this view; spelling the init out keeps the private @State from affecting it.
     init(model: SettingsModel, workshop: WorkshopModel,
@@ -310,7 +314,37 @@ struct WorkshopView: View {
         self.openLibrary = openLibrary
     }
 
+    // Wide windows show the detail pane next to the results; narrow ones replace the results with it.
     var body: some View {
+        GeometryReader { proxy in
+            content(wide: proxy.size.width >= 760)
+        }
+        .onAppear { workshop.recheckSetup() }
+    }
+
+    @ViewBuilder private func content(wide: Bool) -> some View {
+        if let item = detail {
+            if wide {
+                HStack(spacing: 0) {
+                    resultsColumn
+                    Divider()
+                    detailPane(item).frame(width: 380)
+                }
+            } else {
+                detailPane(item)
+            }
+        } else {
+            resultsColumn
+        }
+    }
+
+    private func detailPane(_ item: WorkshopItem) -> some View {
+        WorkshopDetailView(model: model, workshop: workshop, item: item, close: { detail = nil },
+                           openSteamSetup: openSteamSetup, openLibrary: openLibrary)
+            .id(item.id)
+    }
+
+    private var resultsColumn: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 if !workshop.setup.canDownload { setupBanner }
@@ -321,7 +355,6 @@ struct WorkshopView: View {
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .onAppear { workshop.recheckSetup() }
     }
 
     private var setupBanner: some View {
@@ -374,8 +407,10 @@ struct WorkshopView: View {
             }
         case .found(let item):
             ResultCard(item: item, actions: actions(for: item, compact: false))
+                .contentShape(Rectangle())
+                .onTapGesture { detail = item }
         case .failed(let error):
-            FailureView(error: error, workshop: workshop, retry: { workshop.lookUp() }, openSteamSetup: openSteamSetup)
+            WorkshopFailureView(error: error, workshop: workshop, retry: { workshop.lookUp() }, openSteamSetup: openSteamSetup)
                 .cardStyle()
         }
     }
@@ -383,8 +418,8 @@ struct WorkshopView: View {
     private var emptyState: some View {
         VStack(spacing: 8) {
             Image(systemName: "arrow.down.circle").font(.system(size: 48)).foregroundStyle(.secondary)
-            Text("Download video wallpapers from Steam").font(.title3)
-            Text("Paste a Workshop link or item number above. Only video wallpapers can play.")
+            Text("Download wallpapers from Steam").font(.title3)
+            Text("Paste a Workshop link or item number above. Video and scene wallpapers can play.")
                 .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
@@ -392,14 +427,14 @@ struct WorkshopView: View {
     }
 
     private func actions(for item: WorkshopItem, compact: Bool) -> some View {
-        CardActions(item: item,
-                    action: CardAction.make(item: item, state: workshop.downloads[item.id], inLibrary: workshop.isInLibrary(item.id)),
+        WorkshopCardActions(item: item,
+                    action: WorkshopCardAction.make(item: item, state: workshop.downloads[item.id], inLibrary: workshop.isInLibrary(item.id)),
                     ready: workshop.setup.canDownload, compact: compact, workshop: workshop,
                     openSteamSetup: openSteamSetup, showInLibrary: { showInLibrary(item) })
     }
 
     private func showInLibrary(_ item: WorkshopItem) {
-        if let video = model.videos.first(where: { $0.workshopID == item.id }) { model.selectedID = video.id }
+        if let video = model.videos.first(where: { $0.workshopID == item.id }) { model.focusedID = video.id }
         openLibrary()
     }
 
@@ -453,7 +488,7 @@ struct WorkshopView: View {
 
     @ViewBuilder private var browseResults: some View {
         if case .failed(let error) = workshop.listState {
-            FailureView(error: error, workshop: workshop, retry: { workshop.search() }, openSteamSetup: openSteamSetup)
+            WorkshopFailureView(error: error, workshop: workshop, retry: { workshop.search() }, openSteamSetup: openSteamSetup)
         }
         if workshop.listState == .loaded, workshop.results.isEmpty {
             Text("No video wallpapers found.").font(.callout).foregroundStyle(.secondary)
@@ -470,6 +505,8 @@ struct WorkshopView: View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 280), spacing: 16)], alignment: .leading, spacing: 16) {
             ForEach(workshop.results) { item in
                 CompactCard(item: item, actions: actions(for: item, compact: true))
+                    .contentShape(Rectangle())
+                    .onTapGesture { detail = item }
             }
         }
     }
@@ -477,106 +514,76 @@ struct WorkshopView: View {
 
 // MARK: - Steam Setup tab
 
-private enum SetupGlyph {
-    case ok, warning, neutral, busy
-
-    var symbol: String {
-        switch self {
-        case .ok: return "checkmark.circle.fill"
-        case .warning: return "exclamationmark.triangle.fill"
-        case .neutral, .busy: return "circle"
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .ok: return .green
-        case .warning: return .orange
-        case .neutral, .busy: return .secondary
-        }
-    }
-}
-
-/// One checklist card: status glyph, title, optional detail, extra content below and actions on the right.
-@MainActor
-private struct SetupRow<Extra: View, Actions: View>: View {
-    let glyph: SetupGlyph
-    let title: String
-    let detail: String?
-    let extra: Extra
-    let actions: Actions
-
-    init(glyph: SetupGlyph, title: String, detail: String? = nil,
-         @ViewBuilder extra: () -> Extra, @ViewBuilder actions: () -> Actions) {
-        self.glyph = glyph
-        self.title = title
-        self.detail = detail
-        self.extra = extra()
-        self.actions = actions()
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            if glyph == .busy {
-                ProgressView().controlSize(.small).frame(width: 20)
-            } else {
-                Image(systemName: glyph.symbol).foregroundStyle(glyph.color).frame(width: 20)
-            }
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title).font(.headline)
-                if let detail { Text(detail).font(.callout).foregroundStyle(.secondary) }
-                extra
-            }
-            Spacer(minLength: 8)
-            actions
-        }
-        .cardStyle()
-    }
-}
-
-@MainActor
-private struct CommandChip: View {
-    let command: String
-
-    var body: some View {
-        Text(command)
-            .font(.system(.callout, design: .monospaced))
-            .textSelection(.enabled)
-            .padding(6)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.15)))
-    }
-}
-
-/// Steam Setup tab: the checklist (steamcmd, Rosetta, username, login, optional API key) and the licensing note.
+/// Steam Setup tab: the wizard, then an Advanced section with the optional Web API key, a manual SteamCMD path
+/// and the sign-in check of the download path.
 @MainActor
 struct SteamSetupView: View {
     @ObservedObject var workshop: WorkshopModel
-
-    private static let loginSteps = [
-        "1. Open Terminal.",
-        "2. Run the command below.",
-        "3. Enter your password and Steam Guard code when asked.",
-        "4. Type quit, then come back and press Check Again.",
-    ]
+    @ObservedObject var setup: SteamSetupModel
+    @State private var advancedOpen = false
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 12) {
-                steamcmdRow
-                if !workshop.setup.rosettaOK { rosettaRow }
-                accountRow
-                signInRow
-                apiKeyRow
-                Text("Downloads use your own Steam account and Valve’s official SteamCMD. Workshop items belong to their creators; keep them for personal use and don’t redistribute. Live Wallpaper isn’t affiliated with Valve or Wallpaper Engine.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 12) {
+                SteamWizardView(setup: setup)
+                DisclosureGroup("Advanced", isExpanded: $advancedOpen) {
+                    advanced.padding(.top, 8)
+                }
+                .cardStyle()
             }
             .padding(24)
         }
         .onAppear { workshop.recheckSetup() }
+        .onChange(of: setup.account) { account in
+            // The download path reads the username from the Workshop model; keep both on the signed-in name.
+            if case .signedIn(let name) = account, workshop.steamUsername != name { workshop.steamUsername = name }
+        }
         .task(id: [workshop.steamUsername, workshop.steamcmdPathOverride, workshop.apiKey]) {
             try? await Task.sleep(nanoseconds: 400_000_000)
             if !Task.isCancelled { workshop.recheckSetup() }
+        }
+    }
+
+    private var advanced: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            apiKeyBlock
+            toolPathBlock
+            signInCheckBlock
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var apiKeyBlock: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Steam Web API key (optional)").font(.subheadline.weight(.semibold))
+            HStack {
+                SecureField("Web API key", text: $workshop.apiKey).textFieldStyle(.roundedBorder).frame(maxWidth: 320)
+                Link("Get a free key", destination: apiKeyPage)
+                Button("Remove") { workshop.apiKey = "" }.disabled(workshop.apiKey.isEmpty)
+            }
+            Text("Only needed to browse and search. Stored on this Mac, in this app’s preferences.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var toolPathBlock: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("SteamCMD location").font(.subheadline.weight(.semibold))
+            Text(workshop.setup.steamcmdPath ?? "Not found")
+                .font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
+            HStack {
+                Button("Choose…") { chooseSteamcmd() }
+                Button("Use automatic") { useAutomaticPath() }.disabled(workshop.steamcmdPathOverride.isEmpty)
+            }
+            Text("Only needed if you already have SteamCMD somewhere else. Live Wallpaper installs its own copy otherwise.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var signInCheckBlock: some View {
+        HStack(spacing: 12) {
+            Button("Check sign-in") { workshop.checkLogin() }.disabled(!canCheckLogin)
+            Text(loginText).font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -585,21 +592,13 @@ struct SteamSetupView: View {
         workshop.setup.steamcmdPath != nil && workshop.setup.rosettaOK && workshop.setup.usernameValid
     }
 
-    private var steamcmdRow: some View {
-        let path = workshop.setup.steamcmdPath
-        return SetupRow(glyph: path == nil ? .warning : .ok, title: path == nil ? "SteamCMD isn’t installed" : "SteamCMD found") {
-            if let path {
-                Text(path).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
-            } else {
-                HStack {
-                    CommandChip(command: workshop.brewInstallCommand)
-                    Button("Copy") { copyToPasteboard(workshop.brewInstallCommand) }
-                }
-                Link("No Homebrew? See brew.sh", destination: URL(string: "https://brew.sh")!).font(.caption)
-            }
-        } actions: {
-            Button("Choose…") { chooseSteamcmd() }
-            Button("Re-check") { workshop.recheckSetup() }
+    private var loginText: String {
+        switch workshop.setup.login {
+        case .unknown: return "Not checked yet"
+        case .checking: return "Checking…"
+        case .loggedIn: return "Signed in as \(workshop.steamUsername)"
+        case .needsLogin: return "Sign in with the steps above."
+        case .failed(let error): return error.title
         }
     }
 
@@ -612,79 +611,17 @@ struct SteamSetupView: View {
         panel.prompt = "Choose"
         if panel.runModal() == .OK, let url = panel.url {
             workshop.steamcmdPathOverride = url.path
-            workshop.recheckSetup()
+            refreshTools()
         }
     }
 
-    private var rosettaRow: some View {
-        SetupRow(glyph: .warning, title: "Rosetta is needed",
-                 detail: "SteamCMD is an Intel program. Apple silicon Macs need Rosetta installed once.") {
-            CommandChip(command: workshop.rosettaInstallCommand)
-        } actions: {
-            Button("Copy") { copyToPasteboard(workshop.rosettaInstallCommand) }
-        }
+    private func useAutomaticPath() {
+        workshop.steamcmdPathOverride = ""
+        refreshTools()
     }
 
-    private var accountRow: some View {
-        let name = workshop.steamUsername.trimmingCharacters(in: .whitespaces)
-        let glyph: SetupGlyph = name.isEmpty ? .neutral : (workshop.setup.usernameValid ? .ok : .warning)
-        return SetupRow(glyph: glyph, title: "Steam account") {
-            TextField("Steam username", text: $workshop.steamUsername).textFieldStyle(.roundedBorder).frame(maxWidth: 320)
-            Text("The account that owns Wallpaper Engine. Only the username is saved, never your password.")
-                .font(.caption).foregroundStyle(.secondary)
-            if glyph == .warning {
-                Text("Use letters, numbers, dots, dashes or underscores.").font(.caption).foregroundStyle(.orange)
-            }
-        } actions: {}
-    }
-
-    @ViewBuilder private var signInRow: some View {
-        switch workshop.setup.login {
-        case .unknown:
-            SetupRow(glyph: .neutral, title: "Not checked yet") {} actions: {
-                Button("Check Sign-in") { workshop.checkLogin() }.disabled(!canCheckLogin)
-            }
-        case .checking:
-            SetupRow(glyph: .busy, title: "Checking…") {} actions: {}
-        case .loggedIn:
-            SetupRow(glyph: .ok, title: "Signed in as \(workshop.steamUsername)") {} actions: {
-                Button("Check Again") { workshop.checkLogin() }
-            }
-        case .needsLogin:
-            SetupRow(glyph: .warning, title: "Sign in once in Terminal") {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(Self.loginSteps, id: \.self) { Text($0).font(.callout).foregroundStyle(.secondary) }
-                }
-                CommandChip(command: workshop.loginCommand)
-            } actions: {
-                VStack(alignment: .trailing) {
-                    Button("Copy Command") { copyToPasteboard(workshop.loginCommand) }
-                    Button("Open Terminal") { NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")) }
-                    Button("Check Again") { workshop.checkLogin() }.disabled(!canCheckLogin)
-                }
-            }
-        case .failed(let error):
-            SetupRow(glyph: .warning, title: error.title, detail: error.message) {} actions: {
-                VStack(alignment: .trailing) {
-                    if let fix = error.fix {
-                        FixButton(fix: fix, workshop: workshop, retry: { workshop.checkLogin() }, openSteamSetup: {})
-                    }
-                    Button("Check Again") { workshop.checkLogin() }.disabled(!canCheckLogin)
-                }
-            }
-        }
-    }
-
-    private var apiKeyRow: some View {
-        SetupRow(glyph: workshop.canBrowse ? .ok : .neutral, title: "Steam Web API key (optional)") {
-            SecureField("Web API key", text: $workshop.apiKey).textFieldStyle(.roundedBorder).frame(maxWidth: 320)
-            Text("Only needed to browse and search. Stored on this Mac, in this app’s preferences.")
-                .font(.caption).foregroundStyle(.secondary)
-        } actions: {
-            VStack(alignment: .trailing) {
-                Link("Get a free key", destination: apiKeyPage)
-                Button("Remove") { workshop.apiKey = "" }.disabled(workshop.apiKey.isEmpty)
-            }
-        }
+    private func refreshTools() {
+        workshop.recheckSetup()
+        setup.refresh()
     }
 }
