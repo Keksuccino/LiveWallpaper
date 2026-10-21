@@ -104,10 +104,10 @@ import Core
             options: .userInitiatedAllowingIdleSystemSleep, reason: "Playing live wallpaper")
         setWantsRunning(true)
         observeSystem()
-        for channel in WallpaperTarget.allCases where state.canPlay(channel) {
+        // A start for one target starts only that target; nil starts every playable one.
+        for channel in WallpaperTarget.allCases where state.canPlay(channel) && (target == nil || target == channel) {
             let items = state.items(for: channel)
-            let wanted = target == nil || target == channel ? id : nil
-            applyItem(on: channel, startingAt: items.firstIndex { $0.id == wanted } ?? selectedIndex(of: channel))
+            applyItem(on: channel, startingAt: items.firstIndex { $0.id == id } ?? selectedIndex(of: channel))
         }
         changed()
     }

@@ -144,18 +144,20 @@ struct LibraryView: View {
         HStack(spacing: 16) {
             statusLine
             Spacer()
+            // Start begins only the selected wallpaper, on the targets it is assigned to. Stop ends all playback.
+            let playingFocused = focused.map { model.isPlaying($0.id) } ?? false
             Button {
                 model.clearStatus()
-                model.toggleRunning()
+                if playingFocused { model.stop() } else if let item = focused { model.startOnly(item.id) } else { model.start() }
             } label: {
-                Label(model.isRunning ? "Stop Wallpaper" : "Start Wallpaper", systemImage: model.isRunning ? "stop.fill" : "play.fill")
+                Label(playingFocused ? "Stop Wallpaper" : "Start Wallpaper", systemImage: playingFocused ? "stop.fill" : "play.fill")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent).controlSize(.large)
-            .tint(model.isRunning ? Color.red : nil)
+            .tint(playingFocused ? Color.red : nil)
             .frame(width: 168)
             .keyboardShortcut(.return, modifiers: .command)
-            .disabled(!model.isRunning && !model.canStart)
+            .disabled(!playingFocused && focused == nil && !model.canStart)
         }
     }
 

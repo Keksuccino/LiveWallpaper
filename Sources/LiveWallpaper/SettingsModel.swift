@@ -240,6 +240,21 @@ import SceneFormat
 
     func stop() { send(.stop) }
 
+    /// Starts only `id`, on the targets it is assigned to (desktop, lock screen or both). A wallpaper that is not
+    /// assigned anywhere starts on the desktop. Scenes never go to the lock screen.
+    func startOnly(_ id: VideoItem.ID) {
+        guard let item = videos.first(where: { $0.id == id }) else { return }
+        var targets = roles(of: id)
+        if item.isScene { targets.remove(.lock) }
+        if targets.isEmpty { targets = [.desktop] }
+        play(id, target: targets.count == WallpaperTarget.allCases.count ? nil : targets.first)
+    }
+
+    /// True when `id` is what the service shows on the desktop or the lock screen right now.
+    func isPlaying(_ id: VideoItem.ID) -> Bool {
+        isRunning && (currentID(for: .desktop) == id || currentID(for: .lock) == id)
+    }
+
     func toggleRunning() {
         if isRunning { stop() } else { start() }
     }
