@@ -39,7 +39,6 @@ import SceneFormat
         }
     }
     @Published var sceneFPS: Int = LibraryState.defaultSceneFPS { didSet { persist() } }
-    @Published var sceneZoom: Double = 1.0 { didSet { persist() } }
     @Published var sceneOptions: [String: SceneOptions] = [:] { didSet { persist() } }
     @Published var power: PowerOptions = PowerOptions() { didSet { persist() } }
     @Published var muted: Bool = true {
@@ -92,7 +91,6 @@ import SceneFormat
         state.lock = lock
         state.muted = muted
         state.sceneFPS = sceneFPS
-        state.sceneZoom = sceneZoom
         state.sceneOptions = sceneOptions
         state.power = power
         state.normalize()
@@ -319,7 +317,6 @@ import SceneFormat
         sameForBoth = state.sameForBoth
         lockConfig = state.lock
         sceneFPS = state.sceneFPS
-        sceneZoom = state.sceneZoom
         sceneOptions = state.sceneOptions
         power = state.power
         muted = state.muted

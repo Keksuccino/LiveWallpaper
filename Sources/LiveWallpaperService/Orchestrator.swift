@@ -1,5 +1,4 @@
 import AppKit
-import IOKit.ps
 import Core
 
 // Copied from LiveWallpaperAgent/Orchestrator.swift and adapted for the service: the desktop is drawn by a
@@ -43,7 +42,6 @@ import Core
     private var rotationTimers: [WallpaperTarget: Timer] = [:]
     private var activity: NSObjectProtocol?
     private var lockApplies = 0
-    private var powerTimer: Timer?
     private var showDepth = 0  // > 0 while show() runs: a render service may report a failure synchronously
     private var screenTask: Task<Void, Never>?
     private var screenObserver: NSObjectProtocol?
@@ -190,7 +188,7 @@ import Core
             video.setMuted(fresh.muted)
             scene.setMuted(fresh.muted)
         }
-        if old.sceneFPS != fresh.sceneFPS || old.sceneZoom != fresh.sceneZoom { scene.apply(renderOptions) }
+        scene.update(fresh)  // diffs itself; no restart
         guard isRunning else { return }
         guard hasPlayableTarget else {
             halt()
@@ -302,7 +300,7 @@ import Core
             video.setPaused(isPaused)
         case (.desktop, true):
             // The video windows stay up (previous wallpaper) until the scene renderer shows its first frame.
-            scene.apply(renderOptions)
+            scene.update(state)
             scene.start(item)
             if scene.item?.id == item.id { scene.setPaused(isPaused) }
         case (.lock, false):
@@ -310,7 +308,6 @@ import Core
         case (.lock, true):
             showLockScene(item)
         }
-        syncPowerTimer()
     }
 
     // Stops one channel and gives its target back to Apple.
@@ -323,34 +320,8 @@ import Core
         case .desktop:
             video.stop()
             scene.stop()
-            syncPowerTimer()
-        case .lock:
+            case .lock:
             lock.restore()
-        }
-    }
-
-    // MARK: Power (battery rules live here, not in the render services)
-
-    /// The user's scene settings; on battery the frame rate is at most 24, because a heavy scene keeps the GPU busy.
-    private var renderOptions: RenderOptions {
-        RenderOptions(fps: PowerSupply.isBattery ? min(state.sceneFPS, 24) : state.sceneFPS, zoom: state.sceneZoom)
-    }
-
-    // Polled while a scene is on the desktop: the power source has no cheap change notification here.
-    private func syncPowerTimer() {
-        if scene.item != nil, powerTimer == nil {
-            let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    guard let self, self.scene.item != nil, self.scene.options != self.renderOptions else { return }
-                    self.scene.apply(self.renderOptions)
-                }
-            }
-            timer.tolerance = 10
-            RunLoop.main.add(timer, forMode: .common)
-            powerTimer = timer
-        } else if scene.item == nil {
-            powerTimer?.invalidate()
-            powerTimer = nil
         }
     }
 
@@ -449,7 +420,6 @@ import Core
         isRunning = false
         isPaused = false
         current.removeAll()
-        syncPowerTimer()
     }
 
     // An explicit or automatic stop: back to Apple's wallpapers, and nothing to resume at the next launch.
@@ -461,14 +431,5 @@ import Core
 
     private func setWantsRunning(_ wants: Bool) {
         AgentRecordStore.update { $0.wantsRunning = wants }
-    }
-}
-
-// Battery or mains.
-private enum PowerSupply {
-    static var isBattery: Bool {
-        let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue()
-        guard let source = IOPSGetProvidingPowerSourceType(snapshot)?.takeUnretainedValue() else { return false }
-        return (source as String) == kIOPSBatteryPowerValue
     }
 }
