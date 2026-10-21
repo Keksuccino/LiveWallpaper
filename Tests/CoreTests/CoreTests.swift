@@ -64,7 +64,42 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(state.targets(of: b.id), [.lock])
         state.assign(b.id, to: [.desktop, .lock])
         XCTAssertEqual(state.targets(of: b.id), [.desktop, .lock])
-        XCTAssertFalse(state.sameForBoth, "assigning to both leaves the switch alone")
+        XCTAssertTrue(state.sameForBoth, "assigning to both makes the lock screen follow the desktop again")
+    }
+
+    func testScenesNeverReachTheLockScreen() {
+        let video = VideoItem(path: "/v.mp4"), other = VideoItem(path: "/w.mp4")
+        let scene = VideoItem(path: "/s/scene.pkg", scene: SceneInfo(support: .partial))
+        var state = LibraryState(videos: [video, other, scene], desktop: TargetConfig(selectedID: video.id))
+        state.normalize()
+        XCTAssertEqual(state.items(for: .lock).map(\.id), [video.id, other.id])
+        XCTAssertEqual(state.items(for: .desktop).count, 3)
+
+        var both = state
+        both.assign(scene.id, to: [.desktop, .lock])
+        XCTAssertEqual(both.desktop.selectedID, scene.id)
+        XCTAssertEqual(both.config(for: .lock).selectedID, video.id, "the lock screen keeps its own video")
+        XCTAssertEqual(both.targets(of: scene.id), [.desktop])
+
+        var lockOnly = state
+        lockOnly.assign(scene.id, to: [.lock])
+        XCTAssertEqual(lockOnly, state, "a scene cannot be assigned to the lock screen alone")
+
+        var selected = state
+        selected.selectedID = scene.id   // the phase-2 accessor must not copy a scene onto the lock screen
+        XCTAssertEqual(selected.lock.selectedID, video.id)
+        selected.normalize()
+        XCTAssertEqual(selected.lock.selectedID, video.id)
+    }
+
+    func testSceneFrameRateDefaultsClampsAndRoundTrips() throws {
+        XCTAssertEqual(LibraryState().sceneFPS, 30)
+        XCTAssertEqual(LibraryState(sceneFPS: 1000).sceneFPS, 120)
+        XCTAssertEqual(LibraryState(sceneFPS: 1).sceneFPS, 10)
+        let back = try JSONDecoder().decode(LibraryState.self, from: JSONEncoder().encode(LibraryState(sceneFPS: 45)))
+        XCTAssertEqual(back.sceneFPS, 45)
+        let old = try decode(#"{"schema":2,"revision":1,"videos":[],"sameForBoth":true}"#)
+        XCTAssertEqual(old.sceneFPS, 30, "a state.json from before the setting exists defaults to 30")
     }
 
     func testSameForBothMirrorsEverythingButEnabled() {
