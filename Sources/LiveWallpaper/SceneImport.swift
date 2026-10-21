@@ -133,6 +133,9 @@ enum SceneImporter {
                   analysisRevision: SceneAnalysis.revision)
     }
 
+    /// The scene renderer won't start any scene without these, so the UI asks for them while they are missing.
+    static var hasSharedAssets: Bool { sharedAssets() != nil }
+
     /// The user's own copy of Wallpaper Engine's shared files, when they have fetched it.
     private static func sharedAssets() -> URL? {
         let folder = AppPaths.sharedAssetsDirectory

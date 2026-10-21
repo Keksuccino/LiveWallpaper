@@ -736,7 +736,10 @@ fileprivate struct SceneNotes: View {
             ForEach(Array(info.notes.enumerated()), id: \.offset) { entry in
                 Text("• " + entry.element).font(.callout).foregroundStyle(.secondary)
             }
-            if info.needsSharedAssets {
+            if !SceneImporter.hasSharedAssets {
+                Text("• Scenes need Wallpaper Engine’s shared files to play.").font(.callout).foregroundStyle(.secondary)
+            }
+            if info.needsSharedAssets || !SceneImporter.hasSharedAssets {
                 Button("Get Wallpaper Engine’s shared files", action: openSteamSetup).buttonStyle(.link)
             }
         }
