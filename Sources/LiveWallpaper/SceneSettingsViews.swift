@@ -74,7 +74,13 @@ struct SceneSettingsCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Scene settings").font(.headline)
+            HStack {
+                Text("Scene settings").font(.headline)
+                Spacer()
+                Button("Reset", action: reset)
+                    .disabled(isDefault)
+                    .help("Put every setting of this scene back to its default.")
+            }
             HStack {
                 Text("Frame rate"); Spacer()
                 Picker("Frame rate", selection: binding(\.fps)) {
@@ -121,6 +127,49 @@ struct SceneSettingsCard: View {
         let loaded = await Task.detached { SceneProperty.load(from: url) }.value
         ScenePropertyCache.cache[item.id] = loaded
         properties = loaded
+    }
+
+    // MARK: Reset
+
+    /// The scene's own default for a property (project.json "value"), as the value type the renderer takes.
+    private func defaultValue(_ p: SceneProperty) -> ScenePropertyValue? {
+        guard let d = projectDefault(p) else { return nil }
+        switch p.kind {
+        case .bool:
+            if let b = d as? Bool { return .bool(b) }
+            return (d as? NSNumber).map { .bool($0.boolValue) }
+        case .slider:
+            return (d as? NSNumber).map { .number($0.doubleValue) }
+        case .color:
+            guard let s = d as? String else { return nil }
+            let c = s.split(separator: " ").compactMap { Double($0) }
+            return c.count >= 3 ? .color(red: c[0], green: c[1], blue: c[2]) : nil
+        case .text:
+            return (d as? String).map { .string($0) }
+        case .combo:
+            if let n = d as? NSNumber { return .number(n.doubleValue) }
+            return (d as? String).map { .string($0) }
+        }
+    }
+
+    /// True when nothing differs from the defaults (properties count as default when they equal the scene's own).
+    private var isDefault: Bool {
+        var base = options
+        base.properties = [:]
+        guard base == .standard else { return false }
+        return properties.allSatisfy { p in options.properties[p.key].map { $0 == defaultValue(p) } ?? true }
+    }
+
+    /// Every setting back to its default. Overridden properties get their default written explicitly: dropping the
+    /// key would leave the old value in the renderer until the scene restarts.
+    private func reset() {
+        let overridden = options.properties
+        model.updateSceneOptions(item.id) { o in
+            o = .standard
+            for p in properties where overridden[p.key] != nil {
+                if let d = defaultValue(p) { o.properties[p.key] = d }
+            }
+        }
     }
 
     // MARK: Property rows
