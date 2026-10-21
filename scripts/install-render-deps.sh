@@ -16,6 +16,19 @@ export HOMEBREW_NO_ENV_HINTS=1
 
 PREFIX="$(brew --prefix)"
 
+# The renderer's C++ uses std::jthread: libc++ has it from LLVM 18 (behind -fexperimental-library) and
+# unguarded from 19. Xcode 15's libc++ (macOS 14 runners) does not have it at all, so fail fast with a
+# readable message instead of a CMake error 200 lines into the log.
+SDK="$(xcrun --sdk macosx --show-sdk-path)"
+LIBCPP_CONFIG="$SDK/usr/include/c++/v1/__config"
+if [[ -f "$LIBCPP_CONFIG" ]]; then
+  LIBCPP_VERSION="$(sed -n 's/^# *define _LIBCPP_VERSION //p' "$LIBCPP_CONFIG" | head -1)"
+  if [[ -n "$LIBCPP_VERSION" && "$LIBCPP_VERSION" -lt 190000 ]]; then
+    echo "::error::libc++ $LIBCPP_VERSION is too old (from $(xcode-select -p)); the renderer needs libc++ 19+ for std::jthread. Use Xcode 26 or newer."
+    exit 1
+  fi
+fi
+
 # Everything Package.swift links (-lvulkan, -llz4, -lfreetype, -lav*, -lqjs, -lglslang, -lSPIRV) plus the
 # cmake/pkgconf/ninja toolchain build.rs needs.
 PACKAGES=(
@@ -52,11 +65,11 @@ command -v cargo >/dev/null 2>&1 || {
   exit 1
 }
 # RenderService/rust-toolchain.toml pins nightly + aarch64-apple-darwin + rust-src. Install it here so a broken
-# rustup fails with this annotation instead of deep inside cargo.
+# rustup fails with this annotation instead of deep inside cargo. rustfmt is not used by the compiler but the
+# renderer's build script invokes it; without it the build logs an "Internal rustfmt error".
 TOOLCHAIN="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' "$ROOT/RenderService/rust-toolchain.toml")"
-if ! rustup toolchain list 2>/dev/null | grep -q "^${TOOLCHAIN}-"; then
-  echo "--- installing Rust toolchain $TOOLCHAIN ---"
-  rustup toolchain install "$TOOLCHAIN" --profile minimal --component rust-src --target aarch64-apple-darwin
-fi
+echo "--- ensuring Rust toolchain $TOOLCHAIN ---"
+rustup toolchain install "$TOOLCHAIN" --profile minimal \
+  --component rust-src --component rustfmt --target aarch64-apple-darwin
 echo "cargo: $(command -v cargo) ($(cargo --version))"
 echo "pkg-config: $PREFIX/bin/pkg-config ($("$PREFIX/bin/pkg-config" --version 2>/dev/null || true))"

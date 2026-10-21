@@ -24,9 +24,10 @@ permissions:
 
 jobs:
   dmg:
-    # Apple silicon runner: Homebrew lives in /opt/homebrew (Package.swift hardcodes it for linking) and the
-    # Rust renderer is built for aarch64-apple-darwin only.
-    runs-on: macos-14
+    # macos-26 (Xcode 26 / libc++ 19+) is required: the renderer's C++ uses std::jthread, missing from the
+    # libc++ that ships with macos-14's Xcode 15. Homebrew is at /opt/homebrew (Package.swift links from there)
+    # and the Rust renderer is built for aarch64-apple-darwin only.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
 

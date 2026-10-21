@@ -9,10 +9,11 @@ permissions:
 
 jobs:
   build:
-    # One runner: the renderer is arm64-only (RenderService/rust-toolchain.toml targets aarch64-apple-darwin,
-    # and the Homebrew libraries it links are arm64), so macos-latest (also arm64) would only build it twice.
-    name: build (macos-14)
-    runs-on: macos-14
+    # One arm64 runner. macos-26 is required, not just preferred: the renderer's C++ uses std::jthread, which
+    # only exists from libc++ 18 (ungated in 19). macos-14 ships Xcode 15.4/libc++ 16 and cannot compile it,
+    # and those images are retired on 2026-11-02.
+    name: build (macos-26)
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
 
@@ -42,11 +43,11 @@ jobs:
         run: scripts/verify-bundle.sh build/LiveWallpaper.app
 
       - name: Zip app bundle
-        run: ditto -c -k --keepParent build/LiveWallpaper.app LiveWallpaper-macos-14.zip
+        run: ditto -c -k --keepParent build/LiveWallpaper.app LiveWallpaper-macos-26.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LiveWallpaper-macos-14
-          path: LiveWallpaper-macos-14.zip
+          name: LiveWallpaper-macos-26
+          path: LiveWallpaper-macos-26.zip
           if-no-files-found: error
