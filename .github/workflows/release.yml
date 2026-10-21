@@ -8,7 +8,6 @@ name: release
 on:
   push:
     tags: ['v*']
-    branches: [feat-pkg-renderer]   # TEMPORARY: dry runs while the renderer build is brought up on CI
   workflow_dispatch:
     inputs:
       version:
