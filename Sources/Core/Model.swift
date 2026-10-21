@@ -167,6 +167,8 @@ public struct LibraryState: Codable, Equatable, Sendable {
     public var sameForBoth: Bool      // default true: the lock screen follows the desktop config (except `enabled`)
     public var desktop: TargetConfig
     public var lock: TargetConfig     // ignored apart from `enabled` while sameForBoth
+    public var sceneOptions: [String: SceneOptions] = [:]   // per scene, keyed by VideoItem.id.uuidString
+    public var power: PowerOptions = PowerOptions()           // global scene settings
 
     public init(schema: Int = LibraryState.currentSchema, revision: Int = 0, videos: [VideoItem] = [],
                 muted: Bool = true, sceneFPS: Int = LibraryState.defaultSceneFPS, sceneZoom: Double = 1.0, sameForBoth: Bool = true,
@@ -189,7 +191,7 @@ public struct LibraryState: Codable, Equatable, Sendable {
     // MARK: Codable with v1 migration (schema 1 files have no desktop/lock sections)
 
     private enum CodingKeys: String, CodingKey {
-        case schema, revision, videos, muted, sceneFPS, sceneZoom, sameForBoth, desktop, lock
+        case schema, revision, videos, muted, sceneFPS, sceneZoom, sameForBoth, desktop, lock, sceneOptions, power
         // schema 1 only
         case selectedID, rotateEnabled, intervalValue, intervalUnit, applyToDesktop, applyToLockScreen
     }
@@ -202,6 +204,8 @@ public struct LibraryState: Codable, Equatable, Sendable {
         schema = LibraryState.currentSchema
         sceneFPS = LibraryState.clampedSceneFPS(try c.decodeIfPresent(Int.self, forKey: .sceneFPS) ?? Self.defaultSceneFPS)
         sceneZoom = LibraryState.clampedSceneZoom(try c.decodeIfPresent(Double.self, forKey: .sceneZoom) ?? 1.0)
+        sceneOptions = try c.decodeIfPresent([String: SceneOptions].self, forKey: .sceneOptions) ?? [:]
+        power = try c.decodeIfPresent(PowerOptions.self, forKey: .power) ?? PowerOptions()
         if diskSchema >= 2 || c.contains(.desktop) {
             muted = try c.decodeIfPresent(Bool.self, forKey: .muted) ?? true
             sameForBoth = try c.decodeIfPresent(Bool.self, forKey: .sameForBoth) ?? true
@@ -235,6 +239,8 @@ public struct LibraryState: Codable, Equatable, Sendable {
         try c.encode(muted, forKey: .muted)
         try c.encode(sceneFPS, forKey: .sceneFPS)
         try c.encode(sceneZoom, forKey: .sceneZoom)
+        try c.encode(sceneOptions, forKey: .sceneOptions)
+        try c.encode(power, forKey: .power)
         try c.encode(sameForBoth, forKey: .sameForBoth)
         try c.encode(desktop, forKey: .desktop)
         try c.encode(lock, forKey: .lock)

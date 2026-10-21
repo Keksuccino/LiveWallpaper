@@ -117,6 +117,7 @@ struct LibraryView: View {
                 VStack(spacing: 16) {
                     ItemPreviewPane(item: focused, broken: focused.map { isBroken($0) } ?? false, openSteamSetup: openSteamSetup)
                     selectionBar
+                    if let item = focused, item.isScene { SceneSettingsCard(model: model, item: item) }
                     LibrarySettingsCard(model: model)
                 }
             }
@@ -515,6 +516,9 @@ fileprivate struct LibrarySettingsCard: View {
                 .labelsHidden().fixedSize()
             }
             .help("Zoom of scene wallpapers. Below 100% shows more of the scene; the edges may turn black.")
+            Divider().padding(.vertical, 4)
+            ScenePowerRows(model: model)
+            Divider().padding(.vertical, 4)
             Toggle("Mute sound", isOn: $model.muted)
                 .help("Videos play silently. The lock screen never has sound.")
             lockNote

@@ -40,6 +40,8 @@ import SceneFormat
     }
     @Published var sceneFPS: Int = LibraryState.defaultSceneFPS { didSet { persist() } }
     @Published var sceneZoom: Double = 1.0 { didSet { persist() } }
+    @Published var sceneOptions: [String: SceneOptions] = [:] { didSet { persist() } }
+    @Published var power: PowerOptions = PowerOptions() { didSet { persist() } }
     @Published var muted: Bool = true {
         didSet {
             guard !writesSuspended, muted != oldValue else { return }
@@ -91,8 +93,19 @@ import SceneFormat
         state.muted = muted
         state.sceneFPS = sceneFPS
         state.sceneZoom = sceneZoom
+        state.sceneOptions = sceneOptions
+        state.power = power
         state.normalize()
         return state
+    }
+
+    func sceneOptions(for id: UUID) -> SceneOptions { sceneOptions[id.uuidString] ?? SceneOptions() }
+
+    /// Edits one scene's options and commits them to the service.
+    func updateSceneOptions(_ id: UUID, _ change: (inout SceneOptions) -> Void) {
+        var options = sceneOptions(for: id)
+        change(&options)
+        sceneOptions[id.uuidString] = options
     }
 
     /// Roles of an item for the badges: the enabled targets it is currently selected for.
@@ -307,6 +320,8 @@ import SceneFormat
         lockConfig = state.lock
         sceneFPS = state.sceneFPS
         sceneZoom = state.sceneZoom
+        sceneOptions = state.sceneOptions
+        power = state.power
         muted = state.muted
     }
 
