@@ -1,0 +1,2889 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 11565a1..84cb7a1 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,706 +1,151 @@
+-cmake_minimum_required(VERSION 3.12)
+-project(linux-wallpaperengine)
+-
+-# prevent installing to /usr by default so we don't bork anything
+-if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+-    set(CMAKE_INSTALL_PREFIX "/opt/${PROJECT_NAME}" CACHE PATH "..." FORCE)
+-endif()
+-
+-set_property(GLOBAL PROPERTY OS_FOLDERS ON)
++cmake_minimum_required(VERSION 3.16)
++project(wpengine-macos CXX C OBJCXX)
+ set(CMAKE_CXX_STANDARD 20)
+-set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMakeModules")
+-set(OpenGL_GL_PREFERENCE "LEGACY")
+-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+-
+-# puts the app in demomode, which records a 5 second webm video and quits
+-if(NOT DEMOMODE)
+-    set(DEMOMODE 0)
+-endif()
+-
+-# if you're developing you might find this debug option useful for shader output, although RenderDoc is encouraged
+-if(NOT ERRORONLY)
+-    set(ERRORONLY 0)
+-endif()
+-
+-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-narrowing")
+-
+-find_package(X11)
+-find_package(OpenGL REQUIRED)
++set(CMAKE_CXX_STANDARD_REQUIRED ON)
++set(CMAKE_POSITION_INDEPENDENT_CODE ON)
++set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-narrowing -Wno-deprecated-declarations")
++find_package(PkgConfig REQUIRED)
++find_package(glfw3 REQUIRED)
+ find_package(GLEW REQUIRED)
+-
+-find_package(DBus REQUIRED)
+-find_package(GLUT REQUIRED)
+ find_package(ZLIB REQUIRED)
+-find_package(SDL2 REQUIRED)
+-find_package(MPV REQUIRED)
+-find_package(LZ4 REQUIRED)
+-find_package(FFMPEG REQUIRED)
+-find_package(PulseAudio REQUIRED)
+ find_package(Freetype REQUIRED)
++pkg_check_modules(LZ4 REQUIRED liblz4)
++pkg_check_modules(SDL2 REQUIRED sdl2)
++pkg_check_modules(MPV REQUIRED mpv)
++pkg_check_modules(FFMPEG REQUIRED libavcodec libavformat libavutil libswscale libswresample)
++find_library(OPENGL_FW OpenGL)
++find_library(COCOA_FW Cocoa)
++find_library(IOKIT_FW IOKit)
+ 
+ set(ENABLE_OPT OFF)
+ set(SPIRV_CROSS_FORCE_PIC ON)
+-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+-set(KISSFFT_TEST OFF)
+-set(KISSFFT_TOOLS OFF)
+-
+-# Download CEF of specified version for current platform
+-# Specify the CEF distribution version.
+-set(CEF_VERSION "135.0.17+gcbc1c5b+chromium-135.0.7049.52")
+-# CEF_DISTRIBUTION_TYPE default value should be different based on the type of build
+-# debug builds should use standard versions
+-# while release version can do with the minimal version
+-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+-    set(default_cef_dist "standard")
+-else()
+-    set(default_cef_dist "minimal")
+-endif()
+-
+-set(CEF_DISTRIBUTION_TYPE "${default_cef_dist}" CACHE STRING "CEF distribution variant")
+-set_property(CACHE CEF_DISTRIBUTION_TYPE PROPERTY STRINGS "minimal" "standard")
+-# Determine the platform.
+-if("${CMAKE_SYSTEM_NAME}" STREQUAL "Darwin")
+-    if("${PROJECT_ARCH}" STREQUAL "arm64")
+-        set(CEF_PLATFORM "macosarm64")
+-        set(CEF_ARCH_DETECTION "${PROJECT_ARCH}")
+-    elseif("${PROJECT_ARCH}" STREQUAL "x86_64")
+-        set(CEF_PLATFORM "macosx64")
+-        set(CEF_ARCH_DETECTION "${PROJECT_ARCH}")
+-    elseif("${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "arm64")
+-        set(PROJECT_ARCH "arm64")
+-        set(CEF_PLATFORM "macosarm64")
+-        set(CEF_ARCH_DETECTION "${CMAKE_HOST_SYSTEM_PROCESSOR}")
+-    else()
+-        set(PROJECT_ARCH "x86_64")
+-        set(CEF_PLATFORM "macosx64")
+-        set(CEF_ARCH_DETECTION "Default for Darwin")
+-    endif()
+-elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
+-    if("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "arm")
+-        set(CEF_PLATFORM "linuxarm")
+-        set(CEF_ARCH_DETECTION "${CMAKE_SYSTEM_PROCESSOR}")
+-    elseif("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "arm64")
+-        set(PROJECT_ARCH "arm64")
+-        set(CEF_PLATFORM "linuxarm64")
+-        set(CEF_ARCH_DETECTION "${CMAKE_SYSTEM_PROCESSOR}")
+-    elseif("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "aarch64")
+-        set(PROJECT_ARCH "arm64")
+-        set(CEF_PLATFORM "linuxarm64")
+-        set(CEF_ARCH_DETECTION "${CMAKE_SYSTEM_PROCESSOR}")
+-    elseif(CMAKE_SIZEOF_VOID_P MATCHES 8)
+-        set(CEF_PLATFORM "linux64")
+-        set(CEF_ARCH_DETECTION "Based on void size ${CMAKE_SIZEOF_VOID_P} (${CMAKE_SYSTEM_PROCESSOR})")
+-    else()
+-        message(FATAL_ERROR "Linux x86 32-bit builds are discontinued.")
+-    endif()
+-elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
+-    if("${CMAKE_CXX_COMPILER_ARCHITECTURE_ID}" STREQUAL "ARM64")
+-        set(CEF_PLATFORM "windowsarm64")
+-        set(CEF_ARCH_DETECTION "${CMAKE_CXX_COMPILER_ARCHITECTURE_ID}")
+-    elseif(CMAKE_SIZEOF_VOID_P MATCHES 8)
+-        set(CEF_PLATFORM "windows64")
+-        set(CEF_ARCH_DETECTION "Based on void size ${CMAKE_SIZEOF_VOID_P}")
+-    else()
+-        set(CEF_PLATFORM "windows32")
+-        set(CEF_ARCH_DETECTION "Default for Windows")
+-    endif()
+-endif()
+-
+-if(CEF_DISTRIBUTION_TYPE AND NOT CEF_DISTRIBUTION_TYPE STREQUAL "standard")
+-    set(CEF_PLATFORM "${CEF_PLATFORM}_${CEF_DISTRIBUTION_TYPE}")
+-endif()
+-message(STATUS "Using CEF for ${CMAKE_SYSTEM_NAME} - ${CEF_PLATFORM} (${CEF_ARCH_DETECTION})")
+-include(DownloadCEF)
+-DownloadCEF("${CEF_PLATFORM}" "${CEF_VERSION}" "${CMAKE_CURRENT_BINARY_DIR}/cef")
+-
+-# add cef's cmake files to the lookup so we can use those directly
+-list(APPEND CMAKE_MODULE_PATH "${CEF_ROOT}/cmake")
+-
+-find_package(CEF REQUIRED)
+-
+-# remove some switches that forbid us from using things that are commonplace in our codebase
+-list(REMOVE_ITEM CEF_CXX_COMPILER_FLAGS -fno-exceptions)
+-list(REMOVE_ITEM CEF_CXX_COMPILER_FLAGS -fno-rtti)
+-list(REMOVE_ITEM CEF_CXX_COMPILER_FLAGS -std=c++17)
+-list(REMOVE_ITEM CEF_COMPILER_FLAGS -fvisibility=hidden)
+-list(REMOVE_ITEM CEF_COMPILER_FLAGS -fvisibility-inlines-hidden)
+-list(APPEND CEF_CXX_COMPILER_FLAGS -std=c++20)
+-list(APPEND CEF_EXE_LINKER_FLAGS -rdynamic)
+-# remove the vulkan library from the files to copy so it doesn't fail after removing it
+-list(REMOVE_ITEM CEF_BINARY_FILES libvulkan.so.1)
+-
+-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/output)
+-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib)
+-set(TARGET_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/output)
+-
+-# RPATH configuration: use build directories during development, but $ORIGIN after installation
+-# NOTE: \$ORIGIN must be escaped because CMake treats $VAR as variable expansion.
+-# IMPORTANT: This must be set BEFORE any add_executable()/add_library() calls in this directory.
+-set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
+-set(CMAKE_INSTALL_RPATH "\$ORIGIN;\$ORIGIN/lib;\$ORIGIN/lib64")
+-set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE)
+-
+-add_subdirectory(${CEF_LIBCEF_DLL_WRAPPER_PATH} libcef_dll_wrapper)
++set(KISSFFT_TEST OFF CACHE BOOL "" FORCE)
++set(KISSFFT_TOOLS OFF CACHE BOOL "" FORCE)
++set(KISSFFT_STATIC ON CACHE BOOL "" FORCE)
++set(QJS_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+ add_subdirectory(src/External/glslang-WallpaperEngine glslang)
+ add_subdirectory(src/External/SPIRV-Cross-WallpaperEngine spirv-cross)
+ add_subdirectory(src/External/kissfft kissfft)
+ add_subdirectory(src/External/argparse argparse)
+-set(QJS_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+ add_subdirectory(src/External/quickjs quickjs)
+-if(BUILD_TESTING)
+-    add_subdirectory(src/External/Catch2)
+-endif()
+-# try to enable wayland builds when possible
+-pkg_check_modules(WAYLAND_SUPPORT wayland-cursor wayland-protocols egl wayland-egl)
+-
+-if(WAYLAND_SUPPORT_FOUND)
+-    find_program(WaylandScanner NAMES wayland-scanner)
+-    message(STATUS "Found WaylandScanner at ${WaylandScanner}")
+-    execute_process(
+-        COMMAND pkg-config --variable=pkgdatadir wayland-protocols
+-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+-        OUTPUT_VARIABLE WAYLAND_PROTOCOLS_DIR
+-        OUTPUT_STRIP_TRAILING_WHITESPACE)
+-    message(STATUS "Found wayland-protocols at ${WAYLAND_PROTOCOLS_DIR}")
+-    set(WAYLAND_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/wayland)
+ 
+-    file(MAKE_DIRECTORY ${WAYLAND_OUTPUT_DIR})
+-
+-    message(STATUS "Building protocols...")
+-    add_custom_command(OUTPUT ${WAYLAND_OUTPUT_DIR}/wlr-foreign-toplevel-management-unstable-v1-protocol.h
+-        COMMAND ${WaylandScanner} client-header ${CMAKE_CURRENT_SOURCE_DIR}/protocols/wlr-foreign-toplevel-management-unstable-v1.xml ${WAYLAND_OUTPUT_DIR}/wlr-foreign-toplevel-management-unstable-v1-protocol.h)
+-    add_custom_command(OUTPUT ${WAYLAND_OUTPUT_DIR}/wlr-foreign-toplevel-management-unstable-v1-protocol.c
+-        COMMAND ${WaylandScanner} private-code ${CMAKE_CURRENT_SOURCE_DIR}/protocols/wlr-foreign-toplevel-management-unstable-v1.xml ${WAYLAND_OUTPUT_DIR}/wlr-foreign-toplevel-management-unstable-v1-protocol.c)
+-    add_custom_command(OUTPUT ${WAYLAND_OUTPUT_DIR}/wlr-layer-shell-unstable-v1-protocol.h
+-        COMMAND ${WaylandScanner} client-header ${CMAKE_CURRENT_SOURCE_DIR}/protocols/wlr-layer-shell-unstable-v1.xml ${WAYLAND_OUTPUT_DIR}/wlr-layer-shell-unstable-v1-protocol.h)
+-    add_custom_command(OUTPUT ${WAYLAND_OUTPUT_DIR}/wlr-layer-shell-unstable-v1-protocol.c
+-        COMMAND ${WaylandScanner} private-code ${CMAKE_CURRENT_SOURCE_DIR}/protocols/wlr-layer-shell-unstable-v1.xml ${WAYLAND_OUTPUT_DIR}/wlr-layer-shell-unstable-v1-protocol.c)
+-    add_custom_command(OUTPUT ${WAYLAND_OUTPUT_DIR}/xdg-shell-protocol.h
+-        COMMAND ${WaylandScanner} client-header ${WAYLAND_PROTOCOLS_DIR}/stable/xdg-shell/xdg-shell.xml ${WAYLAND_OUTPUT_DIR}/xdg-shell-protocol.h)
+-    add_custom_command(OUTPUT ${WAYLAND_OUTPUT_DIR}/xdg-shell-protocol.c
+-        COMMAND ${WaylandScanner} private-code ${WAYLAND_PROTOCOLS_DIR}/stable/xdg-shell/xdg-shell.xml ${WAYLAND_OUTPUT_DIR}/xdg-shell-protocol.c)
+-    add_custom_command(OUTPUT ${WAYLAND_OUTPUT_DIR}/xdg-output-unstable-v1-protocol.h
+-        COMMAND ${WaylandScanner} client-header ${WAYLAND_PROTOCOLS_DIR}/unstable/xdg-output/xdg-output-unstable-v1.xml ${WAYLAND_OUTPUT_DIR}/xdg-output-unstable-v1-protocol.h)
+-    add_custom_command(OUTPUT ${WAYLAND_OUTPUT_DIR}/xdg-output-unstable-v1-protocol.c
+-        COMMAND ${WaylandScanner} private-code ${WAYLAND_PROTOCOLS_DIR}/unstable/xdg-output/xdg-output-unstable-v1.xml ${WAYLAND_OUTPUT_DIR}/xdg-output-unstable-v1-protocol.c)
+-
+-    include_directories(${WAYLAND_SUPPORT_INCLUDE_DIRS})
+-    include_directories(${WAYLAND_OUTPUT_DIR})
+-    set(WAYLAND_LIBRARIES
+-        pthread
+-        wayland-cursor
+-        wayland-client
+-        wayland-egl
+-        ${OPENGL_egl_LIBRARY})
+-    set(WAYLAND_SOURCES
+-        src/WallpaperEngine/Render/Drivers/WaylandOpenGLDriver.h
+-        src/WallpaperEngine/Render/Drivers/WaylandOpenGLDriver.cpp
+-        src/WallpaperEngine/Render/Drivers/Detectors/WaylandFullScreenDetector.cpp
+-        src/WallpaperEngine/Render/Drivers/Detectors/WaylandFullScreenDetector.h
+-        src/WallpaperEngine/Render/Drivers/Output/WaylandOutput.cpp
+-        src/WallpaperEngine/Render/Drivers/Output/WaylandOutput.h
+-        src/WallpaperEngine/Render/Drivers/Output/WaylandOutputViewport.cpp
+-        src/WallpaperEngine/Render/Drivers/Output/WaylandOutputViewport.h
+-        src/WallpaperEngine/Input/Drivers/WaylandMouseInput.cpp
+-        src/WallpaperEngine/Input/Drivers/WaylandMouseInput.h
+-        ${WAYLAND_OUTPUT_DIR}/xdg-shell-protocol.c
+-        ${WAYLAND_OUTPUT_DIR}/xdg-shell-protocol.h
+-        ${WAYLAND_OUTPUT_DIR}/wlr-foreign-toplevel-management-unstable-v1-protocol.c
+-        ${WAYLAND_OUTPUT_DIR}/wlr-foreign-toplevel-management-unstable-v1-protocol.h
+-        ${WAYLAND_OUTPUT_DIR}/wlr-layer-shell-unstable-v1-protocol.c
+-        ${WAYLAND_OUTPUT_DIR}/wlr-layer-shell-unstable-v1-protocol.h
+-        ${WAYLAND_OUTPUT_DIR}/xdg-output-unstable-v1-protocol.c
+-        ${WAYLAND_OUTPUT_DIR}/xdg-output-unstable-v1-protocol.h)
+-endif()
+-
+-if(X11_FOUND)
+-    if(NOT X11_Xrandr_FOUND)
+-        message(WARNING "X11 support disabled. Xrandr package is missing")
+-        set(X11_SUPPORT_FOUND FALSE)
+-    elseif(NOT X11_xf86vmode_FOUND)
+-        message(WARNING "X11 support disabled. Xxf86vm package is missing")
+-        set(X11_SUPPORT_FOUND FALSE)
+-    else()
+-        message("X11 support enabled")
+-        set(X11_SUPPORT_FOUND TRUE)
+-    endif()
+-endif()
+-
+-if(X11_SUPPORT_FOUND)
+-    include_directories(${X11_INCLUDE_DIR} ${XRANDR_INCLUDE_DIR})
+-
+-    set(X11_LIBRARIES
+-        ${X11_LIBRARIES}
+-        ${X11_Xrandr_LIB})
+-    set(X11_SOURCES
+-        src/WallpaperEngine/Render/Drivers/Output/X11Output.cpp
+-        src/WallpaperEngine/Render/Drivers/Output/X11Output.h
+-        src/WallpaperEngine/Render/Drivers/Detectors/X11FullScreenDetector.cpp
+-        src/WallpaperEngine/Render/Drivers/Detectors/X11FullScreenDetector.h)
+-    SET(X11_INCLUDES
+-        ${X11_INCLUDE_DIR}
+-        ${XRANDR_INCLUDE_DIR})
+-    set(CMAKE_REQUIRED_LIBRARIES ${X11_LIBRARIES})
+-endif()
+-
+-if(DEMOMODE)
+-    set(DEMOMODE_SOURCES
+-        src/recording.cpp
+-        src/recording.h)
+-    message(WARNING "Enabling demo mode will automatically record 5 seconds and stop the software. This is used internally to produce the video seen on the website as a sort of status report")
+-endif()
+-if(NOT WAYLAND_SUPPORT_FOUND AND NOT X11_SUPPORT_FOUND)
+-    message(WARNING "No window server detected at build time. You will only be able to preview backgrounds")
+-endif()
+-
+-add_library(ceflib SHARED IMPORTED)
+-set_target_properties(ceflib
+-        PROPERTIES IMPORTED_LOCATION ${TARGET_OUTPUT_DIRECTORY}/libcef.so)
+-
+-ADD_LOGICAL_TARGET(libcef_lib "${CEF_LIB_DEBUG}" "${CEF_LIB_RELEASE}")
+-PRINT_CEF_CONFIG()
+-
+-# Embed scene-script builtins (builtins.js) into a generated header, so the JS can
+-# live in its own file (lint/syntax-highlight friendly) instead of an inline literal.
+-# Added to the global include_directories so both the library and the tests target
+-# (which recompiles the common sources) can find the generated header.
++# embed scene-script builtins
+ set(WPENGINE_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+ set(WPENGINE_BUILTINS_JS "${CMAKE_CURRENT_SOURCE_DIR}/src/WallpaperEngine/Scripting/resources/builtins.js")
+ file(READ "${WPENGINE_BUILTINS_JS}" WPENGINE_SCRIPT_BUILTINS)
+ configure_file(
+     "${CMAKE_CURRENT_SOURCE_DIR}/src/WallpaperEngine/Scripting/resources/Builtins.generated.h.in"
+-    "${WPENGINE_GENERATED_DIR}/WallpaperEngine/Scripting/Builtins.generated.h"
+-    @ONLY)
+-# re-run configuration (regenerating the header) whenever the .js changes
+-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${WPENGINE_BUILTINS_JS}")
+-
+-include_directories(
+-    ${WPENGINE_GENERATED_DIR}
+-    src
+-    src/External/glslang-WallpaperEngine
+-    src/External/SPIRV-Cross-WallpaperEngine
+-    src/External/MimeTypes
+-    src/External/json/include
+-    src/External/stb
+-    src/External/kissfft
+-    ${MPV_INCLUDE_DIR}
+-    ${GLEW_INCLUDE_DIR}
+-    ${LZ4_INCLUDE_DIR}
+-    ${SDL2_INCLUDE_DIRS}
+-    ${FFMPEG_INCLUDE_DIR}
+-    ${PULSEAUDIO_INCLUDE_DIR}
+-    ${CEF_INCLUDE_PATH}
+-    ${CMAKE_SOURCE_DIR}
+-    ${X11_INCLUDES}
+-    ${DBUS_INCLUDE_DIRS})
++    "${WPENGINE_GENERATED_DIR}/WallpaperEngine/Scripting/Builtins.generated.h" @ONLY)
+ 
+-set(COMMON_SOURCES
++set(SOURCES
+     src/External/MimeTypes/MimeTypes.cpp
+-    src/External/MimeTypes/MimeTypes.h
+-
+     src/Steam/FileSystem/FileSystem.cpp
+-    src/Steam/FileSystem/FileSystem.h
+-
+     src/WallpaperEngine/Logging/Log.cpp
+-    src/WallpaperEngine/Logging/Log.h
+-
+     src/WallpaperEngine/Debugging/CallStack.cpp
+-    src/WallpaperEngine/Debugging/CallStack.h
+-
+     src/WallpaperEngine/Application/ApplicationContext.cpp
+-    src/WallpaperEngine/Application/ApplicationContext.h
+     src/WallpaperEngine/Application/WallpaperApplication.cpp
+-    src/WallpaperEngine/Application/WallpaperApplication.h
+-
+     src/WallpaperEngine/Assets/AssetLoadException.cpp
+-    src/WallpaperEngine/Assets/AssetLoadException.h
+     src/WallpaperEngine/Assets/AssetLocator.cpp
+-    src/WallpaperEngine/Assets/AssetLocator.h
+-
+-    src/WallpaperEngine/FileSystem/Container.h
+     src/WallpaperEngine/FileSystem/Container.cpp
+-    src/WallpaperEngine/FileSystem/Adapters/Types.h
+     src/WallpaperEngine/FileSystem/Adapters/Directory.cpp
+-    src/WallpaperEngine/FileSystem/Adapters/Directory.h
+     src/WallpaperEngine/FileSystem/Adapters/Package.cpp
+-    src/WallpaperEngine/FileSystem/Adapters/Package.h
+     src/WallpaperEngine/FileSystem/Adapters/Virtual.cpp
+-    src/WallpaperEngine/FileSystem/Adapters/Virtual.h
+-    src/WallpaperEngine/FileSystem/Adapters/MediaCover.h
+     src/WallpaperEngine/FileSystem/Adapters/MediaCover.cpp
+-
+     src/WallpaperEngine/Audio/Drivers/Recorders/PulseAudioPlaybackRecorder.cpp
+-    src/WallpaperEngine/Audio/Drivers/Recorders/PulseAudioPlaybackRecorder.h
+     src/WallpaperEngine/Audio/Drivers/Recorders/PlaybackRecorder.cpp
+-    src/WallpaperEngine/Audio/Drivers/Recorders/PlaybackRecorder.h
+-
+     src/WallpaperEngine/Audio/Drivers/Detectors/PulseAudioPlayingDetector.cpp
+-    src/WallpaperEngine/Audio/Drivers/Detectors/PulseAudioPlayingDetector.h
+     src/WallpaperEngine/Audio/Drivers/Detectors/AudioPlayingDetector.cpp
+-    src/WallpaperEngine/Audio/Drivers/Detectors/AudioPlayingDetector.h
+-
+     src/WallpaperEngine/Audio/Drivers/AudioDriver.cpp
+-    src/WallpaperEngine/Audio/Drivers/AudioDriver.h
+     src/WallpaperEngine/Audio/Drivers/SDLAudioDriver.cpp
+-    src/WallpaperEngine/Audio/Drivers/SDLAudioDriver.h
+     src/WallpaperEngine/Audio/AudioContext.cpp
+-    src/WallpaperEngine/Audio/AudioContext.h
+     src/WallpaperEngine/Audio/AudioStream.cpp
+-    src/WallpaperEngine/Audio/AudioStream.h
+-
+     src/WallpaperEngine/Input/InputContext.cpp
+-    src/WallpaperEngine/Input/InputContext.h
+-    src/WallpaperEngine/Input/MouseInput.h
+     src/WallpaperEngine/Input/Drivers/GLFWMouseInput.cpp
+-    src/WallpaperEngine/Input/Drivers/GLFWMouseInput.h
+-
+-    src/WallpaperEngine/Media/MediaSource.h
+     src/WallpaperEngine/Media/MediaSource.cpp
+-    src/WallpaperEngine/Media/DBusMediaSource.h
+     src/WallpaperEngine/Media/DBusMediaSource.cpp
+-
+-    src/WallpaperEngine/Render/Shaders/Variables/ShaderVariable.h
+     src/WallpaperEngine/Render/Shaders/Variables/ShaderVariable.cpp
+-    src/WallpaperEngine/Render/Shaders/Variables/ShaderVariableFloat.h
+     src/WallpaperEngine/Render/Shaders/Variables/ShaderVariableFloat.cpp
+-    src/WallpaperEngine/Render/Shaders/Variables/ShaderVariableInteger.h
+     src/WallpaperEngine/Render/Shaders/Variables/ShaderVariableInteger.cpp
+-    src/WallpaperEngine/Render/Shaders/Variables/ShaderVariableVector2.h
+     src/WallpaperEngine/Render/Shaders/Variables/ShaderVariableVector2.cpp
+-    src/WallpaperEngine/Render/Shaders/Variables/ShaderVariableVector3.h
+     src/WallpaperEngine/Render/Shaders/Variables/ShaderVariableVector3.cpp
+-    src/WallpaperEngine/Render/Shaders/Variables/ShaderVariableVector4.h
+     src/WallpaperEngine/Render/Shaders/Variables/ShaderVariableVector4.cpp
+-
+-    src/WallpaperEngine/Render/Shaders/Shader.h
+     src/WallpaperEngine/Render/Shaders/Shader.cpp
+     src/WallpaperEngine/Render/Shaders/ShaderUnit.cpp
+-    src/WallpaperEngine/Render/Shaders/ShaderUnit.h
+     src/WallpaperEngine/Render/Shaders/GLSLContext.cpp
+-    src/WallpaperEngine/Render/Shaders/GLSLContext.h
+-
+     src/WallpaperEngine/Render/Helpers/ContextAware.cpp
+-    src/WallpaperEngine/Render/Helpers/ContextAware.h
+-
+     src/WallpaperEngine/Render/Drivers/VideoFactories.cpp
+-    src/WallpaperEngine/Render/Drivers/VideoFactories.h
+-
+     src/WallpaperEngine/Render/Drivers/Detectors/FullScreenDetector.cpp
+-    src/WallpaperEngine/Render/Drivers/Detectors/FullScreenDetector.h
+-
+     src/WallpaperEngine/Render/Drivers/Output/Output.cpp
+-    src/WallpaperEngine/Render/Drivers/Output/Output.h
+     src/WallpaperEngine/Render/Drivers/Output/GLFWWindowOutput.cpp
+-    src/WallpaperEngine/Render/Drivers/Output/GLFWWindowOutput.h
+     src/WallpaperEngine/Render/Drivers/Output/GLFWOutputViewport.cpp
+-    src/WallpaperEngine/Render/Drivers/Output/GLFWOutputViewport.h
+     src/WallpaperEngine/Render/Drivers/Output/OutputViewport.cpp
+-    src/WallpaperEngine/Render/Drivers/Output/OutputViewport.h
+-    src/WallpaperEngine/Render/Drivers/GLFWOpenGLDriver.h
+     src/WallpaperEngine/Render/Drivers/GLFWOpenGLDriver.cpp
+-    src/WallpaperEngine/Render/Drivers/VideoDriver.h
+     src/WallpaperEngine/Render/Drivers/VideoDriver.cpp
+-    src/WallpaperEngine/Render/RenderContext.h
+     src/WallpaperEngine/Render/RenderContext.cpp
+-    src/WallpaperEngine/Render/TextureCache.h
+     src/WallpaperEngine/Render/TextureCache.cpp
+     src/WallpaperEngine/Render/FBOProvider.cpp
+-    src/WallpaperEngine/Render/FBOProvider.h
+-
+     src/WallpaperEngine/Render/Helpers/ContextAware.cpp
+-    src/WallpaperEngine/Render/Helpers/ContextAware.h
+-
+-    src/WallpaperEngine/Render/CWallpaper.h
+     src/WallpaperEngine/Render/CWallpaper.cpp
+-    src/WallpaperEngine/Render/WallpaperState.h
+     src/WallpaperEngine/Render/WallpaperState.cpp
+-    src/WallpaperEngine/Render/Wallpapers/CScene.h
+     src/WallpaperEngine/Render/Wallpapers/CScene.cpp
+-    src/WallpaperEngine/Render/Wallpapers/CVideo.h
+     src/WallpaperEngine/Render/Wallpapers/CVideo.cpp
+-    src/WallpaperEngine/Render/Wallpapers/CWeb.h
+-    src/WallpaperEngine/Render/Wallpapers/CWeb.cpp
+-    src/WallpaperEngine/Render/Camera.h
+     src/WallpaperEngine/Render/Camera.cpp
+-    src/WallpaperEngine/Render/CObject.h
+     src/WallpaperEngine/Render/CObject.cpp
+     src/WallpaperEngine/Render/CTexture.cpp
+-    src/WallpaperEngine/Render/CTexture.h
+-    src/WallpaperEngine/Render/AlbumTexture.h
+     src/WallpaperEngine/Render/AlbumTexture.cpp
+-    src/WallpaperEngine/Render/TextureProvider.h
+-
+     src/WallpaperEngine/Render/Objects/CRenderable.cpp
+-    src/WallpaperEngine/Render/Objects/CRenderable.h
+-    src/WallpaperEngine/Render/Objects/CImage.h
+     src/WallpaperEngine/Render/Objects/CImage.cpp
+-    src/WallpaperEngine/Render/Objects/CSound.h
++    src/WallpaperEngine/Render/Objects/Puppet.cpp
+     src/WallpaperEngine/Render/Objects/CSound.cpp
+-    src/WallpaperEngine/Render/Objects/CParticle.h
+     src/WallpaperEngine/Render/Objects/CParticle.cpp
+-    src/WallpaperEngine/Render/Objects/CText.h
+     src/WallpaperEngine/Render/Objects/CText.cpp
+-
+-    src/WallpaperEngine/Render/CFBO.h
+     src/WallpaperEngine/Render/CFBO.cpp
+-    src/WallpaperEngine/Render/Objects/Effects/CPass.h
+     src/WallpaperEngine/Render/Objects/Effects/CPass.cpp
+-
+-    src/WallpaperEngine/WebBrowser/CEF/RenderHandler.cpp
+-    src/WallpaperEngine/WebBrowser/CEF/RenderHandler.h
+-    src/WallpaperEngine/WebBrowser/CEF/BrowserClient.cpp
+-    src/WallpaperEngine/WebBrowser/CEF/BrowserClient.h
+-    src/WallpaperEngine/WebBrowser/CEF/BrowserApp.cpp
+-    src/WallpaperEngine/WebBrowser/CEF/BrowserApp.h
+-    src/WallpaperEngine/WebBrowser/CEF/SubprocessApp.cpp
+-    src/WallpaperEngine/WebBrowser/CEF/SubprocessApp.h
+-    src/WallpaperEngine/WebBrowser/CEF/WPSchemeHandlerFactory.cpp
+-    src/WallpaperEngine/WebBrowser/CEF/WPSchemeHandlerFactory.h
+-    src/WallpaperEngine/WebBrowser/CEF/WPSchemeHandler.cpp
+-    src/WallpaperEngine/WebBrowser/CEF/WPSchemeHandler.h
+-    src/WallpaperEngine/WebBrowser/WebBrowserContext.cpp
+-    src/WallpaperEngine/WebBrowser/WebBrowserContext.h
+-
+-    src/WallpaperEngine/Data/Assets/Types.h
+-    src/WallpaperEngine/Data/Assets/Texture.h
+-    src/WallpaperEngine/Data/Assets/Package.h
+-    src/WallpaperEngine/Data/Model/Types.h
+-    src/WallpaperEngine/Data/Model/Project.h
+-    src/WallpaperEngine/Data/Model/Wallpaper.h
+-    src/WallpaperEngine/Data/Model/Object.h
+-    src/WallpaperEngine/Data/Model/Material.h
+-    src/WallpaperEngine/Data/Model/Effect.h
+-    src/WallpaperEngine/Data/Model/Model.h
+-    src/WallpaperEngine/Data/Model/UserSetting.h
+-    src/WallpaperEngine/Data/Model/DynamicValue.h
+     src/WallpaperEngine/Data/Model/DynamicValue.cpp
+-    src/WallpaperEngine/Data/Model/Property.h
+-    src/WallpaperEngine/Data/Utils/TypeCaster.h
+     src/WallpaperEngine/Data/Utils/BinaryReader.cpp
+-    src/WallpaperEngine/Data/Utils/BinaryReader.h
+-    src/WallpaperEngine/Data/Utils/MemoryStream.h
+-    src/WallpaperEngine/Data/Utils/SFINAE.h
+-    src/WallpaperEngine/Data/Parsers/DynamicValueParser.h
+     src/WallpaperEngine/Data/Parsers/DynamicValueParser.cpp
+     src/WallpaperEngine/Data/Parsers/EffectParser.cpp
+-    src/WallpaperEngine/Data/Parsers/EffectParser.h
+     src/WallpaperEngine/Data/Parsers/ProjectParser.cpp
+-    src/WallpaperEngine/Data/Parsers/ProjectParser.h
+     src/WallpaperEngine/Data/Parsers/WallpaperParser.cpp
+-    src/WallpaperEngine/Data/Parsers/WallpaperParser.h
+     src/WallpaperEngine/Data/Parsers/UserSettingParser.cpp
+-    src/WallpaperEngine/Data/Parsers/UserSettingParser.h
+     src/WallpaperEngine/Data/Parsers/ObjectParser.cpp
+-    src/WallpaperEngine/Data/Parsers/ObjectParser.h
+     src/WallpaperEngine/Data/Parsers/MaterialParser.cpp
+-    src/WallpaperEngine/Data/Parsers/MaterialParser.h
+     src/WallpaperEngine/Data/Parsers/ModelParser.cpp
+-    src/WallpaperEngine/Data/Parsers/ModelParser.h
+     src/WallpaperEngine/Data/Parsers/ShaderConstantParser.cpp
+-    src/WallpaperEngine/Data/Parsers/ShaderConstantParser.h
+     src/WallpaperEngine/Data/Parsers/PackageParser.cpp
+-    src/WallpaperEngine/Data/Parsers/PackageParser.h
+     src/WallpaperEngine/Data/Parsers/PropertyParser.cpp
+-    src/WallpaperEngine/Data/Parsers/PropertyParser.h
+     src/WallpaperEngine/Data/Parsers/TextureParser.cpp
+-    src/WallpaperEngine/Data/Parsers/TextureParser.h
+-    src/WallpaperEngine/Data/Builders/ColorBuilder.h
+     src/WallpaperEngine/Data/Builders/ColorBuilder.cpp
+-    src/WallpaperEngine/Data/Builders/UserSettingBuilder.h
+     src/WallpaperEngine/Data/Builders/VectorBuilder.cpp
+-    src/WallpaperEngine/Data/Builders/VectorBuilder.h
+     src/WallpaperEngine/Data/Dumpers/StringPrinter.cpp
+-    src/WallpaperEngine/Data/Dumpers/StringPrinter.h
+     src/WallpaperEngine/Data/JSON.cpp
+-
+     src/WallpaperEngine/VideoPlayback/MPV/GLPlayer.cpp
+-    src/WallpaperEngine/VideoPlayback/MPV/GLPlayer.h
+     src/WallpaperEngine/VideoPlayback/MPV/MemoryStreamProtocol.cpp
+-    src/WallpaperEngine/VideoPlayback/MPV/MemoryStreamProtocol.h
+-
+-    src/WallpaperEngine/Scripting/Adapters/ObjectAdapter.h
+     src/WallpaperEngine/Scripting/Adapters/ObjectAdapter.cpp
+-    src/WallpaperEngine/Scripting/Adapters/VectorAdapter.h
+     src/WallpaperEngine/Scripting/Adapters/VectorAdapter.cpp
+-    src/WallpaperEngine/Scripting/Adapters/ScriptableObjectAdapter.h
+     src/WallpaperEngine/Scripting/Adapters/ScriptableObjectAdapter.cpp
+-
+-    src/WallpaperEngine/Scripting/Modules/ColorModule.h
+     src/WallpaperEngine/Scripting/Modules/ColorModule.cpp
+-    src/WallpaperEngine/Scripting/Modules/MathModule.h
+     src/WallpaperEngine/Scripting/Modules/MathModule.cpp
+-    src/WallpaperEngine/Scripting/Modules/ScriptModule.h
+     src/WallpaperEngine/Scripting/Modules/ScriptModule.cpp
+-
+-    src/WallpaperEngine/Scripting/ConsoleObject.h
+     src/WallpaperEngine/Scripting/ConsoleObject.cpp
+-    src/WallpaperEngine/Scripting/EngineObject.h
+     src/WallpaperEngine/Scripting/EngineObject.cpp
+-    src/WallpaperEngine/Scripting/InputObject.h
+     src/WallpaperEngine/Scripting/InputObject.cpp
+-    src/WallpaperEngine/Scripting/SceneObject.h
+     src/WallpaperEngine/Scripting/SceneObject.cpp
+-    src/WallpaperEngine/Scripting/ScriptEngine.h
+-    src/WallpaperEngine/Scripting/ScriptPropertiesObject.h
+     src/WallpaperEngine/Scripting/ScriptPropertiesObject.cpp
+     src/WallpaperEngine/Scripting/ScriptEngine.cpp
+-    src/WallpaperEngine/Scripting/ScriptableObject.h
+     src/WallpaperEngine/Scripting/ScriptableObject.cpp
+-
+-    src/WallpaperEngine/Maths.h
+-    src/WallpaperEngine/Maths.cpp)
+-
+-if(BUILD_TESTING)
+-    add_executable(
+-        tests
+-
+-        ${COMMON_SOURCES}
+-
+-        src/WallpaperEngine/Testing/Cases/Example.cpp
+-        src/WallpaperEngine/Testing/Render/TestingOpenGLDriver.cpp
+-        src/WallpaperEngine/Testing/Render/TestingOpenGLDriver.h
+-        src/WallpaperEngine/Testing/Input/TestingMouseInput.cpp
+-        src/WallpaperEngine/Testing/Input/TestingMouseInput.h
+-        src/WallpaperEngine/Testing/Harnesses/RenderHarness.cpp
+-        src/WallpaperEngine/Testing/Harnesses/RenderHarness.h
+-        src/WallpaperEngine/Testing/Cases/MouseCoordinates.cpp
+-        src/WallpaperEngine/Testing/Cases/PropertyParser.cpp)
+-endif()
+-
+-add_library(
+-    linux-wallpaperengine-lib SHARED
+-
+-    ${COMMON_SOURCES}
+-    ${WAYLAND_SOURCES}
+-    ${X11_SOURCES}
+-    ${DEMOMODE_SOURCES})
+-
+-target_link_libraries (linux-wallpaperengine-lib PUBLIC
+-    ${OPENGL_LIBRARIES}
+-    GLEW::GLEW
+-    ${GLUT_LIBRARIES}
+-    ${ZLIB_LIBRARIES}
+-    ${LZ4_LIBRARY}
+-    ${SDL2_LIBRARIES}
+-    ${FFMPEG_LIBRARIES}
+-    ${MPV_LIBRARY}
+-    ${PULSEAUDIO_LIBRARY}
+-    Freetype::Freetype
+-    ${WAYLAND_LIBRARIES}
+-    ${X11_LIBRARIES}
+-    ${DBUS_LIBRARIES}
+-    kissfft
+-    glslang
+-    spirv-cross-core
+-    spirv-cross-glsl
+-    glfw
+-    libcef_lib
+-    libcef_dll_wrapper
+-    argparse
+-    qjs)
+-
+-if (BUILD_TESTING)
+-    target_link_libraries (tests PRIVATE
+-        Catch2::Catch2WithMain
+-        ${OPENGL_LIBRARIES}
+-        GLEW::GLEW
+-        ${GLUT_LIBRARIES}
+-        ${ZLIB_LIBRARIES}
+-        ${LZ4_LIBRARY}
+-        ${SDL2_LIBRARIES}
+-        ${FFMPEG_LIBRARIES}
+-        ${MPV_LIBRARY}
+-        ${PULSEAUDIO_LIBRARY}
+-        Freetype::Freetype
+-        ${WAYLAND_LIBRARIES}
+-        ${X11_LIBRARIES}
+-        ${DBUS_LIBRARIES}
+-        kissfft
+-        glslang
+-        spirv-cross-core
+-        spirv-cross-glsl
+-        glfw
+-        libcef_lib
+-        libcef_dll_wrapper
+-        argparse
+-        qjs)
+-endif()
+-
+-target_compile_definitions(linux-wallpaperengine-lib PUBLIC ERRORONLY=${ERRORONLY})
+-target_compile_definitions(linux-wallpaperengine-lib PUBLIC DEMOMODE=${DEMOMODE})
+-
+-if (BUILD_TESTING)
+-    # tests should give as much output as possible
+-    target_compile_definitions(tests PRIVATE ERRORONLY=0)
+-    target_compile_definitions(tests PRIVATE DEMOMODE=0)
+-endif()
+-
+-if(X11_SUPPORT_FOUND)
+-    target_compile_definitions(linux-wallpaperengine-lib PUBLIC ENABLE_X11)
+-
+-    # make sure some of the X11 functions we'll use are available
+-    check_function_exists(XSetIOErrorExitHandler HAVE_XSETIOERROREXITHANDLER)
+-
+-    if(HAVE_XSETIOERROREXITHANDLER)
+-        target_compile_definitions(linux-wallpaperengine-lib PUBLIC HAVE_XSETIOERROREXITHANDLER=1)
+-    endif()
+-endif()
+-
+-if(WAYLAND_SUPPORT_FOUND)
+-    target_compile_definitions(linux-wallpaperengine-lib PUBLIC ENABLE_WAYLAND)
+-endif()
+-
+-if(WAYLAND_SUPPORT_FOUND AND NOT X11_SUPPORT_FOUND)
+-    target_compile_definitions(linux-wallpaperengine-lib PUBLIC GLEW_EGL)
+-endif()
+-
+-target_include_directories(linux-wallpaperengine-lib PUBLIC
+-    src
+-    src/External/glslang-WallpaperEngine
+-    src/External/SPIRV-Cross-WallpaperEngine
+-    src/External/MimeTypes
+-    src/External/json/include
+-    src/External/stb
+-    src/External/kissfft
+-    ${MPV_INCLUDE_DIR}
+-    ${GLEW_INCLUDE_DIR}
+-    ${LZ4_INCLUDE_DIR}
+-    ${SDL2_INCLUDE_DIRS}
+-    ${FFMPEG_INCLUDE_DIR}
+-    ${PULSEAUDIO_INCLUDE_DIR}
+-    ${CEF_INCLUDE_PATH}
+-    ${CMAKE_SOURCE_DIR}
+-    ${X11_INCLUDES}
+-    ${WAYLAND_OUTPUT_DIR})
+-
+-COPY_FILES(linux-wallpaperengine-lib "${CEF_BINARY_FILES}" "${CEF_BINARY_DIR}" "${TARGET_OUTPUT_DIRECTORY}")
+-COPY_FILES(linux-wallpaperengine-lib "${CEF_RESOURCE_FILES}" "${CEF_RESOURCE_DIR}" "${TARGET_OUTPUT_DIRECTORY}")
+-# remove the vulkan lib as chromium includes a broken libvulkan.so.1 with it
+-file(REMOVE "${CEF_BINARY_DIR}/libvulkan.so.1")
+-set_target_properties(linux-wallpaperengine-lib PROPERTIES
+-    LIBRARY_OUTPUT_DIRECTORY ${TARGET_OUTPUT_DIRECTORY})
+-
+-add_dependencies(linux-wallpaperengine-lib libcef_dll_wrapper glslang spirv-cross-core spirv-cross-glsl)
+-# custom version of cef's SET_EXECUTABLE_TARGET_PROPERTIES that fixes C files being compiled with the wrong parameters
+-REPLACED_SET_EXECUTABLE_TARGET_PROPERTIES(linux-wallpaperengine-lib)
+-
+-add_executable(linux-wallpaperengine
+-    src/main.cpp)
+-
+-target_link_libraries (linux-wallpaperengine PUBLIC linux-wallpaperengine-lib)
+-
+-# Install the main executable and shared library via install(TARGETS)
+-# so that CMake automatically strips/replaces the build-time RPATH.
+-install(TARGETS linux-wallpaperengine
+-    RUNTIME DESTINATION .
+-)
+-install(TARGETS linux-wallpaperengine-lib
+-    LIBRARY DESTINATION .
+-)
+-
+-# Install everything else from the output directory (CEF resources, helper binaries, etc.)
+-# but exclude the files already handled by install(TARGETS) above.
+-install(DIRECTORY ${TARGET_OUTPUT_DIRECTORY}/ DESTINATION .
+-    PATTERN "linux-wallpaperengine" EXCLUDE
+-    PATTERN "liblinux-wallpaperengine-lib.so" EXCLUDE
++    src/WallpaperEngine/Maths.cpp
+ )
++add_executable(wpengine src/main.cpp src/WallpaperEngine/Render/Drivers/MacDesktopWindow.mm ${SOURCES})
++target_compile_definitions(wpengine PRIVATE ERRORONLY=0 DEMOMODE=0)
++target_include_directories(wpengine PRIVATE
++    ${WPENGINE_GENERATED_DIR} src
++    src/External/glslang-WallpaperEngine src/External/SPIRV-Cross-WallpaperEngine
++    src/External/MimeTypes src/External/json/include src/External/stb src/External/kissfft
++    ${GLEW_INCLUDE_DIRS} ${LZ4_INCLUDE_DIRS} ${SDL2_INCLUDE_DIRS} ${MPV_INCLUDE_DIRS}
++    ${FFMPEG_INCLUDE_DIRS} /opt/homebrew/include)
++target_link_directories(wpengine PRIVATE ${LZ4_LIBRARY_DIRS} ${SDL2_LIBRARY_DIRS} ${MPV_LIBRARY_DIRS} ${FFMPEG_LIBRARY_DIRS})
++target_link_libraries(wpengine PRIVATE
++    ${OPENGL_FW} ${COCOA_FW} ${IOKIT_FW} GLEW::GLEW glfw ZLIB::ZLIB Freetype::Freetype
++    ${LZ4_LIBRARIES} ${SDL2_LIBRARIES} ${MPV_LIBRARIES} ${FFMPEG_LIBRARIES}
++    kissfft glslang spirv-cross-core spirv-cross-glsl argparse qjs)
+diff --git a/src/WallpaperEngine/Audio/Drivers/Detectors/PulseAudioPlayingDetector.cpp b/src/WallpaperEngine/Audio/Drivers/Detectors/PulseAudioPlayingDetector.cpp
+index 3d32b18..e69de29 100644
+--- a/src/WallpaperEngine/Audio/Drivers/Detectors/PulseAudioPlayingDetector.cpp
++++ b/src/WallpaperEngine/Audio/Drivers/Detectors/PulseAudioPlayingDetector.cpp
+@@ -1,84 +0,0 @@
+-#include "PulseAudioPlayingDetector.h"
+-#include "WallpaperEngine/Logging/Log.h"
+-
+-#include <unistd.h>
+-
+-namespace WallpaperEngine::Audio::Drivers::Detectors {
+-void sinkInputInfoCallback (pa_context* context, const pa_sink_input_info* info, int eol, void* userdata) {
+-    auto* detector = static_cast<PulseAudioPlayingDetector*> (userdata);
+-
+-    if (info == nullptr) {
+-	return;
+-    }
+-
+-    if (info->proplist == nullptr) {
+-	return;
+-    }
+-
+-    // get processid
+-    const char* value = pa_proplist_gets (info->proplist, PA_PROP_APPLICATION_PROCESS_ID);
+-
+-    if (value && strtol (value, nullptr, 10) != getpid () && pa_cvolume_avg (&info->volume) != PA_VOLUME_MUTED) {
+-	detector->setIsPlaying (true);
+-    }
+-}
+-
+-void defaultSinkInfoCallback (pa_context* context, const pa_server_info* info, void* userdata) {
+-    if (info == nullptr) {
+-	return;
+-    }
+-
+-    pa_operation* op = pa_context_get_sink_input_info_list (context, sinkInputInfoCallback, userdata);
+-
+-    pa_operation_unref (op);
+-}
+-
+-PulseAudioPlayingDetector::PulseAudioPlayingDetector (
+-    Application::ApplicationContext& appContext,
+-    const Render::Drivers::Detectors::FullScreenDetector& fullscreenDetector
+-) : AudioPlayingDetector (appContext, fullscreenDetector) {
+-    this->m_mainloop = pa_mainloop_new ();
+-    this->m_mainloopApi = pa_mainloop_get_api (this->m_mainloop);
+-    this->m_context = pa_context_new (this->m_mainloopApi, "wallpaperengine");
+-
+-    pa_context_connect (this->m_context, nullptr, PA_CONTEXT_NOFLAGS, nullptr);
+-
+-    // lock until pulseaudio allows connection
+-    while (pa_context_get_state (this->m_context) != PA_CONTEXT_READY) {
+-	pa_mainloop_iterate (this->m_mainloop, 1, nullptr);
+-    }
+-}
+-
+-PulseAudioPlayingDetector::~PulseAudioPlayingDetector () {
+-    if (this->m_context) {
+-	pa_context_disconnect (this->m_context);
+-	pa_context_unref (this->m_context);
+-    }
+-
+-    if (this->m_mainloop) {
+-	pa_mainloop_free (this->m_mainloop);
+-    }
+-}
+-
+-void PulseAudioPlayingDetector::update () {
+-    if (!this->getApplicationContext ().settings.audio.automute) {
+-	return this->setIsPlaying (false);
+-    }
+-    if (this->getFullscreenDetector ().anythingFullscreen ()) {
+-	return this->setIsPlaying (true);
+-    }
+-
+-    // reset playing state
+-    this->setIsPlaying (false);
+-
+-    // start discovery of sinks
+-    pa_operation* op = pa_context_get_server_info (this->m_context, defaultSinkInfoCallback, this);
+-
+-    // wait until all the operations are done
+-    while (pa_operation_get_state (op) == PA_OPERATION_RUNNING) {
+-	pa_mainloop_iterate (this->m_mainloop, 1, nullptr);
+-    }
+-
+-    pa_operation_unref (op);
+-}
+-} // namespace WallpaperEngine::Audio::Drivers::Detectors
+\ No newline at end of file
+diff --git a/src/WallpaperEngine/Audio/Drivers/Detectors/PulseAudioPlayingDetector.h b/src/WallpaperEngine/Audio/Drivers/Detectors/PulseAudioPlayingDetector.h
+index 8abdf97..5e32a99 100644
+--- a/src/WallpaperEngine/Audio/Drivers/Detectors/PulseAudioPlayingDetector.h
++++ b/src/WallpaperEngine/Audio/Drivers/Detectors/PulseAudioPlayingDetector.h
+@@ -1,23 +1,15 @@
+ #pragma once
+ 
+ #include "AudioPlayingDetector.h"
+-#include <condition_variable>
+-#include <mutex>
+-#include <pulse/pulseaudio.h>
+ 
++// macOS port: nothing to detect, never "something else is playing".
+ namespace WallpaperEngine::Audio::Drivers::Detectors {
+ class PulseAudioPlayingDetector final : public AudioPlayingDetector {
+ public:
+     explicit PulseAudioPlayingDetector (
+-	Application::ApplicationContext& appContext, const Render::Drivers::Detectors::FullScreenDetector&
+-    );
+-    ~PulseAudioPlayingDetector () override;
+-
+-    void update () override;
+-
+-private:
+-    pa_mainloop* m_mainloop = nullptr;
+-    pa_mainloop_api* m_mainloopApi = nullptr;
+-    pa_context* m_context = nullptr;
++	Application::ApplicationContext& appContext, const Render::Drivers::Detectors::FullScreenDetector& detector
++    ) : AudioPlayingDetector (appContext, detector) { }
++    ~PulseAudioPlayingDetector () override = default;
++    void update () override { }
+ };
+ } // namespace WallpaperEngine::Audio::Drivers::Detectors
+diff --git a/src/WallpaperEngine/Audio/Drivers/Recorders/PulseAudioPlaybackRecorder.cpp b/src/WallpaperEngine/Audio/Drivers/Recorders/PulseAudioPlaybackRecorder.cpp
+index 5831d4a..e69de29 100644
+--- a/src/WallpaperEngine/Audio/Drivers/Recorders/PulseAudioPlaybackRecorder.cpp
++++ b/src/WallpaperEngine/Audio/Drivers/Recorders/PulseAudioPlaybackRecorder.cpp
+@@ -1,266 +0,0 @@
+-#include "PulseAudioPlaybackRecorder.h"
+-#include "WallpaperEngine/Logging/Log.h"
+-#include <cmath>
+-#include <cstring>
+-#include <glm/common.hpp>
+-
+-float movetowards (float current, float target, float maxDelta) {
+-    if (abs (target - current) <= maxDelta) {
+-	return target;
+-    }
+-
+-    return current + glm::sign (target - current) * maxDelta;
+-}
+-
+-namespace WallpaperEngine::Audio::Drivers::Recorders {
+-void pa_stream_notify_cb (pa_stream* stream, void* /*userdata*/) {
+-    switch (pa_stream_get_state (stream)) {
+-	case PA_STREAM_FAILED:
+-	    sLog.error ("Cannot open stream for capture. Audio processing is disabled");
+-	    break;
+-	case PA_STREAM_READY:
+-	    sLog.debug ("Capture stream ready");
+-	    break;
+-	default:
+-	    break;
+-    }
+-}
+-
+-void pa_stream_read_cb (pa_stream* stream, const size_t /*nbytes*/, void* userdata) {
+-    auto* recorder = static_cast<PulseAudioPlaybackRecorder::PulseAudioData*> (userdata);
+-
+-    // Careful when to pa_stream_peek() and pa_stream_drop()!
+-    // c.f. https://www.freedesktop.org/software/pulseaudio/doxygen/stream_8h.html#ac2838c449cde56e169224d7fe3d00824
+-    const uint8_t* data = nullptr;
+-    size_t currentSize;
+-    if (pa_stream_peek (stream, reinterpret_cast<const void**> (&data), &currentSize) != 0) {
+-	sLog.error ("Failed to peek at stream data...");
+-	return;
+-    }
+-
+-    if (data == nullptr && currentSize == 0) {
+-	// No data in the buffer, ignore.
+-	return;
+-    }
+-
+-    if (data == nullptr && currentSize > 0) {
+-	// Hole in the buffer. We must drop it.
+-	if (pa_stream_drop (stream) != 0) {
+-	    sLog.error ("Failed to drop a hole while capturing!");
+-	    return;
+-	}
+-    } else if (currentSize > 0 && data) {
+-	const size_t dataToCopy = std::min (currentSize, WAVE_BUFFER_SIZE - recorder->currentWritePointer);
+-
+-	// depending on the amount of data available, we might want to read one or multiple frames
+-	const size_t end = recorder->currentWritePointer + dataToCopy;
+-
+-	// this packet will fill the buffer, perform some extra checks for extra full buffers and get the latest one
+-	if (end == WAVE_BUFFER_SIZE) {
+-	    if (const size_t numberOfFullBuffers = (currentSize - dataToCopy) / WAVE_BUFFER_SIZE;
+-		numberOfFullBuffers > 0) {
+-		// calculate the start of the last block (we need the end of the previous block, hence the - 1)
+-		const size_t startOfLastBuffer = std::max (
+-		    dataToCopy + (numberOfFullBuffers - 1) * WAVE_BUFFER_SIZE, currentSize - WAVE_BUFFER_SIZE
+-		);
+-		// copy directly into the final buffer
+-		memcpy (recorder->audioBuffer, &data[startOfLastBuffer], WAVE_BUFFER_SIZE * sizeof (uint8_t));
+-		// copy whatever is left to the read/write buffer
+-		recorder->currentWritePointer = currentSize - startOfLastBuffer - WAVE_BUFFER_SIZE;
+-		memcpy (
+-		    recorder->audioBufferTmp, &data[startOfLastBuffer + WAVE_BUFFER_SIZE],
+-		    recorder->currentWritePointer * sizeof (uint8_t)
+-		);
+-	    } else {
+-		// okay, no full extra packets available, copy the rest of the data and flip the buffers
+-		memcpy (&recorder->audioBufferTmp[recorder->currentWritePointer], data, dataToCopy * sizeof (uint8_t));
+-		uint8_t* tmp = recorder->audioBuffer;
+-		recorder->audioBuffer = recorder->audioBufferTmp;
+-		recorder->audioBufferTmp = tmp;
+-		// reset write pointer
+-		recorder->currentWritePointer = 0;
+-	    }
+-
+-	    // signal a new frame is ready
+-	    recorder->fullFrameReady = true;
+-	} else {
+-	    // copy over available data to the tmp buffer and everything should be set
+-	    memcpy (&recorder->audioBufferTmp[recorder->currentWritePointer], data, dataToCopy * sizeof (uint8_t));
+-	    recorder->currentWritePointer += dataToCopy;
+-	}
+-    }
+-
+-    if (pa_stream_drop (stream) != 0) {
+-	sLog.error ("Failed to drop data after peeking");
+-    }
+-}
+-
+-void pa_server_info_cb (pa_context* ctx, const pa_server_info* info, void* userdata) {
+-    if (info == nullptr) {
+-	return;
+-    }
+-
+-    auto* recorder = static_cast<PulseAudioPlaybackRecorder::PulseAudioData*> (userdata);
+-
+-    pa_sample_spec spec;
+-    spec.format = PA_SAMPLE_U8;
+-    spec.rate = 44100;
+-    spec.channels = 1;
+-
+-    if (recorder->captureStream) {
+-	pa_stream_unref (recorder->captureStream);
+-    }
+-
+-    recorder->captureStream = pa_stream_new (ctx, "output monitor", &spec, nullptr);
+-
+-    pa_stream_set_state_callback (recorder->captureStream, &pa_stream_notify_cb, userdata);
+-    pa_stream_set_read_callback (recorder->captureStream, &pa_stream_read_cb, userdata);
+-
+-    std::string monitor_name (info->default_sink_name);
+-    monitor_name += ".monitor";
+-
+-    // setup latency
+-    pa_buffer_attr attr {};
+-
+-    // 10 = latency msecs, 750 = max msecs to store
+-    size_t bytesPerSec = pa_bytes_per_second (&spec);
+-    attr.fragsize = bytesPerSec * 10 / 100;
+-    attr.maxlength = attr.fragsize + bytesPerSec * 750 / 100;
+-
+-    if (pa_stream_connect_record (recorder->captureStream, monitor_name.c_str (), &attr, PA_STREAM_ADJUST_LATENCY)
+-	!= 0) {
+-	sLog.error ("Failed to connect to input for recording");
+-    }
+-}
+-
+-void pa_context_subscribe_cb (pa_context* ctx, pa_subscription_event_type_t t, uint32_t idx, void* userdata) {
+-    // sink changes mean re-take the stream
+-    pa_operation* o = pa_context_get_server_info (ctx, &pa_server_info_cb, userdata);
+-    if (o) {
+-	pa_operation_unref (o);
+-    }
+-}
+-
+-void pa_context_notify_cb (pa_context* ctx, void* userdata) {
+-    switch (pa_context_get_state (ctx)) {
+-	case PA_CONTEXT_READY:
+-	    {
+-		// set callback
+-		pa_context_set_subscribe_callback (ctx, pa_context_subscribe_cb, userdata);
+-		// set events mask and enable event callback.
+-		pa_operation* o = pa_context_subscribe (
+-		    ctx, static_cast<pa_subscription_mask_t> (PA_SUBSCRIPTION_MASK_SINK | PA_SUBSCRIPTION_MASK_SOURCE),
+-		    nullptr, nullptr
+-		);
+-
+-		if (o) {
+-		    pa_operation_unref (o);
+-		}
+-
+-		// context being ready means to fetch the sink too
+-		pa_operation* o2 = pa_context_get_server_info (ctx, &pa_server_info_cb, userdata);
+-
+-		if (o2) {
+-		    pa_operation_unref (o2);
+-		}
+-
+-		break;
+-	    }
+-	case PA_CONTEXT_FAILED:
+-	    sLog.error ("PulseAudio context initialization failed. Audio processing is disabled");
+-	    break;
+-	default:
+-	    break;
+-    }
+-}
+-
+-PulseAudioPlaybackRecorder::PulseAudioPlaybackRecorder () :
+-    m_captureData (
+-	{ .kisscfg = kiss_fftr_alloc (WAVE_BUFFER_SIZE, 0, nullptr, nullptr),
+-	  .audioBuffer = new uint8_t[WAVE_BUFFER_SIZE],
+-	  .audioBufferTmp = new uint8_t[WAVE_BUFFER_SIZE] }
+-    ) {
+-    this->m_mainloop = pa_mainloop_new ();
+-    this->m_mainloopApi = pa_mainloop_get_api (this->m_mainloop);
+-    this->m_context = pa_context_new (this->m_mainloopApi, "wallpaperengine-audioprocessing");
+-
+-    pa_context_set_state_callback (this->m_context, &pa_context_notify_cb, &this->m_captureData);
+-
+-    if (pa_context_connect (this->m_context, nullptr, PA_CONTEXT_NOFLAGS, nullptr) < 0) {
+-	sLog.error ("PulseAudio connection failed! Audio processing is disabled");
+-	return;
+-    }
+-
+-    // wait until the context is ready
+-    while (pa_context_get_state (this->m_context) != PA_CONTEXT_READY) {
+-	pa_mainloop_iterate (this->m_mainloop, 1, nullptr);
+-    }
+-}
+-
+-PulseAudioPlaybackRecorder::~PulseAudioPlaybackRecorder () {
+-    if (m_captureData.captureStream) {
+-	pa_stream_unref (m_captureData.captureStream);
+-    }
+-
+-    delete[] this->m_captureData.audioBufferTmp;
+-    delete[] this->m_captureData.audioBuffer;
+-    free (this->m_captureData.kisscfg);
+-
+-    pa_context_disconnect (this->m_context);
+-    pa_context_unref (this->m_context);
+-    pa_mainloop_free (this->m_mainloop);
+-}
+-
+-void PulseAudioPlaybackRecorder::update () {
+-    pa_mainloop_iterate (this->m_mainloop, 0, nullptr);
+-
+-    // interpolate current values to the destination
+-    for (int i = 0; i < 64; i++) {
+-	this->audio64[i] = movetowards (this->audio64[i], this->m_FFTdestination64[i], 0.3f);
+-	if (i >= 32) {
+-	    continue;
+-	}
+-	this->audio32[i] = movetowards (this->audio32[i], this->m_FFTdestination32[i], 0.3f);
+-	if (i >= 16) {
+-	    continue;
+-	}
+-	this->audio16[i] = movetowards (this->audio16[i], this->m_FFTdestination16[i], 0.3f);
+-    }
+-
+-    if (!this->m_captureData.fullFrameReady) {
+-	return;
+-    }
+-
+-    this->m_captureData.fullFrameReady = false;
+-
+-    // convert audio data to deltas so the fft library can properly handle it
+-    for (int i = 0; i < WAVE_BUFFER_SIZE; i++) {
+-	this->m_audioFFTbuffer[i] = (this->m_captureData.audioBuffer[i] - 128) / 128.0f;
+-    }
+-
+-    // perform full fft pass
+-    kiss_fftr (this->m_captureData.kisscfg, this->m_audioFFTbuffer, this->m_FFTinfo);
+-
+-    // now reduce to the different bands
+-    // use just one for loop to produce all 3
+-    for (int band = 0; band < 64; band++) {
+-	int index = band * 2;
+-	float f1 = this->m_FFTinfo[index].r;
+-	float f2 = this->m_FFTinfo[index].i;
+-	f2 = f1 * f1 + f2 * f2; // magnitude
+-	f1 = 0.0f;
+-
+-	if (f2 > 0.0f) {
+-	    f1 = 0.35f * log10 (f2);
+-	}
+-
+-	this->m_FFTdestination64[band]
+-	    = fmin (1.0f, f1 * static_cast<float> (2.0f - pow (M_E, (1.0f - band / 63.0f) * 1.0f - 0.5f)));
+-	this->m_FFTdestination32[band >> 1]
+-	    = fmin (1.0f, f1 * static_cast<float> (2.0f - pow (M_E, (1.0f - band / 31.0f) * 1.0f - 0.5f)));
+-	this->m_FFTdestination16[band >> 2]
+-	    = fmin (1.0f, f1 * static_cast<float> (2.0f - pow (M_E, (1.0f - band / 15.0f) * 1.0f - 0.5f)));
+-    }
+-}
+-
+-} // namespace WallpaperEngine::Audio::Drivers::Recorders
+\ No newline at end of file
+diff --git a/src/WallpaperEngine/Audio/Drivers/Recorders/PulseAudioPlaybackRecorder.h b/src/WallpaperEngine/Audio/Drivers/Recorders/PulseAudioPlaybackRecorder.h
+index ac6c034..f459393 100644
+--- a/src/WallpaperEngine/Audio/Drivers/Recorders/PulseAudioPlaybackRecorder.h
++++ b/src/WallpaperEngine/Audio/Drivers/Recorders/PulseAudioPlaybackRecorder.h
+@@ -1,43 +1,13 @@
+ #pragma once
+ 
+ #include "PlaybackRecorder.h"
+-#include "kiss_fftr.h"
+-#include <pulse/pulseaudio.h>
+-
+-#define WAVE_BUFFER_SIZE 1024
+ 
++// macOS port: no PulseAudio, audio-responsive data stays at zero.
+ namespace WallpaperEngine::Audio::Drivers::Recorders {
+-class PlaybackRecorder;
+-
+ class PulseAudioPlaybackRecorder final : public PlaybackRecorder {
+ public:
+-    /**
+-     * Struct that contains all the required data for the PulseAudio callbacks
+-     */
+-    struct PulseAudioData {
+-	kiss_fftr_cfg kisscfg;
+-	uint8_t* audioBuffer;
+-	uint8_t* audioBufferTmp;
+-	size_t currentWritePointer;
+-	bool fullFrameReady;
+-	pa_stream* captureStream;
+-    };
+-
+-    PulseAudioPlaybackRecorder ();
+-    ~PulseAudioPlaybackRecorder () override;
+-
+-    void update () override;
+-
+-private:
+-    pa_mainloop* m_mainloop;
+-    pa_mainloop_api* m_mainloopApi;
+-    pa_context* m_context;
+-    PulseAudioData m_captureData;
+-
+-    float m_audioFFTbuffer[WAVE_BUFFER_SIZE] = { 0.0f };
+-    kiss_fft_cpx m_FFTinfo[WAVE_BUFFER_SIZE / 2 + 1] = { { .r = 0.0f, .i = 0.0f } };
+-    float m_FFTdestination64[64] = { 0 };
+-    float m_FFTdestination32[32] = { 0 };
+-    float m_FFTdestination16[16] = { 0 };
++    PulseAudioPlaybackRecorder () = default;
++    ~PulseAudioPlaybackRecorder () override = default;
++    void update () override { }
+ };
+ } // namespace WallpaperEngine::Audio::Drivers::Recorders
+diff --git a/src/WallpaperEngine/Data/Model/DynamicValue.cpp b/src/WallpaperEngine/Data/Model/DynamicValue.cpp
+index d41028f..80011dc 100644
+--- a/src/WallpaperEngine/Data/Model/DynamicValue.cpp
++++ b/src/WallpaperEngine/Data/Model/DynamicValue.cpp
+@@ -1,4 +1,6 @@
+ #include "DynamicValue.h"
++#include <algorithm>
++#include <cmath>
+ #include "UserSetting.h"
+ 
+ #include "WallpaperEngine/Data/Utils/ScopeGuard.h"
+@@ -301,3 +303,79 @@ void DynamicValue::propagate (UpdateSource source) const {
+ 	callback (*this, source);
+     }
+ }
++
++
++std::vector<DynamicValue*>& DynamicValue::animatedValues () {
++    static std::vector<DynamicValue*> values;
++    return values;
++}
++
++void DynamicValue::setAnimation (PropertyAnimation animation) {
++    if (animation.channels.empty ()) {
++	return;
++    }
++    this->m_animation = std::move (animation);
++    animatedValues ().push_back (this);
++}
++
++void DynamicValue::animate (const float seconds) {
++    if (!this->m_animation.has_value ()) {
++	return;
++    }
++    const auto& animation = *this->m_animation;
++    float frame = seconds * animation.fps;
++    const float length = animation.length > 0 ? animation.length : animation.channels[0].back ().frame;
++
++    if (length > 0) {
++	if (animation.mode == "single") {
++	    frame = std::min (frame, length);
++	} else if (animation.mode == "mirror") {
++	    frame = std::fmod (frame, length * 2);
++	    if (frame > length) {
++		frame = length * 2 - frame;
++	    }
++	} else {
++	    frame = std::fmod (frame, length);
++	}
++    }
++
++    float out[4] = { 0, 0, 0, 0 };
++    const size_t count = std::min<size_t> (animation.channels.size (), 4);
++    for (size_t channel = 0; channel < count; channel++) {
++	const auto& keys = animation.channels[channel];
++	if (keys.empty ()) {
++	    continue;
++	}
++	if (frame <= keys.front ().frame) {
++	    out[channel] = keys.front ().value;
++	} else if (frame >= keys.back ().frame) {
++	    out[channel] = keys.back ().value;
++	} else {
++	    for (size_t i = 1; i < keys.size (); i++) {
++		if (frame <= keys[i].frame) {
++		    const auto& a = keys[i - 1];
++		    const auto& b = keys[i];
++		    const float span = b.frame - a.frame;
++		    const float t = span > 0 ? (frame - a.frame) / span : 1.0f;
++		    out[channel] = a.value + (b.value - a.value) * t;
++		    break;
++		}
++	    }
++	}
++    }
++
++    switch (count) {
++	case 1:
++	    this->update (out[0], UpdateSource::Script);
++	    break;
++	case 2:
++	    this->update (glm::vec2 (out[0], out[1]), UpdateSource::Script);
++	    break;
++	case 3:
++	    this->update (glm::vec3 (out[0], out[1], out[2]), UpdateSource::Script);
++	    break;
++	default:
++	    this->update (glm::vec4 (out[0], out[1], out[2], out[3]), UpdateSource::Script);
++	    break;
++    }
++}
+diff --git a/src/WallpaperEngine/Data/Model/DynamicValue.h b/src/WallpaperEngine/Data/Model/DynamicValue.h
+index 4843dca..94f8072 100644
+--- a/src/WallpaperEngine/Data/Model/DynamicValue.h
++++ b/src/WallpaperEngine/Data/Model/DynamicValue.h
+@@ -10,6 +10,7 @@
+ #include <memory>
+ #include <optional>
+ #include <string>
++#include <vector>
+ 
+ namespace WallpaperEngine::Data::Model {
+ class DynamicValue;
+@@ -26,6 +27,21 @@ struct ScriptContext {
+     } object;
+ };
+ 
++/**
++ * Keyframed property animation ("alpha": { "animation": { "c0": [...], "options": {...} } }): one keyframe list per
++ * component, evaluated against the scene clock. Handles (bezier tangents) are ignored, frames interpolate linearly.
++ */
++struct PropertyAnimation {
++    struct Key {
++	float frame;
++	float value;
++    };
++    std::vector<std::vector<Key>> channels;
++    float fps = 30.0f;
++    float length = 0.0f;
++    std::string mode = "loop"; // loop, mirror or single
++};
++
+ /**
+  * Class that represents different types of dynamic values
+  */
+@@ -138,6 +154,17 @@ public:
+     void setProperties (std::map<std::string, UserSettingUniquePtr> properties);
+ 
+ private:
++public:
++    /** Attaches a keyframe animation and registers the value so the scene ticks it every frame */
++    void setAnimation (PropertyAnimation animation);
++    /** Evaluates the animation at the given scene time (seconds) and propagates the result */
++    void animate (float seconds);
++    /** Every value that carries an animation (scene lifetime, ticked by CScene) */
++    static std::vector<DynamicValue*>& animatedValues ();
++
++private:
++    std::optional<PropertyAnimation> m_animation = std::nullopt;
++
+     /**
+      * Notifies any listeners that the value has changed
+      */
+diff --git a/src/WallpaperEngine/Data/Model/Object.h b/src/WallpaperEngine/Data/Model/Object.h
+index c346aab..c34bcca 100644
+--- a/src/WallpaperEngine/Data/Model/Object.h
++++ b/src/WallpaperEngine/Data/Model/Object.h
+@@ -123,6 +123,8 @@ struct ImageData {
+     std::vector<ImageEffectUniquePtr> effects;
+     /** The animation layers used in the puppet warp */
+     std::vector<ImageAnimationLayerUniquePtr> animationLayers;
++    /** Name of the parent puppet's attachment point this image follows (empty = none) */
++    std::string attachment;
+ };
+ 
+ class Image : public Object, public ImageData {
+diff --git a/src/WallpaperEngine/Data/Parsers/DynamicValueParser.cpp b/src/WallpaperEngine/Data/Parsers/DynamicValueParser.cpp
+index 777fa1a..29de72e 100644
+--- a/src/WallpaperEngine/Data/Parsers/DynamicValueParser.cpp
++++ b/src/WallpaperEngine/Data/Parsers/DynamicValueParser.cpp
+@@ -63,6 +63,34 @@ DynamicValueUniquePtr DynamicValueParser::parse (const json& data, const Propert
+ 	value->update (DynamicValue::UpdateSource::Initialization);
+     }
+ 
++    if (data.is_object () && data.contains ("animation") && data["animation"].is_object ()) {
++	const auto& animationJson = data["animation"];
++	PropertyAnimation animation;
++	if (animationJson.contains ("options") && animationJson["options"].is_object ()) {
++	    const auto& options = animationJson["options"];
++	    if (options.contains ("fps") && options["fps"].is_number ()) animation.fps = options["fps"].get<float> ();
++	    if (options.contains ("length") && options["length"].is_number ()) {
++		animation.length = options["length"].get<float> ();
++	    }
++	    if (options.contains ("mode") && options["mode"].is_string ()) {
++		animation.mode = options["mode"].get<std::string> ();
++	    }
++	}
++	for (int channel = 0; channel < 4; channel++) {
++	    const std::string name = "c" + std::to_string (channel);
++	    if (!animationJson.contains (name) || !animationJson[name].is_array ()) break;
++	    std::vector<PropertyAnimation::Key> keys;
++	    for (const auto& key : animationJson[name]) {
++		if (key.is_object () && key.contains ("frame") && key.contains ("value")
++		    && key["frame"].is_number () && key["value"].is_number ()) {
++		    keys.push_back ({ key["frame"].get<float> (), key["value"].get<float> () });
++		}
++	    }
++	    animation.channels.push_back (std::move (keys));
++	}
++	value->setAnimation (std::move (animation));
++    }
++
+     if (scriptSource.has_value ()) {
+ 	std::map<std::string, UserSettingUniquePtr> scriptProps;
+ 
+diff --git a/src/WallpaperEngine/Data/Parsers/ObjectParser.cpp b/src/WallpaperEngine/Data/Parsers/ObjectParser.cpp
+index 4e35f5a..adab988 100644
+--- a/src/WallpaperEngine/Data/Parsers/ObjectParser.cpp
++++ b/src/WallpaperEngine/Data/Parsers/ObjectParser.cpp
+@@ -164,6 +164,7 @@ ObjectParser::parseImage (const JSON& it, const Project& project, ObjectData bas
+ 	    .effects = effects.has_value () ? parseEffects (*effects, project) : std::vector<ImageEffectUniquePtr> {},
+ 	    .animationLayers = animationLayers.has_value () ? parseAnimationLayers (*animationLayers, project)
+ 							    : std::vector<ImageAnimationLayerUniquePtr> {},
++	    .attachment = it.optional ("attachment", std::string ("")),
+ 	}
+     );
+ 
+diff --git a/src/WallpaperEngine/Data/Parsers/WallpaperParser.cpp b/src/WallpaperEngine/Data/Parsers/WallpaperParser.cpp
+index c108a0d..e24a081 100644
+--- a/src/WallpaperEngine/Data/Parsers/WallpaperParser.cpp
++++ b/src/WallpaperEngine/Data/Parsers/WallpaperParser.cpp
+@@ -30,6 +30,14 @@ SceneUniquePtr WallpaperParser::parseScene (const JSON& file, Project& project)
+     const auto objects = scene.require ("objects", "Scenes must have an objects section");
+     const auto& properties = project.properties;
+ 
++    // macOS port: many scenes enable camera parallax but author an amount of 0, which means the mouse does nothing.
++    // WPENGINE_PARALLAX_FALLBACK gives those scenes a usable amount; a scene with its own non-zero amount keeps it.
++    auto parallaxAmount = general.user ("cameraparallaxamount", properties, 1.0f);
++    if (const char* fallback = getenv ("WPENGINE_PARALLAX_FALLBACK");
++	fallback != nullptr && parallaxAmount->value->getFloat () == 0.0f) {
++	parallaxAmount = Builders::UserSettingBuilder::fromValue<float> (static_cast<float> (atof (fallback)));
++    }
++
+     // TODO: FIND IF THESE DEFAULTS ARE SENSIBLE OR NOT AND PERFORM PROPER VALIDATION WHEN CAMERA PREVIEW AND CAMERA
+     // PARALLAX ARE PRESENT
+ 
+@@ -53,7 +61,7 @@ SceneUniquePtr WallpaperParser::parseScene (const JSON& file, Project& project)
+                 },
+                 .parallax = {
+                     .enabled = general.user ("cameraparallax", properties, false),
+-                    .amount = general.user ("cameraparallaxamount", properties, 1.0f),
++                    .amount = std::move (parallaxAmount),
+                     .delay = general.user ("cameraparallaxdelay", properties, 0.0f),
+                     .mouseInfluence = general.user ("cameraparallaxmouseinfluence", properties, 1.0f),
+                 },
+diff --git a/src/WallpaperEngine/Input/Drivers/GLFWMouseInput.cpp b/src/WallpaperEngine/Input/Drivers/GLFWMouseInput.cpp
+index 8ddce13..009f91e 100644
+--- a/src/WallpaperEngine/Input/Drivers/GLFWMouseInput.cpp
++++ b/src/WallpaperEngine/Input/Drivers/GLFWMouseInput.cpp
+@@ -1,8 +1,12 @@
+ #include "GLFWMouseInput.h"
+ #include <glm/common.hpp>
++#include <cstdio>
++#include <cstdlib>
+ 
+ #include "WallpaperEngine/Render/Drivers/GLFWOpenGLDriver.h"
+ 
++extern "C" void wpGlobalCursor (double* x, double* y);
++
+ using namespace WallpaperEngine::Input::Drivers;
+ 
+ GLFWMouseInput::GLFWMouseInput (const Render::Drivers::GLFWOpenGLDriver& driver) : m_driver (driver) { }
+@@ -20,7 +24,24 @@ void GLFWMouseInput::update () {
+     this->m_rightClick = rightClickState == GLFW_RELEASE ? MouseClickStatus::Released : MouseClickStatus::Clicked;
+ 
+     // update current mouse position
+-    glfwGetCursorPos (this->m_driver.getWindow (), &this->m_mousePosition.x, &this->m_mousePosition.y);
++    // the wallpaper window never receives mouse events on macOS, so read the global cursor instead
++    double globalX, globalY;
++    int windowX, windowY;
++    wpGlobalCursor (&globalX, &globalY);
++    glfwGetWindowPos (this->m_driver.getWindow (), &windowX, &windowY);
++    // points -> framebuffer pixels (Retina)
++    int windowWidth, windowHeight;
++    glfwGetWindowSize (this->m_driver.getWindow (), &windowWidth, &windowHeight);
++    const glm::ivec2 pixels = this->m_driver.getFramebufferSize ();
++    const double scaleX = windowWidth > 0 ? static_cast<double> (pixels.x) / windowWidth : 1.0;
++    const double scaleY = windowHeight > 0 ? static_cast<double> (pixels.y) / windowHeight : 1.0;
++    this->m_mousePosition = { (globalX - windowX) * scaleX, (globalY - windowY) * scaleY };
++    // debug/testing: WPENGINE_MOUSE="0.1,0.5" pins the cursor to a fraction of the window
++    if (const char* fake = getenv ("WPENGINE_MOUSE")) {
++	double fx = 0.5, fy = 0.5;
++	sscanf (fake, "%lf,%lf", &fx, &fy);
++	this->m_mousePosition = { fx * pixels.x, fy * pixels.y };
++    }
+ 
+     // Convert from GLFW coordinate system (Y=0 at top) to OpenGL coordinate system (Y=0 at bottom)
+     const glm::ivec2 framebufferSize = this->m_driver.getFramebufferSize ();
+diff --git a/src/WallpaperEngine/Media/DBusMediaSource.cpp b/src/WallpaperEngine/Media/DBusMediaSource.cpp
+index 83a50f3..e69de29 100644
+--- a/src/WallpaperEngine/Media/DBusMediaSource.cpp
++++ b/src/WallpaperEngine/Media/DBusMediaSource.cpp
+@@ -1,370 +0,0 @@
+-#include "DBusMediaSource.h"
+-
+-#include "WallpaperEngine/Data/Utils/ScopeGuard.h"
+-#include "WallpaperEngine/Logging/Log.h"
+-
+-using namespace WallpaperEngine::Media;
+-
+-DBusHandlerResult dbus_message_filter (DBusConnection* connection, DBusMessage* message, void* user_data) {
+-    const auto mediaSource = static_cast<DBusMediaSource*> (user_data);
+-
+-    if (!dbus_message_is_signal (message, "org.freedesktop.DBus.Properties", "PropertiesChanged")) {
+-	return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+-    }
+-
+-    const char* interface = nullptr;
+-    DBusMessageIter iter;
+-
+-    dbus_message_iter_init (message, &iter);
+-    dbus_message_iter_get_basic (&iter, &interface);
+-
+-    std::string iface = interface ?: "";
+-
+-    if (iface != "org.mpris.MediaPlayer2.Player") {
+-	return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+-    }
+-
+-    DBusMessageIter changed;
+-
+-    dbus_message_iter_next (&iter);
+-    dbus_message_iter_recurse (&iter, &changed);
+-
+-    while (dbus_message_iter_get_arg_type (&changed) == DBUS_TYPE_DICT_ENTRY) {
+-	DBusMessageIter entry;
+-	dbus_message_iter_recurse (&changed, &entry);
+-
+-	const char* key = nullptr;
+-	dbus_message_iter_get_basic (&entry, &key);
+-
+-	std::string keyStr = key ?: "";
+-
+-	DBusMessageIter value;
+-	dbus_message_iter_next (&entry);
+-	dbus_message_iter_recurse (&entry, &value);
+-
+-	if (keyStr == "Metadata") {
+-	    mediaSource->parseMetadata (value);
+-	} else if (keyStr == "PlaybackStatus") {
+-	    mediaSource->parsePlaybackStatus (value, dbus_message_get_sender (message));
+-	}
+-
+-	dbus_message_iter_next (&changed);
+-    }
+-
+-    return DBUS_HANDLER_RESULT_HANDLED;
+-}
+-
+-DBusMediaSource::DBusMediaSource (std::chrono::milliseconds updateInterval) : MediaSource (updateInterval) {
+-    DBusError err;
+-
+-    dbus_error_init (&err);
+-
+-    this->m_connection = dbus_bus_get (DBUS_BUS_SESSION, &err);
+-
+-    if (!this->m_connection) {
+-	sLog.exception ("Could not connect to DBus: ", err.message);
+-    }
+-
+-    dbus_connection_add_filter (this->m_connection, dbus_message_filter, this, nullptr);
+-
+-    dbus_bus_add_match (
+-	this->m_connection, "type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged'",
+-	nullptr
+-    );
+-
+-    dbus_connection_flush (this->m_connection);
+-
+-    this->detectPlayer ();
+-    this->initialStatusFetch ();
+-}
+-
+-DBusMediaSource::~DBusMediaSource () {
+-    dbus_connection_remove_filter (this->m_connection, dbus_message_filter, this);
+-
+-    dbus_connection_unref (this->m_connection);
+-}
+-
+-void DBusMediaSource::parseMetadata (DBusMessageIter& variant) {
+-    DBusMessageIter dict;
+-    dbus_message_iter_recurse (&variant, &dict);
+-
+-    bool metadataUpdate = false;
+-    bool albumUpdate = false;
+-
+-    while (dbus_message_iter_get_arg_type (&dict) == DBUS_TYPE_DICT_ENTRY) {
+-	DBusMessageIter entry;
+-	dbus_message_iter_recurse (&dict, &entry);
+-
+-	const char* key = nullptr;
+-	dbus_message_iter_get_basic (&entry, &key);
+-
+-	std::string keyStr = key ?: "";
+-
+-	DBusMessageIter value;
+-	dbus_message_iter_next (&entry);
+-	dbus_message_iter_recurse (&entry, &value);
+-
+-	if (keyStr == "xesam:title") {
+-	    const char* title = nullptr;
+-	    dbus_message_iter_get_basic (&value, &title);
+-
+-	    std::string titleStr = title ?: "";
+-
+-	    if (this->m_mediaInfo.title != titleStr) {
+-		this->m_mediaInfo.title = titleStr;
+-		metadataUpdate = true;
+-	    }
+-	} else if (keyStr == "xesam:artist") {
+-	    DBusMessageIter arr;
+-
+-	    dbus_message_iter_recurse (&value, &arr);
+-
+-	    if (dbus_message_iter_get_arg_type (&arr) == DBUS_TYPE_STRING) {
+-		const char* artist = nullptr;
+-		dbus_message_iter_get_basic (&arr, &artist);
+-
+-		std::string artistStr = artist ?: "";
+-
+-		if (this->m_mediaInfo.artist != artistStr) {
+-		    this->m_mediaInfo.artist = artistStr;
+-		    metadataUpdate = true;
+-		}
+-	    }
+-	} else if (keyStr == "xesam:album") {
+-	    const char* album = nullptr;
+-	    dbus_message_iter_get_basic (&value, &album);
+-
+-	    std::string albumStr = album ?: "";
+-
+-	    if (this->m_mediaInfo.album != albumStr) {
+-		this->m_mediaInfo.album = albumStr;
+-		albumUpdate = true;
+-	    }
+-	} else if (keyStr == "mpris:artUrl") {
+-	    const char* artUrl = nullptr;
+-	    dbus_message_iter_get_basic (&value, &artUrl);
+-
+-	    std::string artUrlStr = artUrl ?: "";
+-
+-	    if (artUrlStr.empty () && this->m_mediaInfo.url.has_value ()) {
+-		this->m_mediaInfo.url.reset ();
+-		albumUpdate = true;
+-	    } else if (this->m_mediaInfo.url.has_value () && artUrlStr != *this->m_mediaInfo.url) {
+-		this->m_mediaInfo.url = artUrlStr;
+-		albumUpdate = true;
+-	    } else if (!this->m_mediaInfo.url.has_value ()) {
+-		this->m_mediaInfo.url = artUrlStr;
+-		albumUpdate = true;
+-	    }
+-	} else if (keyStr == "mpris:length") {
+-	    int64_t length = 0;
+-	    dbus_message_iter_get_basic (&value, &length);
+-
+-	    if (this->m_mediaInfo.duration != length) {
+-		this->m_mediaInfo.duration = length;
+-		metadataUpdate = true;
+-	    }
+-	}
+-
+-	dbus_message_iter_next (&dict);
+-    }
+-
+-    sLog.debug (
+-	"Player metadata received: title=", this->m_mediaInfo.title, ",artist=", this->m_mediaInfo.artist,
+-	",album=", this->m_mediaInfo.album, ",url=", this->m_mediaInfo.url.has_value () ? *this->m_mediaInfo.url : ""
+-    );
+-
+-    if (metadataUpdate) {
+-	this->fireMetadataListeners ();
+-    }
+-
+-    if (albumUpdate) {
+-	this->fireAlbumArtListeners ();
+-    }
+-}
+-
+-void DBusMediaSource::parsePlaybackStatus (DBusMessageIter& variant, const char* sender) {
+-    const char* status = nullptr;
+-    dbus_message_iter_get_basic (&variant, &status);
+-    std::string statusStr = status ?: "";
+-    PlaybackState newState = this->m_mediaInfo.playbackState;
+-
+-    if (statusStr == "Playing") {
+-	if (sender != nullptr) {
+-	    this->m_currentPlayer = sender;
+-	}
+-
+-	newState = PlaybackState::Playing;
+-    } else if (statusStr == "Paused") {
+-	newState = PlaybackState::Paused;
+-    } else {
+-	newState = PlaybackState::Stopped;
+-    }
+-
+-    if (newState != this->m_mediaInfo.playbackState) {
+-	this->m_mediaInfo.playbackState = newState;
+-	this->fireMetadataListeners ();
+-    }
+-}
+-
+-void DBusMediaSource::parsePosition (DBusMessageIter& variant) {
+-    int64_t position = 0;
+-    dbus_message_iter_get_basic (&variant, &position);
+-
+-    if (this->m_mediaInfo.position != position) {
+-	this->m_mediaInfo.position = position;
+-	this->fireMetadataListeners ();
+-    }
+-}
+-
+-void DBusMediaSource::update () {
+-    this->MediaSource::update ();
+-
+-    // drain any dbus events
+-    dbus_connection_read_write (this->m_connection, 0);
+-
+-    while (dbus_connection_dispatch (this->m_connection) == DBUS_DISPATCH_DATA_REMAINS)
+-	;
+-}
+-
+-DBusMessage* DBusMediaSource::dbusMessage (
+-    const char* bus_name, const char* path, const char* interface, const char* method, const char* iface,
+-    const char* prop
+-) {
+-    DBusError err;
+-    dbus_error_init (&err);
+-
+-    DBusMessage* msg = dbus_message_new_method_call (bus_name, path, interface, method);
+-    Data::Utils::ScopeGuard guard ([msg] { dbus_message_unref (msg); });
+-
+-    if (iface != nullptr && prop != nullptr) {
+-	dbus_message_append_args (msg, DBUS_TYPE_STRING, &iface, DBUS_TYPE_STRING, &prop, DBUS_TYPE_INVALID);
+-    }
+-
+-    DBusMessage* reply = dbus_connection_send_with_reply_and_block (m_connection, msg, -1, &err);
+-
+-    if (reply == nullptr) {
+-	sLog.error ("DBus error: ", err.message, " (", err.name, ")");
+-	return nullptr;
+-    }
+-
+-    return reply;
+-}
+-
+-void DBusMediaSource::detectPlayer () {
+-    DBusMessage* reply
+-	= this->dbusMessage ("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "ListNames");
+-
+-    if (reply == nullptr) {
+-	return;
+-    }
+-
+-    Data::Utils::ScopeGuard guard ([reply] { dbus_message_unref (reply); });
+-    std::vector<std::string> players;
+-    DBusMessageIter iter;
+-    dbus_message_iter_init (reply, &iter);
+-
+-    if (dbus_message_iter_get_arg_type (&iter) != DBUS_TYPE_ARRAY) {
+-	return;
+-    }
+-
+-    DBusMessageIter array;
+-    dbus_message_iter_recurse (&iter, &array);
+-
+-    while (dbus_message_iter_get_arg_type (&array) != DBUS_TYPE_INVALID) {
+-	char* name;
+-	dbus_message_iter_get_basic (&array, &name);
+-
+-	std::string service = name;
+-
+-	if (service.starts_with ("org.mpris.MediaPlayer2.")) {
+-	    players.push_back (service);
+-	}
+-
+-	dbus_message_iter_next (&array);
+-    }
+-
+-    if (players.empty ()) {
+-	return;
+-    }
+-
+-    for (const auto& player : players) {
+-	// also get playback status
+-	reply = this->dbusMessage (
+-	    player.c_str (), "/org/mpris/MediaPlayer2", "org.freedesktop.DBus.Properties", "Get",
+-	    "org.mpris.MediaPlayer2.Player", "PlaybackStatus"
+-	);
+-
+-	if (reply == nullptr) {
+-	    return;
+-	}
+-
+-	Data::Utils::ScopeGuard guard2 ([reply] { dbus_message_unref (reply); });
+-
+-	DBusMessageIter outer;
+-	dbus_message_iter_init (reply, &outer);
+-	DBusMessageIter variant;
+-	dbus_message_iter_recurse (&outer, &variant);
+-
+-	this->parsePlaybackStatus (variant, player.c_str ());
+-
+-	if (this->m_currentPlayer.has_value ()) {
+-	    break;
+-	}
+-    }
+-}
+-
+-void DBusMediaSource::initialStatusFetch () {
+-    if (this->m_currentPlayer.has_value () == false) {
+-	return;
+-    }
+-
+-    DBusMessage* reply = this->dbusMessage (
+-	this->m_currentPlayer.value ().c_str (), "/org/mpris/MediaPlayer2", "org.freedesktop.DBus.Properties", "Get",
+-	"org.mpris.MediaPlayer2.Player", "Metadata"
+-    );
+-
+-    if (reply == nullptr) {
+-	return;
+-    }
+-
+-    Data::Utils::ScopeGuard guard ([reply] { dbus_message_unref (reply); });
+-    DBusMessageIter outer;
+-    dbus_message_iter_init (reply, &outer);
+-
+-    DBusMessageIter variant;
+-    dbus_message_iter_recurse (&outer, &variant);
+-
+-    this->parseMetadata (variant);
+-}
+-
+-void DBusMediaSource::performUpdate () {
+-    // nothing to do if no player is detected
+-    if (!this->m_currentPlayer.has_value ()) {
+-	return;
+-    }
+-
+-    DBusMessage* reply = this->dbusMessage (
+-	this->m_currentPlayer.value ().c_str (), "/org/mpris/MediaPlayer2", "org.freedesktop.DBus.Properties", "Get",
+-	"org.mpris.MediaPlayer2.Player", "Position"
+-    );
+-
+-    if (reply == nullptr) {
+-	return;
+-    }
+-
+-    Data::Utils::ScopeGuard guard ([reply] { dbus_message_unref (reply); });
+-    DBusMessageIter outer;
+-    dbus_message_iter_init (reply, &outer);
+-
+-    DBusMessageIter variant;
+-    dbus_message_iter_recurse (&outer, &variant);
+-
+-    dbus_int64_t position = 0;
+-    dbus_message_iter_get_basic (&variant, &position);
+-
+-    if (this->m_mediaInfo.position != position) {
+-	this->m_mediaInfo.position = position;
+-	this->fireMetadataListeners ();
+-    }
+-}
+\ No newline at end of file
+diff --git a/src/WallpaperEngine/Media/DBusMediaSource.h b/src/WallpaperEngine/Media/DBusMediaSource.h
+index 8bc6a18..14b1980 100644
+--- a/src/WallpaperEngine/Media/DBusMediaSource.h
++++ b/src/WallpaperEngine/Media/DBusMediaSource.h
+@@ -1,32 +1,16 @@
+ #pragma once
+ 
+ #include "MediaSource.h"
+-#include <dbus/dbus.h>
+ 
++// macOS port: no DBus/MPRIS, so there is never any media info.
+ namespace WallpaperEngine::Media {
+ class DBusMediaSource : public MediaSource {
+ public:
+-    explicit DBusMediaSource (std::chrono::milliseconds updateInterval);
+-    ~DBusMediaSource () override;
+-
+-    void parseMetadata (DBusMessageIter& variant);
+-    void parsePlaybackStatus (DBusMessageIter& variant, const char* sender);
+-    void parsePosition (DBusMessageIter& variant);
+-
+-    void update () override;
++    explicit DBusMediaSource (std::chrono::milliseconds updateInterval) : MediaSource (updateInterval) { }
++    ~DBusMediaSource () override = default;
++    void update () override { }
+ 
+ protected:
+-    void performUpdate () override;
+-    void initialStatusFetch ();
+-    void detectPlayer ();
+-
+-    DBusMessage* dbusMessage (
+-	const char* bus_name, const char* path, const char* interface, const char* method, const char* iface = nullptr,
+-	const char* prop = nullptr
+-    );
+-
+-    std::optional<std::string> m_currentPlayer = std::nullopt;
+-
+-    DBusConnection* m_connection;
++    void performUpdate () override { }
+ };
+-}
+\ No newline at end of file
++}
+diff --git a/src/WallpaperEngine/Render/CWallpaper.cpp b/src/WallpaperEngine/Render/CWallpaper.cpp
+index d0f7eab..42138cc 100644
+--- a/src/WallpaperEngine/Render/CWallpaper.cpp
++++ b/src/WallpaperEngine/Render/CWallpaper.cpp
+@@ -2,7 +2,6 @@
+ #include "WallpaperEngine/Logging/Log.h"
+ #include "WallpaperEngine/Render/Wallpapers/CScene.h"
+ #include "WallpaperEngine/Render/Wallpapers/CVideo.h"
+-#include "WallpaperEngine/Render/Wallpapers/CWeb.h"
+ 
+ #include "WallpaperEngine/Data/Model/Project.h"
+ #include "WallpaperEngine/Data/Model/Wallpaper.h"
+@@ -356,9 +355,7 @@ std::unique_ptr<CWallpaper> CWallpaper::fromWallpaper (
+     }
+ 
+     if (wallpaper.is<Web> ()) {
+-	return std::make_unique<WallpaperEngine::Render::Wallpapers::CWeb> (
+-	    wallpaper, context, audioContext, *browserContext, scalingMode, clampMode
+-	);
++	sLog.exception ("Web wallpapers are not supported on macOS");
+     }
+ 
+     sLog.exception ("Unsupported wallpaper type");
+diff --git a/src/WallpaperEngine/Render/Drivers/GLFWOpenGLDriver.cpp b/src/WallpaperEngine/Render/Drivers/GLFWOpenGLDriver.cpp
+index 01063d9..3761c6a 100644
+--- a/src/WallpaperEngine/Render/Drivers/GLFWOpenGLDriver.cpp
++++ b/src/WallpaperEngine/Render/Drivers/GLFWOpenGLDriver.cpp
+@@ -6,13 +6,14 @@
+ #include "WallpaperEngine/Render/Drivers/Output/X11Output.h"
+ #endif
+ 
+-#define GLFW_EXPOSE_NATIVE_X11
+ #include "WallpaperEngine/Debugging/CallStack.h"
+ 
+-#include <GLFW/glfw3native.h>
+ 
+ #include <unistd.h>
+ 
++extern "C" void wpMakeDesktopWindow (GLFWwindow* window);
++extern "C" bool wpWindowVisible (GLFWwindow* window);
++
+ using namespace WallpaperEngine::Render::Drivers;
+ 
+ void CustomGLFWErrorHandler (int errorCode, const char* reason) { sLog.error ("GLFW error ", errorCode, ": ", reason); }
+@@ -27,20 +28,19 @@ GLFWOpenGLDriver::GLFWOpenGLDriver (const char* windowTitle, ApplicationContext&
+     }
+ 
+     // set some window hints (opengl version to be used)
+-    glfwWindowHint (GLFW_SAMPLES, 4);
+-    glfwWindowHint (GLFW_CONTEXT_VERSION_MAJOR, 3);
+-    glfwWindowHint (GLFW_CONTEXT_VERSION_MINOR, 3);
++    // macOS: no MSAA (the scene is composited from textures); the Retina framebuffer stays on for sharpness
++    glfwWindowHint (GLFW_SAMPLES, 0);
++    glfwWindowHint (GLFW_CONTEXT_VERSION_MAJOR, 4);
++    glfwWindowHint (GLFW_CONTEXT_VERSION_MINOR, 1);
++    glfwWindowHint (GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
+     glfwWindowHint (GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+     glfwWindowHint (GLFW_VISIBLE, GLFW_FALSE);
+     // set X11-specific hints
+-    glfwWindowHintString (GLFW_X11_CLASS_NAME, "linux-wallpaperengine");
+-    glfwWindowHintString (GLFW_X11_INSTANCE_NAME, "linux-wallpaperengine");
+ 
+     // for forced window mode, we can set some hints that'll help position the window
+     if (context.settings.render.mode == Application::ApplicationContext::EXPLICIT_WINDOW) {
+ 	glfwWindowHint (GLFW_RESIZABLE, GLFW_FALSE);
+ 	glfwWindowHint (GLFW_DECORATED, GLFW_FALSE);
+-	glfwWindowHint (GLFW_FLOATING, GLFW_TRUE);
+     }
+ 
+ #if !NDEBUG
+@@ -93,7 +93,12 @@ void GLFWOpenGLDriver::resizeWindow (glm::ivec4 sizeandpos) {
+     glfwSetWindowSize (this->m_window, sizeandpos.z, sizeandpos.w);
+ }
+ 
+-void GLFWOpenGLDriver::showWindow () { glfwShowWindow (this->m_window); }
++void GLFWOpenGLDriver::showWindow () {
++    glfwShowWindow (this->m_window);
++    if (this->m_context.settings.render.mode == Application::ApplicationContext::EXPLICIT_WINDOW) {
++	wpMakeDesktopWindow (this->m_window);
++    }
++}
+ 
+ void GLFWOpenGLDriver::hideWindow () { glfwHideWindow (this->m_window); }
+ 
+@@ -109,6 +114,12 @@ uint32_t GLFWOpenGLDriver::getFrameCounter () const { return this->m_frameCounte
+ 
+ void GLFWOpenGLDriver::dispatchEventQueue () {
+     static float startTime, endTime, minimumTime = 1.0f / this->m_context.settings.render.maximumFPS;
++    // macOS: a wallpaper hidden behind windows (or on a sleeping display) costs nothing; the scenes are GPU heavy
++    if (this->m_context.settings.render.mode == Application::ApplicationContext::EXPLICIT_WINDOW
++	&& !this->m_context.settings.screenshot.take && !wpWindowVisible (this->m_window)) {
++	glfwWaitEventsTimeout (0.25);
++	return;
++    }
+     // get the start time of the frame
+     startTime = this->getRenderTime ();
+     // clear the screen
+@@ -145,6 +156,12 @@ void GLFWOpenGLDriver::dispatchEventQueue () {
+     // TODO: AS THOSE, MORE THAN LIKELY, WILL REQUIRE OF A DIFFERENT PROCESSING RATE
+     // update the output with the given image
+     this->m_output->updateRender ();
++    // the scene writes real alpha values (blend modes, effects); an opaque wallpaper needs alpha 1 or the window
++    // composites washed out against whatever is behind it
++    glColorMask (GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
++    glClearColor (0.0f, 0.0f, 0.0f, 1.0f);
++    glClear (GL_COLOR_BUFFER_BIT);
++    glColorMask (GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+     // do buffer swapping first
+     glfwSwapBuffers (this->m_window);
+     // poll for events
+@@ -154,6 +171,12 @@ void GLFWOpenGLDriver::dispatchEventQueue () {
+     // get the end time of the frame
+     endTime = this->getRenderTime ();
+ 
++    if (getenv ("WPENGINE_FPS_LOG") != nullptr && this->m_frameCounter % 120 == 0) {
++	static float last = 0.0f;
++	const float now = this->getRenderTime ();
++	fprintf (stderr, "WPFPS %.1f fps, work %.1f ms\n", 120.0f / (now - last), (endTime - startTime) * 1000.0f);
++	last = now;
++    }
+     // ensure the frame time is correct to not overrun FPS
+     if ((endTime - startTime) < minimumTime) {
+ 	usleep ((minimumTime - (endTime - startTime)) * CLOCKS_PER_SEC);
+diff --git a/src/WallpaperEngine/Render/Drivers/MacDesktopWindow.mm b/src/WallpaperEngine/Render/Drivers/MacDesktopWindow.mm
+new file mode 100644
+index 0000000..0fadb1b
+--- /dev/null
++++ b/src/WallpaperEngine/Render/Drivers/MacDesktopWindow.mm
+@@ -0,0 +1,46 @@
++// macOS port: turns the GLFW window into a desktop wallpaper window (behind icons, click-through, on every Space)
++// and reads the global cursor so the scene can react to the mouse although the window never gets events.
++#import <Cocoa/Cocoa.h>
++#define GLFW_EXPOSE_NATIVE_COCOA
++#include <GLFW/glfw3.h>
++#include <GLFW/glfw3native.h>
++
++extern "C" void wpMakeDesktopWindow (GLFWwindow* window) {
++    [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
++    NSWindow* win = glfwGetCocoaWindow (window);
++    if (win == nil) return;
++    win.level = kCGDesktopWindowLevel + 1;
++    win.ignoresMouseEvents = YES;
++    win.hasShadow = NO;
++    win.opaque = YES;
++    win.backgroundColor = NSColor.blackColor;
++    win.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorStationary
++        | NSWindowCollectionBehaviorIgnoresCycle | NSWindowCollectionBehaviorFullScreenAuxiliary;
++    [win orderBack:nil];
++}
++
++// Cursor in global screen points, origin top left of the primary display (same space as glfwGetWindowPos).
++extern "C" void wpGlobalCursor (double* x, double* y) {
++    NSPoint p = [NSEvent mouseLocation];
++    CGFloat primaryHeight = NSScreen.screens.firstObject.frame.size.height;
++    *x = p.x;
++    *y = primaryHeight - p.y;
++}
++
++// The host launches us and must never be outlived: exit as soon as the parent is gone (it was SIGKILLed or crashed).
++#include <dispatch/dispatch.h>
++#include <unistd.h>
++__attribute__ ((constructor)) static void wpWatchParent () {
++    const pid_t parent = getppid ();
++    dispatch_source_t timer = dispatch_source_create (DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
++        dispatch_get_global_queue (QOS_CLASS_UTILITY, 0));
++    dispatch_source_set_timer (timer, DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC, NSEC_PER_SEC);
++    dispatch_source_set_event_handler (timer, ^{ if (getppid () != parent) _exit (0); });
++    dispatch_resume (timer);
++}
++
++// Visible = some part of the window can be seen (not fully covered, display awake, not on a hidden Space).
++extern "C" bool wpWindowVisible (GLFWwindow* window) {
++    NSWindow* win = glfwGetCocoaWindow (window);
++    return win == nil || (win.occlusionState & NSWindowOcclusionStateVisible) != 0;
++}
+diff --git a/src/WallpaperEngine/Render/FBOProvider.cpp b/src/WallpaperEngine/Render/FBOProvider.cpp
+index 556a6eb..5067a99 100644
+--- a/src/WallpaperEngine/Render/FBOProvider.cpp
++++ b/src/WallpaperEngine/Render/FBOProvider.cpp
+@@ -1,5 +1,4 @@
+ #include "FBOProvider.h"
+-#include <gmpxx.h>
+ 
+ using namespace WallpaperEngine::Render;
+ using namespace WallpaperEngine::Data::Model;
+diff --git a/src/WallpaperEngine/Render/Objects/CImage.cpp b/src/WallpaperEngine/Render/Objects/CImage.cpp
+index be0baca..7b72c1c 100644
+--- a/src/WallpaperEngine/Render/Objects/CImage.cpp
++++ b/src/WallpaperEngine/Render/Objects/CImage.cpp
+@@ -23,6 +23,8 @@
+ #include "WallpaperEngine/Data/Utils/MemoryStream.h"
+ #include "WallpaperEngine/Logging/Log.h"
+ 
++extern float g_Time;
++
+ using namespace WallpaperEngine;
+ using namespace WallpaperEngine::Render::Objects;
+ using namespace WallpaperEngine::Render::Objects::Effects;
+@@ -134,6 +136,7 @@ CImage::ResolvedTransform CImage::resolveTransform (const Object& object) const
+     // Walk up the parent chain leaf-first, bounded by kMaxParentDepth to guard
+     // against cycles. chain[0] is the requested object; the last entry is the root.
+     const Object* chain[kMaxParentDepth + 1];
++    const CObject* renderChain[kMaxParentDepth + 1] = {};
+     int count = 0;
+     const Object* current = &object;
+     chain[count++] = current;
+@@ -148,6 +151,7 @@ CImage::ResolvedTransform CImage::resolveTransform (const Object& object) const
+ 	    break;
+ 	}
+ 	current = &parentObject->getObject ();
++	renderChain[count] = parentObject;
+ 	chain[count++] = current;
+     }
+ 
+@@ -156,6 +160,16 @@ CImage::ResolvedTransform CImage::resolveTransform (const Object& object) const
+     ResolvedTransform resolved = localTransform (*chain[count - 1]);
+     for (int i = count - 2; i >= 0; --i) {
+ 	ResolvedTransform local = localTransform (*chain[i]);
++	// macOS port: an image attached to a puppet's attachment point rides on that bone
++	if (chain[i]->is<Image> () && !chain[i]->as<Image> ()->attachment.empty ()) {
++	    if (const auto* parentImage = dynamic_cast<const CImage*> (renderChain[i + 1])) {
++		if (const auto attached = parentImage->puppetAttachment (chain[i]->as<Image> ()->attachment)) {
++		    local.origin.x += (*attached)[3][0];
++		    local.origin.y += (*attached)[3][1];
++		    local.angle += std::atan2 ((*attached)[0][1], (*attached)[0][0]);
++		}
++	    }
++	}
+ 	const glm::vec2 offset
+ 	    = rotateVec2 ({ local.origin.x * resolved.scale.x, local.origin.y * resolved.scale.y }, resolved.angle);
+ 	local.origin.x = resolved.origin.x + offset.x;
+@@ -431,6 +445,37 @@ bool CImage::loadPuppetMesh (const glm::vec2& size) {
+ 	const auto stream = this->getScene ().getScene ().project.assetLocator->read (*this->getImage ().model->puppet);
+ 	std::vector<char> data { std::istreambuf_iterator<char> (*stream), std::istreambuf_iterator<char> () };
+ 
++	// macOS port: full parser (skeleton, animations, attachments); the mesh-only scan below is the fallback
++	if (auto puppet = Puppet::parse (data)) {
++	    std::vector<GLfloat> texcoords;
++	    this->m_puppetRawPositions.clear ();
++	    for (const auto& vertex : puppet->vertices) {
++		this->m_puppetRawPositions.insert (
++		    this->m_puppetRawPositions.end (), { vertex.position.x, vertex.position.y, vertex.position.z }
++		);
++		texcoords.insert (texcoords.end (), { vertex.texcoord.x, vertex.texcoord.y });
++	    }
++	    this->m_puppetSize = size;
++	    this->updatePuppetPositionBuffer (size);
++
++	    glGenBuffers (1, &this->m_puppetTexCoord);
++	    glBindBuffer (GL_ARRAY_BUFFER, this->m_puppetTexCoord);
++	    glBufferData (GL_ARRAY_BUFFER, texcoords.size () * sizeof (GLfloat), texcoords.data (), GL_STATIC_DRAW);
++
++	    glGenBuffers (1, &this->m_puppetIndices);
++	    glBindBuffer (GL_ELEMENT_ARRAY_BUFFER, this->m_puppetIndices);
++	    glBufferData (
++		GL_ELEMENT_ARRAY_BUFFER, puppet->indices.size () * sizeof (uint16_t), puppet->indices.data (), GL_STATIC_DRAW
++	    );
++	    this->m_puppetIndexCount = static_cast<GLsizei> (puppet->indices.size ());
++	    sLog.out (
++		"Loaded puppet ", *this->getImage ().model->puppet, " bones=", puppet->bones.size (),
++		" animations=", puppet->animations.size (), " attachments=", puppet->attachments.size ()
++	    );
++	    this->m_puppet = std::move (puppet);
++	    return true;
++	}
++
+ 	constexpr size_t markerSize = 9;
+ 	constexpr size_t meshHeaderSize = sizeof (uint32_t) * 2;
+ 	constexpr size_t vertexStride = 80;
+@@ -918,6 +963,8 @@ void CImage::render () {
+ 
+     glColorMask (true, true, true, true);
+ 
++    this->animatePuppet ();
++
+     // Always update screen transform (handles rotation + parallax dynamically)
+     this->updateScreenSpacePosition ();
+ 
+@@ -1146,3 +1193,38 @@ GLuint CImage::getPassSpacePosition () const { return this->m_passSpacePosition;
+ GLuint CImage::getTexCoordCopy () const { return this->m_texcoordCopy; }
+ 
+ GLuint CImage::getTexCoordPass () const { return this->m_texcoordPass; }
++
++
++void CImage::animatePuppet () {
++    if (this->m_puppet == nullptr || this->m_puppetLastTime == g_Time) {
++	return;
++    }
++    const float delta = this->m_puppetLastTime < 0.0f ? 0.0f : std::max (0.0f, g_Time - this->m_puppetLastTime);
++    this->m_puppetLastTime = g_Time;
++
++    std::vector<Puppet::Layer> layers;
++    for (const auto& layer : this->getImage ().animationLayers) {
++	layers.push_back ({
++	    .id = layer->id,
++	    .rate = layer->rate->value->getFloat (),
++	    .blend = layer->blend->value->getFloat (),
++	    .visible = layer->visible->value->getBool (),
++	});
++    }
++    this->m_puppet->setLayers (layers);
++    this->m_puppet->update (delta);
++
++    const auto skinned = this->m_puppet->skinnedPositions ();
++    for (size_t i = 0; i < skinned.size (); i++) {
++	this->m_puppetRawPositions[i * 3 + 0] = skinned[i].x;
++	this->m_puppetRawPositions[i * 3 + 1] = skinned[i].y;
++	this->m_puppetRawPositions[i * 3 + 2] = skinned[i].z;
++    }
++    this->updatePuppetPositionBuffer (this->m_puppetSize);
++}
++
++std::optional<glm::mat4> CImage::puppetAttachment (const std::string& name) const {
++    // parents render first, but make sure the bones are current when a child asks
++    const_cast<CImage*> (this)->animatePuppet ();
++    return this->m_puppet != nullptr ? this->m_puppet->attachment (name) : std::nullopt;
++}
+diff --git a/src/WallpaperEngine/Render/Objects/CImage.h b/src/WallpaperEngine/Render/Objects/CImage.h
+index 07eeda2..4519856 100644
+--- a/src/WallpaperEngine/Render/Objects/CImage.h
++++ b/src/WallpaperEngine/Render/Objects/CImage.h
+@@ -1,5 +1,8 @@
+ #pragma once
+ 
++#include "Puppet.h"
++#include <optional>
++
+ #include "CRenderable.h"
+ #include "WallpaperEngine/Render/CObject.h"
+ #include "WallpaperEngine/Render/Objects/Effects/CPass.h"
+@@ -77,6 +80,12 @@ protected:
+ 
+ private:
+     bool loadPuppetMesh (const glm::vec2& size);
++    /** Advances the puppet's bone animation to the current scene time and re-skins the mesh */
++    void animatePuppet ();
++public:
++    /** Animated transform of the named attachment point of this image's puppet (model space), if any */
++    [[nodiscard]] std::optional<glm::mat4> puppetAttachment (const std::string& name) const;
++private:
+     void updatePuppetPositionBuffer (const glm::vec2& size);
+     void setupPuppetGeometryCallback (Effects::CPass* pass) const;
+     ResolvedTransform updateGeometryBuffers ();
+@@ -103,6 +112,9 @@ private:
+     GLsizei m_puppetIndexCount = 0;
+     bool m_hasPuppetMesh = false;
+     std::vector<GLfloat> m_puppetRawPositions = {};
++    std::unique_ptr<Puppet> m_puppet = nullptr;
++    glm::vec2 m_puppetSize = {};
++    float m_puppetLastTime = -1.0f;
+ 
+     glm::mat4 m_modelViewProjectionScreen = {};
+     glm::mat4 m_modelViewProjectionPass = {};
+diff --git a/src/WallpaperEngine/Render/Objects/Effects/CPass.cpp b/src/WallpaperEngine/Render/Objects/Effects/CPass.cpp
+index e93c293..fc3ee7b 100644
+--- a/src/WallpaperEngine/Render/Objects/Effects/CPass.cpp
++++ b/src/WallpaperEngine/Render/Objects/Effects/CPass.cpp
+@@ -857,11 +857,11 @@ void CPass::setupUniforms () {
+     this->addUniform ("g_LightAmbientColor", sceneData.colors.ambient->value->getVec3 ());
+     this->addUniform ("g_LightSkylightColor", sceneData.colors.skylight->value->getVec3 ());
+     // register variables like brightness and alpha with some default value
+-    this->addUniform ("g_Brightness", renderable.getBrightness ());
+-    this->addUniform ("g_UserAlpha", renderable.getUserAlpha ());
+-    this->addUniform ("g_Alpha", renderable.getAlpha ());
+-    this->addUniform ("g_Color", renderable.getColor ());
+-    this->addUniform ("g_Color4", renderable.getColor4 ());
++    this->addUniform ("g_Brightness", &renderable.getBrightness ()); // by reference so keyframe animations show up
++    this->addUniform ("g_UserAlpha", &renderable.getUserAlpha ()); // by reference so keyframe animations show up
++    this->addUniform ("g_Alpha", &renderable.getAlpha ()); // by reference so keyframe animations show up
++    this->addUniform ("g_Color", &renderable.getColor ()); // by reference so keyframe animations show up
++    this->addUniform ("g_Color4", &renderable.getColor4 ()); // by reference so keyframe animations show up
+     if (!this->m_uniforms.contains ("g_CompositeColor")) {
+ 	this->addUniform ("g_CompositeColor", renderable.getCompositeColor ());
+     }
+diff --git a/src/WallpaperEngine/Render/Objects/Puppet.cpp b/src/WallpaperEngine/Render/Objects/Puppet.cpp
+new file mode 100644
+index 0000000..a694a0c
+--- /dev/null
++++ b/src/WallpaperEngine/Render/Objects/Puppet.cpp
+@@ -0,0 +1,339 @@
++#include "Puppet.h"
++
++#include <algorithm>
++#include <cmath>
++#include <cstring>
++#include <glm/gtc/matrix_transform.hpp>
++
++using namespace WallpaperEngine::Render::Objects;
++
++namespace {
++class Reader {
++public:
++    explicit Reader (const std::vector<char>& data) : m_data (data) { }
++    bool eof () const { return m_pos >= m_data.size (); }
++    char peek () const { return m_pos < m_data.size () ? m_data[m_pos] : 0; }
++    template <typename T> T read () {
++	T value {};
++	if (m_pos + sizeof (T) <= m_data.size ()) {
++	    std::memcpy (&value, m_data.data () + m_pos, sizeof (T));
++	}
++	m_pos += sizeof (T);
++	return value;
++    }
++    std::string str () {
++	std::string out;
++	while (m_pos < m_data.size () && m_data[m_pos] != '\0') {
++	    out.push_back (m_data[m_pos++]);
++	}
++	m_pos++;
++	return out;
++    }
++    void skip (size_t bytes) { m_pos += bytes; }
++    size_t pos () const { return m_pos; }
++    // moves to the next occurrence of `marker` at or after the current position; false when there is none
++    bool seekTo (const char* marker) {
++	const size_t length = std::strlen (marker);
++	for (size_t at = m_pos; at + length <= m_data.size (); at++) {
++	    if (std::memcmp (m_data.data () + at, marker, length) == 0) {
++		m_pos = at;
++		return true;
++	    }
++	}
++	return false;
++    }
++    glm::mat4 mat4 () {
++	glm::mat4 m;
++	for (int column = 0; column < 4; column++) {
++	    for (int row = 0; row < 4; row++) {
++		m[column][row] = read<float> ();
++	    }
++	}
++	return m;
++    }
++    // "MDLV0021\0" -> 21; 0 when the prefix does not match
++    int version (const char* prefix) {
++	char text[9] = {};
++	for (char& c : text) c = read<char> ();
++	if (std::strncmp (text, prefix, 3) != 0) return 0;
++	return std::atoi (text + 4);
++    }
++
++private:
++    const std::vector<char>& m_data;
++    size_t m_pos = 0;
++};
++
++glm::dquat toQuaternion (const glm::vec3& euler) {
++    return glm::angleAxis (static_cast<double> (euler.z), glm::dvec3 (0, 0, 1))
++	* glm::angleAxis (static_cast<double> (euler.y), glm::dvec3 (0, 1, 0))
++	* glm::angleAxis (static_cast<double> (euler.x), glm::dvec3 (1, 0, 0));
++}
++
++Puppet::Mode toMode (const std::string& mode) {
++    if (mode == "mirror") return Puppet::Mode::Mirror;
++    if (mode == "single") return Puppet::Mode::Single;
++    return Puppet::Mode::Loop;
++}
++} // namespace
++
++std::unique_ptr<Puppet> Puppet::parse (const std::vector<char>& data) {
++    constexpr uint32_t stdVertex = 4 * (3 + 4 + 4 + 2);
++    constexpr uint32_t altVertex = 4 * (3 + 4 + 4 + 2 + 7);
++    constexpr uint32_t stdHerald = 0x01800009;
++    constexpr uint32_t altHerald = 0x0180000F;
++    constexpr uint32_t boneFrameSize = 4 * 9;
++
++    Reader f (data);
++    auto puppet = std::make_unique<Puppet> ();
++
++    if (f.version ("MDL") == 0) return nullptr;
++    if (f.read<int32_t> () == 9) return nullptr; // incomplete puppet
++    f.read<int32_t> ();
++    f.read<int32_t> ();
++    f.str (); // material
++    f.read<int32_t> ();
++
++    bool alt = false;
++    uint32_t current = f.read<uint32_t> ();
++    if (current == 0) {
++	alt = true;
++	while (current != altHerald && !f.eof ()) current = f.read<uint32_t> ();
++	current = f.read<uint32_t> ();
++    } else if (current == stdHerald) {
++	current = f.read<uint32_t> ();
++    }
++    const uint32_t stride = alt ? altVertex : stdVertex;
++    if (current == 0 || current % stride != 0) return nullptr;
++
++    puppet->vertices.resize (current / stride);
++    for (auto& v : puppet->vertices) {
++	v.position = { f.read<float> (), f.read<float> (), f.read<float> () };
++	if (alt) f.skip (7 * 4);
++	for (auto& b : v.bones) b = f.read<uint32_t> ();
++	v.weights = { f.read<float> (), f.read<float> (), f.read<float> (), f.read<float> () };
++	v.texcoord = { f.read<float> (), f.read<float> () };
++    }
++
++    const uint32_t indexBytes = f.read<uint32_t> ();
++    if (indexBytes % 6 != 0) return nullptr;
++    puppet->indices.resize (indexBytes / 2);
++    for (auto& index : puppet->indices) index = f.read<uint16_t> ();
++    for (const auto index : puppet->indices) {
++	if (index >= puppet->vertices.size ()) return nullptr;
++    }
++
++    if (!f.seekTo ("MDLS")) return nullptr;
++    const int mdls = f.version ("MDL");
++    f.read<uint32_t> (); // end offset
++    const uint16_t boneCount = f.read<uint16_t> ();
++    f.read<uint16_t> ();
++    puppet->bones.resize (boneCount);
++    for (uint32_t i = 0; i < boneCount; i++) {
++	auto& bone = puppet->bones[i];
++	f.str (); // name
++	f.read<int32_t> ();
++	bone.parent = f.read<uint32_t> ();
++	if (bone.hasParent () && bone.parent >= i) return nullptr;
++	if (f.read<uint32_t> () != 64) return nullptr;
++	bone.transform = f.mat4 ();
++	f.str (); // simulation json
++    }
++
++    if (mdls > 1) {
++	f.read<int16_t> ();
++	if (f.read<uint8_t> ()) f.skip (static_cast<size_t> (boneCount) * 64);
++	const uint32_t unknown = f.read<uint32_t> ();
++	f.skip (static_cast<size_t> (unknown) * 12);
++	f.read<uint32_t> ();
++	if (f.read<uint8_t> ()) f.skip (static_cast<size_t> (boneCount) * (12 + 64));
++	if (f.read<uint8_t> ()) f.skip (static_cast<size_t> (boneCount) * 4);
++    }
++
++    // optional MDAT (attachments) and padding before MDLA
++    std::string type, version;
++    while (type != "MDLA" && !f.eof ()) {
++	const std::string prefix = f.str ();
++	if (prefix.size () != 8) continue;
++	type = prefix.substr (0, 4);
++	version = prefix.substr (4, 4);
++	if (type == "MDAT") {
++	    f.read<uint32_t> ();
++	    const uint16_t count = f.read<uint16_t> ();
++	    for (uint16_t i = 0; i < count; i++) {
++		Attachment attachment;
++		attachment.bone = f.read<uint16_t> ();
++		attachment.name = f.str ();
++		attachment.transform = f.mat4 ();
++		puppet->attachments.push_back (std::move (attachment));
++	    }
++	}
++    }
++
++    const int mdla = type == "MDLA" ? std::atoi (version.c_str ()) : 0;
++    if (mdla != 0) {
++	f.read<uint32_t> ();
++	const uint32_t animationCount = f.read<uint32_t> ();
++	puppet->animations.resize (animationCount);
++	for (auto& animation : puppet->animations) {
++	    // animations are separated by zero padding of varying length (not always a multiple of 4)
++	    while (!f.eof () && f.peek () == 0) f.skip (1);
++	    animation.id = f.read<int32_t> ();
++	    if (animation.id <= 0) return nullptr;
++	    f.read<int32_t> ();
++	    std::string name = f.str ();
++	    if (name.empty ()) name = f.str ();
++	    animation.mode = toMode (f.str ());
++	    animation.fps = f.read<float> ();
++	    animation.length = std::max (1, f.read<int32_t> ());
++	    f.read<int32_t> ();
++	    const uint32_t boneFrames = f.read<uint32_t> ();
++	    animation.bones.resize (boneFrames);
++	    for (auto& frames : animation.bones) {
++		f.read<int32_t> ();
++		const uint32_t bytes = f.read<uint32_t> ();
++		if (bytes % boneFrameSize != 0) return nullptr;
++		frames.resize (bytes / boneFrameSize);
++		for (auto& frame : frames) {
++		    frame.position = { f.read<float> (), f.read<float> (), f.read<float> () };
++		    frame.angle = { f.read<float> (), f.read<float> (), f.read<float> () };
++		    frame.scale = { f.read<float> (), f.read<float> (), f.read<float> () };
++		    frame.quaternion = toQuaternion (frame.angle);
++		}
++	    }
++	    if (!alt && mdla != 3) {
++		// optional animation events: {"frame":1,"name":"..."}
++		const uint32_t extra = f.read<uint32_t> ();
++		for (uint32_t i = 0; i < extra && i < 4096 && !f.eof (); i++) {
++		    f.read<float> ();
++		    f.str ();
++		}
++	    }
++	}
++    }
++
++    // rest pose
++    std::vector<glm::mat4> combined (puppet->bones.size ());
++    for (size_t i = 0; i < puppet->bones.size (); i++) {
++	auto& bone = puppet->bones[i];
++	combined[i] = (bone.hasParent () ? combined[bone.parent] : glm::mat4 (1.0f)) * bone.transform;
++	bone.offset = glm::inverse (combined[i]);
++    }
++    puppet->m_world = combined;
++    puppet->m_skin.assign (puppet->bones.size (), glm::mat4 (1.0f));
++    return puppet;
++}
++
++void Puppet::setLayers (const std::vector<Layer>& layers) {
++    m_layers.clear ();
++    m_layers.resize (layers.size ());
++    m_globalBlend = 1.0;
++    double totalBlend = 0.0;
++    for (const auto& layer : layers) {
++	if (layer.visible) totalBlend += layer.blend;
++    }
++    // last layer first, like the reference implementation
++    for (size_t r = layers.size (); r-- > 0;) {
++	const auto& layer = layers[r];
++	auto& active = m_layers[r];
++	active.layer = layer;
++	const auto it = std::find_if (animations.begin (), animations.end (), [&] (const auto& a) {
++	    return a.id == layer.id;
++	});
++	if (it == animations.end () || !layer.visible) continue;
++	active.animation = &*it;
++	if (totalBlend > 1.0) {
++	    active.blend = layer.blend / totalBlend;
++	    m_globalBlend = 0.0;
++	} else {
++	    active.blend = m_globalBlend * layer.blend;
++	    m_globalBlend = std::max (0.0, m_globalBlend * (1.0 - layer.blend));
++	}
++    }
++}
++
++void Puppet::update (const double delta) {
++    for (auto& active : m_layers) {
++	if (active.animation == nullptr) continue;
++	const auto& a = *active.animation;
++	const double frameTime = 1.0 / a.fps;
++	const bool mirror = a.mode == Mode::Mirror;
++	const size_t length = static_cast<size_t> (a.length) * (mirror ? 2 : 1);
++	const double maxTime = a.length / a.fps * (mirror ? 2.0 : 1.0);
++	active.time += delta * active.layer.rate;
++	if (a.mode == Mode::Single) {
++	    active.time = std::min (active.time, maxTime - frameTime);
++	}
++	active.time = std::fmod (active.time, maxTime);
++	const double rate = active.time / frameTime;
++	active.frameA = static_cast<size_t> (rate) % length;
++	active.frameB = (active.frameA + 1) % length;
++	active.t = rate - std::floor (rate);
++	if (mirror) {
++	    const auto fold = [&] (size_t f) { return f >= static_cast<size_t> (a.length) ? (a.length - 1) - (f - a.length) : f; };
++	    active.frameA = fold (active.frameA);
++	    active.frameB = fold (active.frameB);
++	}
++    }
++
++    const glm::dquat identity (1, 0, 0, 0);
++    for (size_t i = 0; i < bones.size (); i++) {
++	const auto& bone = bones[i];
++	glm::vec3 translation = glm::vec3 (bone.transform[3]) * static_cast<float> (m_globalBlend);
++	glm::vec3 scale = glm::vec3 (1.0f) * static_cast<float> (m_globalBlend);
++	glm::dquat rotation = identity;
++
++	for (const auto& active : m_layers) {
++	    if (active.animation == nullptr || i >= active.animation->bones.size ()) continue;
++	    const auto& frames = active.animation->bones[i];
++	    if (frames.empty ()) continue;
++	    const auto& base = frames[0];
++	    const auto& fa = frames[std::min (active.frameA, frames.size () - 1)];
++	    const auto& fb = frames[std::min (active.frameB, frames.size () - 1)];
++	    const double t = active.t;
++	    const float tf = static_cast<float> (t);
++	    const double layerBlend = active.layer.blend;
++
++	    const auto deltaA = fa.quaternion * glm::conjugate (base.quaternion);
++	    const auto deltaB = fb.quaternion * glm::conjugate (base.quaternion);
++	    rotation *= glm::slerp (glm::slerp (deltaA, deltaB, t), identity, 1.0 - layerBlend)
++		* glm::slerp (base.quaternion, identity, 1.0 - active.blend);
++	    translation += static_cast<float> (active.blend) * base.position
++		+ static_cast<float> (layerBlend) * ((fa.position - base.position) * (1.0f - tf) + (fb.position - base.position) * tf);
++	    scale += static_cast<float> (active.blend) * base.scale
++		+ static_cast<float> (layerBlend) * ((fa.scale - base.scale) * (1.0f - tf) + (fb.scale - base.scale) * tf);
++	}
++
++	glm::mat4 local = glm::translate (glm::mat4 (1.0f), translation)
++	    * glm::mat4_cast (glm::quat (glm::slerp (rotation, identity, m_globalBlend))) * glm::scale (glm::mat4 (1.0f), scale);
++	m_world[i] = (bone.hasParent () ? m_world[bone.parent] : glm::mat4 (1.0f)) * local;
++	m_skin[i] = m_world[i] * bone.offset;
++    }
++}
++
++std::vector<glm::vec3> Puppet::skinnedPositions () const {
++    std::vector<glm::vec3> out;
++    out.reserve (vertices.size ());
++    for (const auto& v : vertices) {
++	glm::vec4 sum (0.0f);
++	float total = 0.0f;
++	for (int k = 0; k < 4; k++) {
++	    const float w = v.weights[k];
++	    if (w <= 0.0f || v.bones[k] >= m_skin.size ()) continue;
++	    sum += w * (m_skin[v.bones[k]] * glm::vec4 (v.position, 1.0f));
++	    total += w;
++	}
++	out.push_back (total > 0.0f ? glm::vec3 (sum) / total : v.position);
++    }
++    return out;
++}
++
++std::optional<glm::mat4> Puppet::attachment (const std::string& name) const {
++    for (const auto& attachment : attachments) {
++	if (attachment.name == name && attachment.bone < m_world.size ()) {
++	    // the attachment matrix is relative to its bone
++	    return m_world[attachment.bone] * attachment.transform;
++	}
++    }
++    return std::nullopt;
++}
+diff --git a/src/WallpaperEngine/Render/Objects/Puppet.h b/src/WallpaperEngine/Render/Objects/Puppet.h
+new file mode 100644
+index 0000000..8462cc2
+--- /dev/null
++++ b/src/WallpaperEngine/Render/Objects/Puppet.h
+@@ -0,0 +1,88 @@
++#pragma once
++
++// macOS port: Wallpaper Engine puppet warp (.mdl): mesh, skeleton, bone animations and attachment points.
++// Parser and animation blending follow catsout/wallpaper-engine-kde-plugin (WPMdlParser / WPPuppet), on glm.
++
++#include <glm/glm.hpp>
++#include <glm/gtc/quaternion.hpp>
++#include <cstdint>
++#include <memory>
++#include <optional>
++#include <string>
++#include <vector>
++
++namespace WallpaperEngine::Render::Objects {
++class Puppet {
++public:
++    struct Vertex {
++	glm::vec3 position;
++	uint32_t bones[4];
++	glm::vec4 weights;
++	glm::vec2 texcoord;
++    };
++    struct Bone {
++	glm::mat4 transform { 1.0f };
++	uint32_t parent = 0xFFFFFFFFu;
++	glm::mat4 offset { 1.0f }; // inverse of the rest pose world transform
++	[[nodiscard]] bool hasParent () const { return parent != 0xFFFFFFFFu; }
++    };
++    struct Frame {
++	glm::vec3 position;
++	glm::vec3 angle;
++	glm::vec3 scale;
++	glm::dquat quaternion;
++    };
++    enum class Mode { Loop, Mirror, Single };
++    struct Animation {
++	int id = 0;
++	double fps = 30;
++	int length = 1;
++	Mode mode = Mode::Loop;
++	std::vector<std::vector<Frame>> bones; // frames per bone
++    };
++    struct Attachment {
++	std::string name;
++	uint32_t bone = 0;
++	glm::mat4 transform { 1.0f };
++    };
++    /** Animation layer as configured on the image object */
++    struct Layer {
++	int id = 0;
++	double rate = 1;
++	double blend = 1;
++	bool visible = true;
++    };
++
++    /** Parses an .mdl file; nullopt when it is not a usable puppet */
++    static std::unique_ptr<Puppet> parse (const std::vector<char>& data);
++
++    /** Sets the active animation layers (call again when their settings change) */
++    void setLayers (const std::vector<Layer>& layers);
++    /** Advances the animations by `delta` seconds and recomputes the skinning matrices */
++    void update (double delta);
++    /** Skinned vertex positions for the current frame (model space, y up) */
++    [[nodiscard]] std::vector<glm::vec3> skinnedPositions () const;
++    /** Animated transform of a named attachment point in model space, if the puppet has it */
++    [[nodiscard]] std::optional<glm::mat4> attachment (const std::string& name) const;
++
++    std::vector<Vertex> vertices;
++    std::vector<uint16_t> indices;
++    std::vector<Bone> bones;
++    std::vector<Animation> animations;
++    std::vector<Attachment> attachments;
++
++private:
++    struct ActiveLayer {
++	Layer layer;
++	double blend = 0;
++	double time = 0;
++	const Animation* animation = nullptr;
++	size_t frameA = 0, frameB = 0;
++	double t = 0;
++    };
++    std::vector<ActiveLayer> m_layers;
++    double m_globalBlend = 1.0;
++    std::vector<glm::mat4> m_world;  // animated world transform per bone
++    std::vector<glm::mat4> m_skin;   // m_world * offset
++};
++} // namespace WallpaperEngine::Render::Objects
+diff --git a/src/WallpaperEngine/Render/Shaders/GLSLContext.cpp b/src/WallpaperEngine/Render/Shaders/GLSLContext.cpp
+index dd4f4d4..dfcc16e 100644
+--- a/src/WallpaperEngine/Render/Shaders/GLSLContext.cpp
++++ b/src/WallpaperEngine/Render/Shaders/GLSLContext.cpp
+@@ -178,6 +178,7 @@ std::pair<std::string, std::string> GLSLContext::toGlsl (const std::string& vert
+     spirv_cross::CompilerGLSL::Options options;
+     options.version = 330;
+     options.es = false;
++    options.enable_420pack_extension = false; // macOS GL tops out at 4.1
+     vertexCompiler.set_common_options (options);
+ 
+     spirv.clear ();
+@@ -186,6 +187,7 @@ std::pair<std::string, std::string> GLSLContext::toGlsl (const std::string& vert
+     spirv_cross::CompilerGLSL fragmentCompiler (spirv);
+     options.version = 330;
+     options.es = false;
++    options.enable_420pack_extension = false;
+     fragmentCompiler.set_common_options (options);
+ 
+     return { vertexCompiler.compile () + "#if 0\n" + vertex + "\n#endif",
+diff --git a/src/WallpaperEngine/Render/Wallpapers/CScene.cpp b/src/WallpaperEngine/Render/Wallpapers/CScene.cpp
+index 4933440..01945f5 100644
+--- a/src/WallpaperEngine/Render/Wallpapers/CScene.cpp
++++ b/src/WallpaperEngine/Render/Wallpapers/CScene.cpp
+@@ -315,6 +315,11 @@ void CScene::renderFrame (const glm::ivec4& viewport) {
+ 	    = glm::mix (this->m_parallaxDisplacement, (centeredMouse * amount) * influence, delay);
+     }
+ 
++    // keyframed property animations (alpha, color, origin, ...) follow the scene clock
++    for (auto* animated : Data::Model::DynamicValue::animatedValues ()) {
++	animated->animate (g_Time);
++    }
++
+     // run a tick in the javascript logic
+     this->getScriptEngine ().tick ();
+ 
+diff --git a/src/WallpaperEngine/Scripting/Adapters/ScriptableObjectAdapter.h b/src/WallpaperEngine/Scripting/Adapters/ScriptableObjectAdapter.h
+index ea8bc32..5df6999 100644
+--- a/src/WallpaperEngine/Scripting/Adapters/ScriptableObjectAdapter.h
++++ b/src/WallpaperEngine/Scripting/Adapters/ScriptableObjectAdapter.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ 
++#include <string>
+ #include "ObjectAdapter.h"
+ 
+ namespace WallpaperEngine::Scripting::Adapters {
+diff --git a/src/WallpaperEngine/WebBrowser/WebBrowserContext.cpp b/src/WallpaperEngine/WebBrowser/WebBrowserContext.cpp
+index 1b2da22..e69de29 100644
+--- a/src/WallpaperEngine/WebBrowser/WebBrowserContext.cpp
++++ b/src/WallpaperEngine/WebBrowser/WebBrowserContext.cpp
+@@ -1,100 +0,0 @@
+-#include "WebBrowserContext.h"
+-#include "CEF/BrowserApp.h"
+-#include "WallpaperEngine/Logging/Log.h"
+-#include "WallpaperEngine/WebBrowser/CEF/SubprocessApp.h"
+-#include "include/cef_app.h"
+-#include "include/cef_render_handler.h"
+-#include <filesystem>
+-#include <random>
+-
+-using namespace WallpaperEngine::WebBrowser;
+-
+-// TODO: THIS IS USED TO GENERATE A RANDOM FOLDER FOR THE CHROME PROFILE, MAYBE A DIFFERENT APPROACH WOULD BE BETTER?
+-namespace uuid {
+-static std::random_device rd;
+-static std::mt19937 gen (rd ());
+-static std::uniform_int_distribution<> dis (0, 15);
+-static std::uniform_int_distribution<> dis2 (8, 11);
+-
+-std::string generate_uuid_v4 () {
+-    std::stringstream ss;
+-    int i;
+-    ss << std::hex;
+-    for (i = 0; i < 8; i++) {
+-	ss << dis (gen);
+-    }
+-    ss << "-";
+-    for (i = 0; i < 4; i++) {
+-	ss << dis (gen);
+-    }
+-    ss << "-4";
+-    for (i = 0; i < 3; i++) {
+-	ss << dis (gen);
+-    }
+-    ss << "-";
+-    ss << dis2 (gen);
+-    for (i = 0; i < 3; i++) {
+-	ss << dis (gen);
+-    }
+-    ss << "-";
+-    for (i = 0; i < 12; i++) {
+-	ss << dis (gen);
+-    };
+-    return ss.str ();
+-}
+-}
+-
+-WebBrowserContext::WebBrowserContext (WallpaperEngine::Application::WallpaperApplication& wallpaperApplication) :
+-    m_browserApplication (nullptr), m_wallpaperApplication (wallpaperApplication) {
+-    CefMainArgs main_args (
+-	this->m_wallpaperApplication.getContext ().getArgc (), this->m_wallpaperApplication.getContext ().getArgv ()
+-    );
+-
+-    // only care about app if the process is the main process
+-    // we should maybe use a better lib for handling command line arguments instead
+-    // or using C's version on some places and CefCommandLine on others
+-    // TODO: ANOTHER THING TO TAKE CARE OF BEFORE MERGING
+-    const CefRefPtr<CefCommandLine> commandLine = CefCommandLine::CreateCommandLine ();
+-
+-    commandLine->InitFromArgv (main_args.argc, main_args.argv);
+-
+-    if (!commandLine->HasSwitch ("type")) {
+-	this->m_browserApplication = new CEF::BrowserApp (wallpaperApplication);
+-    } else {
+-	this->m_browserApplication = new CEF::SubprocessApp (wallpaperApplication);
+-    }
+-
+-    // this blocks for anything not-main-thread
+-    const int exit_code = CefExecuteProcess (main_args, this->m_browserApplication, nullptr);
+-
+-    // this is needed to kill subprocesses after they're done
+-    if (exit_code >= 0) {
+-	// Sub proccess has endend, so exit
+-	exit (exit_code);
+-    }
+-
+-    // Configurate Chromium
+-    CefSettings settings;
+-    std::string cache_path = (std::filesystem::temp_directory_path () / uuid::generate_uuid_v4 ()).string ();
+-    // CefString(&settings.locales_dir_path) = "OffScreenCEF/godot/locales";
+-    // CefString(&settings.resources_dir_path) = "OffScreenCEF/godot/";
+-    // CefString(&settings.framework_dir_path) = "OffScreenCEF/godot/";
+-    // CefString(&settings.cache_path) = "OffScreenCEF/godot/";
+-    //  CefString(&settings.browser_subprocess_path) = "path/to/client"
+-    cef_string_utf8_to_utf16 (cache_path.c_str (), cache_path.length (), &settings.root_cache_path);
+-    settings.windowless_rendering_enabled = true;
+-#if defined(CEF_NO_SANDBOX)
+-    settings.no_sandbox = true;
+-#endif
+-
+-    // spawns two new processess
+-
+-    if (!CefInitialize (main_args, settings, this->m_browserApplication, nullptr)) {
+-	sLog.exception ("CefInitialize: failed");
+-    }
+-}
+-
+-WebBrowserContext::~WebBrowserContext () {
+-    sLog.out ("Shutting down CEF");
+-    CefShutdown ();
+-}
+diff --git a/src/WallpaperEngine/WebBrowser/WebBrowserContext.h b/src/WallpaperEngine/WebBrowser/WebBrowserContext.h
+index 729d1d5..57c857e 100644
+--- a/src/WallpaperEngine/WebBrowser/WebBrowserContext.h
++++ b/src/WallpaperEngine/WebBrowser/WebBrowserContext.h
+@@ -2,25 +2,11 @@
+ 
+ #include "WallpaperEngine/Application/ApplicationContext.h"
+ #include "WallpaperEngine/Application/WallpaperApplication.h"
+-#include "include/cef_app.h"
+-#include "include/cef_browser_process_handler.h"
+-#include "include/wrapper/cef_helpers.h"
+-
+-#define WPENGINE_SCHEME "wp"
+-
+-namespace WallpaperEngine::WebBrowser::CEF {
+-class BrowserApp;
+-}
+ 
++// macOS port: web wallpapers (CEF) are not supported, the context is an empty shell.
+ namespace WallpaperEngine::WebBrowser {
+ class WebBrowserContext {
+ public:
+-    explicit WebBrowserContext (WallpaperEngine::Application::WallpaperApplication& wallpaperApplication);
+-    ~WebBrowserContext ();
+-
+-private:
+-    CefRefPtr<CefApp> m_browserApplication = nullptr;
+-    CefRefPtr<CefCommandLine> m_commandLine = nullptr;
+-    WallpaperEngine::Application::WallpaperApplication& m_wallpaperApplication;
++    explicit WebBrowserContext (WallpaperEngine::Application::WallpaperApplication&) { }
+ };
+ } // namespace WallpaperEngine::WebBrowser

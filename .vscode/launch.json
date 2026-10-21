@@ -1,0 +1,64 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:LiveWallpaper}",
+            "name": "Debug LiveWallpaper",
+            "target": "LiveWallpaper",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug LiveWallpaper"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:LiveWallpaper}",
+            "name": "Release LiveWallpaper",
+            "target": "LiveWallpaper",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release LiveWallpaper"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:LiveWallpaper}",
+            "name": "Debug LiveWallpaperAgent",
+            "target": "LiveWallpaperAgent",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug LiveWallpaperAgent"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:LiveWallpaper}",
+            "name": "Release LiveWallpaperAgent",
+            "target": "LiveWallpaperAgent",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release LiveWallpaperAgent"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:LiveWallpaper}",
+            "name": "Debug LiveWallpaperSceneHost",
+            "target": "LiveWallpaperSceneHost",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug LiveWallpaperSceneHost"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:LiveWallpaper}",
+            "name": "Release LiveWallpaperSceneHost",
+            "target": "LiveWallpaperSceneHost",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release LiveWallpaperSceneHost"
+        }
+    ]
+}

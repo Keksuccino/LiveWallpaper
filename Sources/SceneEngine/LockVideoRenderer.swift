@@ -62,7 +62,8 @@ public enum LockVideoRenderer {
                               isCancelled: @escaping @Sendable () -> Bool) async throws -> Double {
         let width = max(2, request.pixelWidth - (request.pixelWidth % 2))
         let height = max(2, request.pixelHeight - (request.pixelHeight % 2))
-        let fps = max(1, min(request.fps, 120))
+        // Lock screen shows a still for now: a few identical frames of the scene at t = 0, no loop seam.
+        let fps = 1
 
         // Scene or preview fallback: every failure path shows the preview image (never a black lock screen).
         var loaded: LoadedScene?
@@ -79,7 +80,7 @@ public enum LockVideoRenderer {
 
         let preview = makePreviewImage(request.previewPath, fallback: loadError)
         let device = MetalDevice.shared
-        let plan = LoopPlan.choose(scenePeriod: request.loopSeconds, fps: fps)
+        let plan = LoopPlan(loopSeconds: 4, crossfadeSeconds: 0, fps: fps)
 
         let renderer: SceneRenderer
         do {
@@ -191,6 +192,7 @@ public enum LockVideoRenderer {
         guard FileManager.default.fileExists(atPath: partialURL.path) else {
             throw LockRenderError.writerFailed("the partial file vanished")
         }
+        try? FileManager.default.removeItem(at: request.outputURL)   // a stale render would make the move fail
         try FileManager.default.moveItem(at: partialURL, to: request.outputURL)
         progress(1)
         return plan.loopSeconds

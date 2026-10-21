@@ -47,6 +47,15 @@ cp "$BIN_DIR/LiveWallpaperSceneHost" "$HOST/Contents/MacOS/LiveWallpaperSceneHos
 cp Resources/SceneHost-Info.plist "$HOST/Contents/Info.plist"
 printf 'APPL????' > "$HOST/Contents/PkgInfo"
 
+# The ported scene renderer (scripts/build-wpengine.sh). Optional: without it the host falls back to its own Metal path.
+WPENGINE_BIN="${WPENGINE_BIN:-$HOME/Library/Application Support/LiveWallpaper/bin/wpengine}"
+if [[ -x "$WPENGINE_BIN" ]]; then
+  cp "$WPENGINE_BIN" "$HOST/Contents/MacOS/wpengine"
+  python3 scripts/bundle-dylibs.py "$HOST/Contents/MacOS/wpengine" "$HOST/Contents/Frameworks"
+else
+  echo "warning: no wpengine binary at $WPENGINE_BIN (run scripts/build-wpengine.sh); scenes will use the basic renderer."
+fi
+
 # Version injection: the same version in all three bundles (the Settings app compares the running agent's version
 # with its own to detect an agent left over from an older build).
 if [[ -n "${VERSION:-}" ]]; then

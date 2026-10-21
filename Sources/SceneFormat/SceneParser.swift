@@ -295,14 +295,27 @@ private enum SceneDocumentParser {
             document.general.hasBloom = plainBool(general["bloom"]) ?? false
             document.general.hasHDR = plainBool(general["hdr"]) ?? false
         }
+        var cameraCentreSeen = false
         if let camera = root["camera"] as? [String: Any] {
-            if let center = asVec3(camera["center"], height: document.general.designHeight) {
-                document.camera.center = center
+            // The camera centre is a FILE value (y down). A zero centre means "no camera offset" and has to
+            // fall back to the design centre; the check must happen before the y flip, because (0, 0) mirrors
+            // to (0, designHeight) and would no longer look like zero.
+            if let raw = asVec3(camera["center"]) {
+                cameraCentreSeen = true
+                // Also outside the design area: ortho scenes carry a look-at direction here (e.g. -46 -29 -1), not a
+                // position; honouring it throws the whole scene out of frame.
+                if (raw.x == 0 && raw.y == 0) || raw.x < 0 || raw.y < 0
+                    || raw.x > document.general.designWidth || raw.y > document.general.designHeight {
+                    document.camera.center = Vec3(document.general.designWidth / 2,
+                                                  document.general.designHeight / 2, 0)
+                } else {
+                    document.camera.center = asVec3(camera["center"], height: document.general.designHeight) ?? raw
+                }
             }
             if let eye = asVec3(camera["eye"]) { document.camera.eye = eye }
             if let up = asVec3(camera["up"]) { document.camera.up = up }
         }
-        if document.camera.center == .zero {
+        if !cameraCentreSeen {
             document.camera.center = Vec3(document.general.designWidth / 2, document.general.designHeight / 2, 0)
         }
 
@@ -323,11 +336,11 @@ private enum SceneDocumentParser {
     private static func parseObject(_ raw: [String: Any], fallbackID: Int, files: SceneFileSource,
                                     designHeight: Double) -> SceneObject? {
         let kind: SceneObjectKind
-        if raw["image"] != nil {
+        if let _ = raw["image"] {
             kind = .image(parseImageLayer(raw["image"], object: raw, files: files))
         } else if let particle = plainString(raw["particle"]) {
             kind = .particle(path: cleanPath(particle) ?? "")
-        } else if raw["sound"] != nil {
+        } else if let _ = raw["sound"] {
             kind = .sound(paths: parseSoundPaths(raw["sound"]))
         } else if raw["text"] != nil {
             kind = .text
@@ -358,7 +371,7 @@ private enum SceneDocumentParser {
             hasUserProperties: bound.userProperties)
     }
 
-    private static func parseImageLayer(_ imageValue: Any, object raw: [String: Any],
+    private static func parseImageLayer(_ imageValue: Any?, object raw: [String: Any],
                                         files: SceneFileSource) -> ImageLayer {
         var layer = ImageLayer()
         guard let modelPath = cleanPath(plainString(imageValue)) else { return layer }
@@ -429,7 +442,7 @@ private enum SceneDocumentParser {
         return candidates.first { files.fileExists($0) }
     }
 
-    private static func parseSoundPaths(_ value: Any) -> [String] {
+    private static func parseSoundPaths(_ value: Any?) -> [String] {
         if let list = value as? [Any] {
             return list.compactMap { cleanPath(plainString($0)) }
         }

@@ -513,6 +513,10 @@ import Core
             lockRender = nil
             return
         }
+        // The host only writes the .mov; the cache record that makes it valid is ours.
+        try? LockRenderCache.writeMeta(LockRenderCache.Meta(
+            width: job.size.width, height: job.size.height, fps: 1, loopSeconds: 4,
+            sourceStamp: LockRenderCache.sourceStamp(for: item)), for: item)
         guard LockRenderCache.isValid(for: item, width: job.size.width, height: job.size.height) else {
             lockRenderFailed(job)
             return

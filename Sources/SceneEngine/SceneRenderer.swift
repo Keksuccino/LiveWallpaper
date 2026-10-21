@@ -145,7 +145,7 @@ public final class SceneRenderer {
         releaseGPUResources()
         try makeLibraryAndPipelines()
 
-        if let scene {
+        if scene != nil {
             var loadedAny = false
             for index in layers.indices {
                 guard let content = layers[index].content else { continue }
@@ -203,7 +203,7 @@ public final class SceneRenderer {
         defer { encoder.endEncoding() }
 
         let projection = projection(for: target)
-        if let scene {
+        if scene != nil {
             for layer in layers {
                 guard let texture = layer.resolvedTexture else { continue }
                 let blend: BlendMode = Self.capabilities.blendModes.contains(layer.blend) ? layer.blend : .normal
@@ -445,12 +445,13 @@ public final class SceneRenderer {
     /// are skipped entirely.
     static func flatten(scene: LoadedScene, files: SceneFileSource) -> [PreparedLayer] {
         let designWidth = scene.document.general.designWidth
+        let designHeight = scene.document.general.designHeight
         var layers: [PreparedLayer] = []
         var localByID: [Int: simd_float4x4] = [:]
         var visibleByID: [Int: Bool] = [:]
 
         for object in scene.document.objects {
-            let localBase = localMatrix(for: object)
+            let localBase = fileLocalMatrix(for: object, designHeight: designHeight)
             localByID[object.id] = localBase
             visibleByID[object.id] = object.visible
 
@@ -470,30 +471,31 @@ public final class SceneRenderer {
 
             guard case .image(let layer) = object.kind else { continue }
 
-            let radians = Float(object.angles.z * .pi / 180)
-            let rotation = simd_float4x4(columns: (
-                simd_float4(cos(radians), sin(radians), 0, 0), simd_float4(-sin(radians), cos(radians), 0, 0),
-                simd_float4(0, 0, 1, 0), simd_float4(0, 0, 0, 1)))
-            var halfW = Float(object.scale.x), halfH = Float(object.scale.y)
+            // Half extents of the picture in scene units. `localBase` already applies `object.scale`, so the
+            // extents must NOT be scaled here (doing so applies scale twice and warps every scale != 1 layer).
+            var halfW: Float
+            var halfH: Float
             if let size = object.size ?? layer.sourceSize {
-                halfW = Float(size.x * object.scale.x / 2)
-                halfH = Float(size.y * object.scale.y / 2)
+                halfW = Float(size.x / 2)
+                halfH = Float(size.y / 2)
             } else if let content = try? files.data(at: layer.texturePath ?? ""),
                       let header = try? TexDecoder.header(for: content) {
-                halfW = Float(Double(header.imageWidth) * object.scale.x / 2)
-                halfH = Float(Double(header.imageHeight) * object.scale.y / 2)
+                halfW = Float(header.imageWidth) / 2
+                halfH = Float(header.imageHeight) / 2
             } else {
-                halfW = Float(min(designWidth, Double(scene.analysis.designWidth)) / 2)   // broken size: harmless placeholder
-                halfH = halfW
+                // No size anywhere (missing shared texture): harmless placeholder behind other layers.
+                let designW = min(designWidth, Double(scene.analysis.designWidth))
+                halfW = Float(max(1, designW) / 2)
+                halfH = Float(max(1, Double(scene.analysis.designHeight)) / 2)
             }
             let halfScale = simd_float4x4(columns: (
                 simd_float4(max(1, halfW), 0, 0, 0), simd_float4(0, max(1, halfH), 0, 0),
                 simd_float4(0, 0, 1, 0), simd_float4(0, 0, 0, 1)))
-            let local = localBase
 
             var prepared = PreparedLayer(
                 path: layer.texturePath, content: content(of: layer, files: files), blend: layer.blend,
-                uvs: simd_float4(0, 0, 1, 1), singleChannel: false, model: chain * local * halfScale,
+                uvs: simd_float4(0, 0, 1, 1), singleChannel: false,
+                model: Self.worldMatrix(height: designHeight) * chain * localBase * Self.flipY * halfScale,
                 parallaxDepth: object.parallaxDepth,
                 tint: simd_float4(Float(object.color.x * object.brightness),
                                   Float(object.color.y * object.brightness),
@@ -519,9 +521,11 @@ public final class SceneRenderer {
         return try? files.data(at: path)
     }
 
-    /// Local transform of one object: T(origin) * Rz(angles.z) * S(scale). Scene units, y up, origin bottom-left
-    /// (the parser already mirrored the file's y-down coordinates; UNVERIFIED, see T10).
-    private static func localMatrix(for object: SceneObject) -> simd_float4x4 {
+    /// Local transform of one object in FILE space: T(origin) * Rz(angles.z) * S(scale). The file's coordinates are
+    /// y down with the origin at the design's top left, so the origin is taken back out of the parser's mirror
+    /// (`origin.y` is the mirrored value). The chain of parents is composed in this space and mirrored once at the
+    /// end; mirroring every ancestor's translation would add the design height once per level.
+    private static func fileLocalMatrix(for object: SceneObject, designHeight: Double) -> simd_float4x4 {
         let radians = Float(object.angles.z * .pi / 180)
         let rotation = simd_float4x4(columns: (
             simd_float4(cos(radians), sin(radians), 0, 0), simd_float4(-sin(radians), cos(radians), 0, 0),
@@ -531,7 +535,20 @@ public final class SceneRenderer {
             simd_float4(0, 0, 1, 0), simd_float4(0, 0, 0, 1)))
         let translate = simd_float4x4(columns: (
             simd_float4(1, 0, 0, 0), simd_float4(0, 1, 0, 0), simd_float4(0, 0, 1, 0),
-            simd_float4(Float(object.origin.x), Float(object.origin.y), 0, 1)))
+            simd_float4(Float(object.origin.x), Float(designHeight - object.origin.y), 0, 1)))
         return translate * rotation * scale
+    }
+
+    /// The local quad is y up (the picture's top row is at the top); the file's space is y down, so the content
+    /// frame is flipped once before the file transform is applied.
+    private static let flipY = simd_float4x4(columns: (
+        simd_float4(1, 0, 0, 0), simd_float4(0, -1, 0, 0), simd_float4(0, 0, 1, 0), simd_float4(0, 0, 0, 1)))
+
+    /// FILE space -> world: mirror y about the design's bottom edge (the world's origin is the design's bottom
+    /// left, y up). `worldMatrix * fileTransform * flipY` maps the local quad onto the screen.
+    private static func worldMatrix(height: Double) -> simd_float4x4 {
+        simd_float4x4(columns: (
+            simd_float4(1, 0, 0, 0), simd_float4(0, -1, 0, 0), simd_float4(0, 0, 1, 0),
+            simd_float4(0, Float(height), 0, 1)))
     }
 }

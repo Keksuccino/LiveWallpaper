@@ -1162,9 +1162,21 @@ final class SteamDownload: NSObject, URLSessionDownloadDelegate, @unchecked Send
 
     /// Optional: discovers the depot with Wallpaper Engine's shared assets (`+app_info_print 431960`), asks for
     /// confirmation (`.needsConfirmation`), then downloads it into AppPaths.sharedAssetsDirectory.
+    /// Precondition failures are reported in the card instead of no-oping silently.
     func prepareSharedAssets() {
         lastError = nil
-        guard case .signedIn(let name) = account, readyTool != nil, acquireGate() else { return }
+        guard case .signedIn(let name) = account else {
+            assets = .failed(.assetsFailed("Sign in to Steam first (step 2 of the wizard)."))
+            return
+        }
+        guard readyTool != nil else {
+            assets = .failed(.assetsFailed("Install Steam’s command-line tool first (step 1 of the wizard)."))
+            return
+        }
+        guard acquireGate() else {
+            assets = .failed(.assetsFailed("A Steam download is running. Wait for it to finish, then try again."))
+            return
+        }
         assets = .discovering
         pendingDepot = nil
         Task { @MainActor [weak self] in
@@ -1187,8 +1199,19 @@ final class SteamDownload: NSObject, URLSessionDownloadDelegate, @unchecked Send
 
     func confirmSharedAssets() {
         lastError = nil
-        guard case .needsConfirmation = assets, let depot = pendingDepot, case .signedIn(let name) = account,
-              readyTool != nil, acquireGate() else { return }
+        guard case .needsConfirmation = assets, let depot = pendingDepot else { return }
+        guard case .signedIn(let name) = account else {
+            assets = .failed(.assetsFailed("Sign in to Steam first (step 2 of the wizard)."))
+            return
+        }
+        guard readyTool != nil else {
+            assets = .failed(.assetsFailed("Install Steam’s command-line tool first (step 1 of the wizard)."))
+            return
+        }
+        guard acquireGate() else {
+            assets = .failed(.assetsFailed("A Steam download is running. Wait for it to finish, then try again."))
+            return
+        }
         let staging = AppPaths.steamStagingDirectory.appendingPathComponent("assets-\(Int(Date().timeIntervalSince1970))", isDirectory: true)
         if let free = SteamKit.freeBytes(at: WorkshopKit.home), Double(free) < Double(depot.unpackedBytes) * 1.2 {
             assets = .failed(.diskSpace(neededBytes: Int64(Double(depot.unpackedBytes) * 1.2)))
@@ -1209,13 +1232,27 @@ final class SteamDownload: NSObject, URLSessionDownloadDelegate, @unchecked Send
     private func fetchDepot(_ depot: SteamKit.Depot, user: String, staging: URL,
                             limits: WorkshopKit.Runner.Limits) async -> SteamAssetsState {
         guard let tool = readyTool else { return .failed(.assetsFailed("Steam’s tool isn’t installed.")) }
+        // Reality check (was UNVERIFIED in the spec): download_depot ignores force_install_dir and unpacks
+        // under SteamCMD's own root — staging/steamapps stays empty. Both locations are honored here.
+        let toolRoot = URL(fileURLWithPath: (tool.path as NSString).deletingLastPathComponent)
+        let appDirName = "app_\(WorkshopKit.appID)"
+        let steamapps = toolRoot.appendingPathComponent("steamapps", isDirectory: true)
+        let content = steamapps.appendingPathComponent("content/\(appDirName)", isDirectory: true)
+        let candidates = [
+            content.appendingPathComponent("depot_\(depot.id)", isDirectory: true),
+            staging.appendingPathComponent("steamapps/content/\(appDirName)/depot_\(depot.id)", isDirectory: true),
+        ]
+        // A failed earlier attempt leaves a complete depot on disk: claim it instead of downloading again.
+        if let ready = candidates.lazy.compactMap({ SteamKit.assetsFolder(in: $0) }).first {
+            return claimSharedAssets(ready: ready, depotFolder: ready.deletingLastPathComponent(), steamapps: steamapps, depotID: depot.id)
+        }
         do {
             let arguments = ["+@sSteamCmdForcePlatformType", "windows", "+force_install_dir", staging.path,
                              "+@NoPromptForPassword", "1", "+login", user,
                              "+download_depot", WorkshopKit.appID, depot.id, "+quit"]
             let total = max(depot.unpackedBytes, 1)
             let run = try await steamRun(tool.path, arguments, limits: limits, onLine: { _ in }, onTick: { [weak self] in
-                let size = WorkshopKit.Locate.folderBytes(staging)
+                let size = WorkshopKit.Locate.folderBytes(content)
                 guard let self, size > 0 else { return false }
                 self.assets = .fetching(fraction: min(0.99, Double(size) / Double(total)))
                 return true
@@ -1224,13 +1261,26 @@ final class SteamDownload: NSObject, URLSessionDownloadDelegate, @unchecked Send
                 account = .signedOut
                 return .failed(.assetsFailed("Your saved Steam login has expired. Sign in again."))
             }
-            let content = staging.appendingPathComponent("steamapps/content/app_\(WorkshopKit.appID)/depot_\(depot.id)")
-            guard !run.timedOut, !run.cancelled, let folder = SteamKit.assetsFolder(in: content) else {
+            guard !run.timedOut, !run.cancelled,
+                  let folder = candidates.lazy.compactMap({ SteamKit.assetsFolder(in: $0) }).first else {
                 return .failed(.assetsFailed(run.timedOut ? "Steam took too long to answer." : "Steam finished without the expected files. \(run.detail)"))
             }
+            return claimSharedAssets(ready: folder, depotFolder: folder.deletingLastPathComponent(), steamapps: steamapps, depotID: depot.id)
+        } catch {
+            return .failed(.assetsFailed(Self.describe(error)))
+        }
+    }
+
+    /// Moves the depot's `assets` folder into `AppPaths.sharedAssetsDirectory` and deletes the rest of the
+    /// depot (`projects`, `ui`, installers: several hundred MB) plus SteamCMD's `state_<app>_<depot>.patch`.
+    private func claimSharedAssets(ready: URL, depotFolder: URL, steamapps: URL, depotID: String) -> SteamAssetsState {
+        do {
             try? FileManager.default.removeItem(at: AppPaths.sharedAssetsDirectory)
             try AppPaths.ensureDirectory(AppPaths.sharedAssetsDirectory.deletingLastPathComponent())
-            try FileManager.default.moveItem(at: folder, to: AppPaths.sharedAssetsDirectory)
+            try FileManager.default.moveItem(at: ready, to: AppPaths.sharedAssetsDirectory)
+            try? FileManager.default.removeItem(at: depotFolder)
+            try? FileManager.default.removeItem(
+                at: steamapps.appendingPathComponent("state_\(WorkshopKit.appID)_\(depotID).patch"))
             return .ready(folder: AppPaths.sharedAssetsDirectory.path)
         } catch {
             return .failed(.assetsFailed(Self.describe(error)))

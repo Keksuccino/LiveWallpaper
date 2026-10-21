@@ -57,5 +57,10 @@ let package = Package(
             dependencies: ["SceneFormat"],
             path: "Tests/SceneFormatTests"
         ),
+        .testTarget(
+            name: "SceneEngineTests",
+            dependencies: ["SceneFormat", "SceneEngine"],
+            path: "Tests/SceneEngineTests"
+        ),
     ]
 )

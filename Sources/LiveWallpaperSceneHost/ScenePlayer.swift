@@ -71,6 +71,7 @@ import SceneEngine
     private var isPaused = false
     private var generation = 0        // invalidates in-flight async loads when the scene changes
     private var observedFailureOnce = false
+    private let runner = WPEngineRunner()
 
     init() {}
 
@@ -85,6 +86,33 @@ import SceneEngine
         // (or .fallbackStill), so a slow load or an unreadable scene can never black out or lock the desktop.
         setState(.loading, nil)
         setFPSCap(fpsCap)
+
+        // The ported engine draws everything (effects, particles, puppets); the Metal path below is the fallback.
+        tearDownVisuals()
+        runner.onUnexpectedExit = { [weak self] in
+            guard let self, current == self.generation else { return }
+            self.setState(.failed, "the scene engine stopped unexpectedly")
+        }
+        if runner.start(projectFolder: scenePath.deletingLastPathComponent(), assets: assetsPath, fps: fpsCap) {
+            Task { @MainActor [weak self] in
+                // A scene the engine cannot load exits within a moment; only then is it playing.
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard let self, current == self.generation else { return }
+                if self.runner.isRunning {
+                    self.setState(self.isPaused ? .paused : .playing, nil)
+                } else {
+                    self.runner.onUnexpectedExit = nil
+                    self.showWithMetal(itemID: itemID, scenePath: scenePath, previewPath: previewPath,
+                                       assetsPath: assetsPath, current: current)
+                }
+            }
+            return
+        }
+        showWithMetal(itemID: itemID, scenePath: scenePath, previewPath: previewPath, assetsPath: assetsPath,
+                      current: current)
+    }
+
+    private func showWithMetal(itemID: UUID, scenePath: URL, previewPath: URL?, assetsPath: URL?, current: Int) {
 
         Task { @MainActor [weak self] in
             guard let self, current == self.generation else { return }
@@ -114,6 +142,8 @@ import SceneEngine
 
     /// Windows off, pump stopped, GPU resources freed (windows only when `dropWindows`).
     private func tearDownVisuals() {
+        runner.onUnexpectedExit = nil
+        runner.stop()
         stopPump()
         for slot in slots { slot.window.orderOut(nil) }
         slots.removeAll()
@@ -140,6 +170,7 @@ import SceneEngine
 
     func setPaused(_ paused: Bool) {
         isPaused = paused
+        runner.setPaused(paused)
         if paused {
             pausedOffset = elapsedSceneTime()   // freeze the scene clock where it is
         } else {

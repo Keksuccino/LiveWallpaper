@@ -67,6 +67,20 @@ final class SceneParserTests: XCTestCase {
         XCTAssertEqual(document.camera.center, Vec3(960, 1080 - 240, 0))
     }
 
+    func testCameraCenterZeroFallsBackToDesignCenter() throws {
+        // A centre of [0, 0] is the file's top left, which Wallpaper Engine writes when there is no camera
+        // offset: it has to fall back to the design centre. The check has to happen before the y flip, because
+        // (0, 0) mirrors to (0, designHeight) and would then look like a real offset and shift the whole scene.
+        let (document, _) = try parsedDocument(
+            of: try scenePackage(objects: [imageObject], camera: ["center": [0, 0]]))
+        XCTAssertEqual(document.camera.center, Vec3(960, 540, 0))
+    }
+
+    func testCameraCenterMissingFallsBackToDesignCenter() throws {
+        let (document, _) = try parsedDocument(of: try scenePackage(objects: [imageObject]))
+        XCTAssertEqual(document.camera.center, Vec3(960, 540, 0))
+    }
+
     func testPreviewOnlyWhenNoObjects() throws {
         let (_, analysis) = try parsedDocument(of: try scenePackage(objects: []))
         XCTAssertEqual(analysis.support, .previewOnly)

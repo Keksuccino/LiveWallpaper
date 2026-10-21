@@ -493,7 +493,23 @@ Top level (all optional): `"version"`, `"general"`, `"camera"`, `"objects"`.
 - Material json (`materials/foo.json`): `"passes": [ { "shader": "genericimage2", "blending": "translucent", "cullmode", "depthtest", "depthwrite", "textures": ["foo"], "combos": {...}, "constantshadervalues": {...} } ]`. Texture names map to `materials/<name>.tex`. Pass 0 provides `texturePath` (first texture), `shader`, `blend`.
 - `blending` mapping used by the parser: `translucent` -> `.normal`; `normal` -> `.normal`; `additive` -> `.additive`; `opaque` and `disabled` -> `.opaque`; `multiply` -> `.multiply`; `screen` -> `.screen`; anything else -> `.unknown` (drawn as `.normal`, reported). (**[U]** the exact vocabulary; `translucent` and `additive` are the common ones.)
 
-Geometry conventions the renderer assumes (**[U]**, verify with real scenes, section 9.2 T10): orthographic camera, scene units = pixels of the design size, origin of the scene at the centre of the screen, y up; a layer is a quad of `size` (or `sourceSize` x scale) centred on `origin.xy`, rotated by `angles.z` degrees about its centre, scaled by `scale.xy`; draw order = `objects` order; `parent` composes transforms (child origin is in the parent's space); `visible == false`, `alpha == 0` and hidden parents skip the object; colour = texture * `color` * `brightness`, alpha = texture alpha * `alpha`. Fitting the design size to the screen uses `resizeAspectFill` semantics.
+Geometry conventions the renderer assumes (section 9.2 T10; the file-space and camera parts were checked against a real
+Workshop scene and are now **verified**, the rest stays **[U]**): orthographic camera, scene units = pixels of the
+design size, y up; a layer is a quad of `size` (or the texture's picture size) centred on `origin.xy`, scaled by
+`scale.xy` **once**, rotated by `angles.z` degrees about its centre; draw order = `objects` order; `parent` composes
+transforms (child origin is in the parent's space); `visible == false`, `alpha == 0` and hidden parents skip the object;
+colour = texture * `color` * `brightness`, alpha = texture alpha * `alpha`. Fitting the design size to the screen uses
+`resizeAspectFill` semantics.
+
+**Coordinates.** The file's coordinates are y down with the origin at the design's top left. The document model
+mirrors every origin (`y' = designHeight - y`) so the world is y up, but the parent chain is composed in the FILE
+space and mirrored once at the end (`world = T(0, designHeight) * flipY * fileChain * flipY`). Mirroring every
+ancestor's translation instead adds the design height once per level and pushes children off the design; the
+content frame is flipped once, which also turns the file's clockwise angle into the world's counter-clockwise one.
+
+**Camera.** `camera.center` is a file value. `[0, 0]` means "no camera offset" and falls back to the design centre;
+the check has to happen before the y flip, because `(0, 0)` mirrors to `(0, designHeight)` and would otherwise look
+like a real offset and shift the whole scene into one corner.
 
 Parallax (M0, **[U]** magnitudes): enabled when `general.cameraparallax` is true. Smoothed pointer `p` in -1...1 (exponential smoothing with time constant `cameraparallaxdelay` seconds, driven by `time`, so offline renders are deterministic: parallax `.zero`). Per layer offset in scene units: `offset = -p * cameraparallaxamount * cameraparallaxmouseinfluence * parallaxDepth * K` with `K = 0.02 * designWidth` as a tunable constant in one place (`SceneRenderer.parallaxScale`). The offline lock render uses `.zero`. Wrong magnitudes only change how far layers slide; they are a tuning item, not a correctness risk.
 
@@ -660,7 +676,7 @@ Instruments: Allocations + Metal System Trace on the host while a scene plays an
 | T7 | `HOME` isolation of SteamCMD's token on macOS (`SteamHome/Library/Application Support/Steam/config/config.vdf`) | After sign-in, `find ~/Library/Application\ Support/LiveWallpaper/SteamHome -name config.vdf` and compare with `~/Library/Application Support/Steam`; sign out and check the token is gone |
 | T8 | Workshop scene download layout: `project.json type`, `scene.pkg` name, preview file, loose folders | Download 5 different scene items; `ls -R` each content folder; run the importer |
 | T9 | PKG/TEX parsing on real files: container/mip versions seen, formats, limits | `LiveWallpaperSceneHost --probe scene.pkg` on 10 scenes; collect the JSON; unit-test fixtures from the observed layouts (bytes built in memory, not copied) |
-| T10 | Geometry, draw order, parent transforms, blend modes, parallax scale | Render the same scene in the app and compare with the item's own preview image / Wallpaper Engine's rendering on a PC; adjust `parallaxScale` |
+| T10 | Geometry, draw order, parent transforms, blend modes, parallax scale | File-space composition, the camera default and the scale rule are verified (2026-10-21, Workshop item 3695791724) and covered by `SceneEngineTests`; still to check against a PC render: the exact layer anchor point, the blend vocabulary and the parallax scale |
 | T11 | Lock render: HEVC writer on Intel and Apple silicon; the `.mov` plays when installed through the Aerial swap on macOS 26; loop seam invisible | Render a scene lock video; open it in QuickTime with loop; install via the app; lock the screen |
 | T12 | Memory/CPU/GPU numbers of section 8 | The commands in section 8 for a video, a scene, a lock render |
 | T13 | Shared assets: depots in `app_info_print 431960`, platform override works, `assets` folder name and size | Run Prepare on an owning account; read the confirmation size; fetch; list the result |

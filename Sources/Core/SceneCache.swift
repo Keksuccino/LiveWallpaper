@@ -9,7 +9,7 @@ import Foundation
 public enum LockRenderCache {
     /// Bump when the renderer's output for an unchanged scene changes (new effects, fixed parallax, ...).
     /// SceneEngine reads this constant; a bump makes every cached lock video stale.
-    public static let engineRevision = 1
+    public static let engineRevision = 2
 
     public struct Meta: Codable, Equatable, Sendable {
         public var engineRevision: Int
