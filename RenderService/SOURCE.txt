@@ -1,0 +1,21 @@
+Upstream:   https://github.com/WallpaperMachine/WallpaperMachine  (directory upstream/renderer)
+Commit:     282f7c1b9b72bbcec4aacc9c109fe5da825dfaef  (committed 2026-10-21)
+Copied:     2026-10-22, verbatim (target/ excluded). Crate names and paths unchanged
+            (wallpaper-core, wallpaper-bridge -> libwallpaper_bridge.a, shader, uniffi-bindgen).
+            WallpaperMachine itself vendors this from bigsaltyfishes/wallpaper-engine-for-macos
+            @ 8c19c002ff37930c68117dd591dfe3f44792e25e, modified (see their upstream/provenance.json).
+
+Local changes: none yet. `cargo build --workspace --release` succeeded unmodified on
+macOS 26.4 / arm64 with Command Line Tools only (no Xcode.app) and rustc nightly
+1.101.0 (2026-10-20, picked by rust-toolchain.toml).
+
+Build: scripts/build-render-service.sh (cargo build + uniffi-bindgen into Sources/RenderBridge).
+Build-script environment differs from upstream build.py in one place: LIBCLANG_PATH falls back
+to $(xcode-select -p)/usr/lib when no Xcode toolchain exists (Command Line Tools).
+
+Dependencies (Homebrew, /opt/homebrew):
+  quickjs-ng glslang freetype lz4 vulkan-loader vulkan-headers molten-vk eigen nlohmann-json
+  argparse shaderc spirv-tools glm ninja pkg-config dav1d cmake
+  mwe-ffmpeg: LGPL FFmpeg 8.1.2 from upstream Formula/mwe-ffmpeg.rb, installed through a local
+  tap: brew tap-new --no-git WallpaperMachine/local; copy the .rb into that tap's Formula/;
+  brew install WallpaperMachine/local/mwe-ffmpeg  (keg-only, /opt/homebrew/opt/mwe-ffmpeg)

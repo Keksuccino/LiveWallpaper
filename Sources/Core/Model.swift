@@ -163,18 +163,22 @@ public struct LibraryState: Codable, Equatable, Sendable {
     public var videos: [VideoItem]    // the whole library (videos and scenes); the name is a phase-1 leftover
     public var muted: Bool            // default true; changed only through StateStore.setMuted
     public var sceneFPS: Int          // frame rate cap for live scenes; the agent lowers it on battery
+    public var sceneZoom: Double      // 1 = as authored; below 1 shows more of the scene (edges go black), above crops in
     public var sameForBoth: Bool      // default true: the lock screen follows the desktop config (except `enabled`)
     public var desktop: TargetConfig
     public var lock: TargetConfig     // ignored apart from `enabled` while sameForBoth
+    public var sceneOptions: [String: SceneOptions] = [:]   // per scene, keyed by VideoItem.id.uuidString
+    public var power: PowerOptions = PowerOptions()           // global scene settings
 
     public init(schema: Int = LibraryState.currentSchema, revision: Int = 0, videos: [VideoItem] = [],
-                muted: Bool = true, sceneFPS: Int = LibraryState.defaultSceneFPS, sameForBoth: Bool = true,
+                muted: Bool = true, sceneFPS: Int = LibraryState.defaultSceneFPS, sceneZoom: Double = 1.0, sameForBoth: Bool = true,
                 desktop: TargetConfig = TargetConfig(), lock: TargetConfig = TargetConfig()) {
         self.schema = schema
         self.revision = revision
         self.videos = videos
         self.muted = muted
         self.sceneFPS = LibraryState.clampedSceneFPS(sceneFPS)
+        self.sceneZoom = LibraryState.clampedSceneZoom(sceneZoom)
         self.sameForBoth = sameForBoth
         self.desktop = desktop
         self.lock = lock
@@ -182,11 +186,12 @@ public struct LibraryState: Codable, Equatable, Sendable {
 
     public static let defaultSceneFPS = 30
     public static func clampedSceneFPS(_ fps: Int) -> Int { min(max(fps, 10), 120) }
+    public static func clampedSceneZoom(_ zoom: Double) -> Double { min(max(zoom, 0.5), 2.0) }
 
     // MARK: Codable with v1 migration (schema 1 files have no desktop/lock sections)
 
     private enum CodingKeys: String, CodingKey {
-        case schema, revision, videos, muted, sceneFPS, sameForBoth, desktop, lock
+        case schema, revision, videos, muted, sceneFPS, sceneZoom, sameForBoth, desktop, lock, sceneOptions, power
         // schema 1 only
         case selectedID, rotateEnabled, intervalValue, intervalUnit, applyToDesktop, applyToLockScreen
     }
@@ -198,6 +203,9 @@ public struct LibraryState: Codable, Equatable, Sendable {
         videos = try c.decodeIfPresent([VideoItem].self, forKey: .videos) ?? []
         schema = LibraryState.currentSchema
         sceneFPS = LibraryState.clampedSceneFPS(try c.decodeIfPresent(Int.self, forKey: .sceneFPS) ?? Self.defaultSceneFPS)
+        sceneZoom = LibraryState.clampedSceneZoom(try c.decodeIfPresent(Double.self, forKey: .sceneZoom) ?? 1.0)
+        sceneOptions = try c.decodeIfPresent([String: SceneOptions].self, forKey: .sceneOptions) ?? [:]
+        power = try c.decodeIfPresent(PowerOptions.self, forKey: .power) ?? PowerOptions()
         if diskSchema >= 2 || c.contains(.desktop) {
             muted = try c.decodeIfPresent(Bool.self, forKey: .muted) ?? true
             sameForBoth = try c.decodeIfPresent(Bool.self, forKey: .sameForBoth) ?? true
@@ -230,6 +238,9 @@ public struct LibraryState: Codable, Equatable, Sendable {
         try c.encode(videos, forKey: .videos)
         try c.encode(muted, forKey: .muted)
         try c.encode(sceneFPS, forKey: .sceneFPS)
+        try c.encode(sceneZoom, forKey: .sceneZoom)
+        try c.encode(sceneOptions, forKey: .sceneOptions)
+        try c.encode(power, forKey: .power)
         try c.encode(sameForBoth, forKey: .sameForBoth)
         try c.encode(desktop, forKey: .desktop)
         try c.encode(lock, forKey: .lock)

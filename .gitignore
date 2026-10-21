@@ -15,3 +15,6 @@ dist/
 WallpaperEngineAssets/
 SteamCMD/
 SteamHome/
+
+# Rust renderer build output
+RenderService/target/

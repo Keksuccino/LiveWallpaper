@@ -880,7 +880,9 @@ extension WorkshopKit {
                 case .popular: pairs.append(("query_type", "9"))                // RankedByTotalUniqueSubscriptions
                 }
             }
-            pairs += [("cursor", browse.cursor), ("numperpage", String(pageSize)), ("requiredtags[0]", "Video")]
+            // No required tag: Steam's required tags must all match, so "Video" alone hid every scene. Items the app
+            // cannot import (web, application) still show, with an "unsupported" chip and no download.
+            pairs += [("cursor", browse.cursor), ("numperpage", String(pageSize))]
             if !browse.mature { pairs += [("excludedtags[0]", "Questionable"), ("excludedtags[1]", "Mature")] }
             pairs += [("return_tags", "true"), ("return_short_description", "true"), ("return_previews", "false"),
                       ("return_vote_data", "false"), ("return_metadata", "false")]

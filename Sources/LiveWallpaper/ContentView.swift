@@ -117,6 +117,7 @@ struct LibraryView: View {
                 VStack(spacing: 16) {
                     ItemPreviewPane(item: focused, broken: focused.map { isBroken($0) } ?? false, openSteamSetup: openSteamSetup)
                     selectionBar
+                    if let item = focused, item.isScene { SceneSettingsCard(model: model, item: item) }
                     LibrarySettingsCard(model: model)
                 }
             }
@@ -143,18 +144,20 @@ struct LibraryView: View {
         HStack(spacing: 16) {
             statusLine
             Spacer()
+            // Start begins only the selected wallpaper, on the targets it is assigned to. Stop ends all playback.
+            let playingFocused = focused.map { model.isPlaying($0.id) } ?? false
             Button {
                 model.clearStatus()
-                model.toggleRunning()
+                if playingFocused { model.stop() } else if let item = focused { model.startOnly(item.id) } else { model.start() }
             } label: {
-                Label(model.isRunning ? "Stop Wallpaper" : "Start Wallpaper", systemImage: model.isRunning ? "stop.fill" : "play.fill")
+                Label(playingFocused ? "Stop Wallpaper" : "Start Wallpaper", systemImage: playingFocused ? "stop.fill" : "play.fill")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent).controlSize(.large)
-            .tint(model.isRunning ? Color.red : nil)
+            .tint(playingFocused ? Color.red : nil)
             .frame(width: 168)
             .keyboardShortcut(.return, modifiers: .command)
-            .disabled(!model.isRunning && !model.canStart)
+            .disabled(!playingFocused && focused == nil && !model.canStart)
         }
     }
 
@@ -162,17 +165,18 @@ struct LibraryView: View {
         HStack(spacing: 8) {
             Text(status.text).font(.subheadline).foregroundStyle(status.warning ? Color.orange : Color.secondary)
                 .lineLimit(1).truncationMode(.middle)
-            if model.presence == .unresponsive {
-                Button("Restart Agent") { model.restartAgent() }.buttonStyle(.link).font(.subheadline)
+            if model.client.state == .unavailable {
+                Button("Retry") { model.startService() }.buttonStyle(.link).font(.subheadline)
             }
         }
     }
 
     private var status: (text: String, warning: Bool) {
         if let message = model.localMessage { return (message, true) }
-        if model.presence == .launching { return ("Starting the wallpaper agent…", false) }
-        if model.presence == .unresponsive { return ("The wallpaper agent isn’t responding.", true) }
-        if let message = model.agentStatus?.message { return (message, true) }
+        if model.client.state == .connecting { return ("Starting the wallpaper service…", false) }
+        if model.client.state == .needsApproval { return ("Allow the wallpaper service in Login Items.", true) }
+        if model.client.state == .unavailable { return (model.client.connectionError ?? "The wallpaper service isn’t responding.", true) }
+        if let message = model.statusMessage { return (message, true) }
         if model.isRunning { return (runningSummary, false) }
         if !model.canStart { return ("Turn on Desktop or Lock Screen to start.", true) }
         if model.videos.allSatisfy({ isBroken($0) }) { return ("None of your wallpapers can be played.", true) }
@@ -505,6 +509,9 @@ fileprivate struct LibrarySettingsCard: View {
                 .labelsHidden().fixedSize()
             }
             .help("Smoothness of scene wallpapers. Higher looks smoother but keeps the GPU busier, which can make the whole Mac lag. Videos play at their own frame rate. On battery it is limited to 24.")
+            Divider().padding(.vertical, 4)
+            ScenePowerRows(model: model)
+            Divider().padding(.vertical, 4)
             Toggle("Mute sound", isOn: $model.muted)
                 .help("Videos play silently. The lock screen never has sound.")
             lockNote

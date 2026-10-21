@@ -53,29 +53,15 @@ jobs:
       - name: Tests (Core and SceneFormat)
         run: swift test
 
-      # The scene renderer (a macOS port of linux-wallpaperengine, built from our fork's mac-port branch). Without it
-      # the app falls back to the basic Metal renderer, which draws many scenes wrongly.
+      # The scene renderer: WallpaperMachine's Rust core (RenderService/), built and bindgen'd for Swift.
       - name: Install renderer dependencies
         run: brew install cmake pkg-config glfw glm glew mpv ffmpeg lz4 freetype sdl2-compat
 
-      - name: Build the scene renderer
-        run: |
-          LOG="$RUNNER_TEMP/wpengine-build.log"
-          if ! scripts/build-wpengine.sh "$RUNNER_TEMP/wpengine" > "$LOG" 2>&1; then
-            # Job logs need a sign-in to read; annotations do not, so surface the errors as annotations too.
-            ERRORS="$(grep -nE 'error:|\*\*\*|CMake Error|undefined symbol|ld: |fatal' "$LOG" | head -25 | cut -c1-300)"
-            TAIL="$(tail -15 "$LOG" | cut -c1-300)"
-            for var in ERRORS TAIL; do
-              value="${!var}"; value="${value//'%'/'%25'}"; value="${value//$'\n'/'%0A'}"
-              echo "::error title=wpengine build $var::$value"
-            done
-            tail -60 "$LOG"
-            exit 1
-          fi
+      - name: Build the render service
+        run: scripts/build-render-service.sh
 
       - name: Build and assemble the app
         env:
-          WPENGINE_BIN: ${{ runner.temp }}/wpengine/wpengine
           VERSION: ${{ steps.version.outputs.version }}
           BUILD_NUMBER: ${{ github.run_number }}
           UNIVERSAL_INPUT: ${{ inputs.universal }}
@@ -83,16 +69,6 @@ jobs:
           # Tags and unset inputs build universal; a dry run can ask for arm64 only.
           if [[ "$UNIVERSAL_INPUT" == "false" ]]; then export UNIVERSAL=0; else export UNIVERSAL=1; fi
           ./build.sh
-
-      - name: Check the renderer is in the app
-        run: |
-          HOST=build/LiveWallpaper.app/Contents/Library/LoginItems/LiveWallpaperSceneHost.app/Contents
-          test -x "$HOST/MacOS/wpengine" || { echo "::error::wpengine is not bundled in the scene host"; exit 1; }
-          test -n "$(ls "$HOST/Frameworks" 2>/dev/null)" || { echo "::error::no dylibs bundled next to wpengine"; exit 1; }
-          # a renderer that still points at Homebrew would only run on this machine
-          if otool -L "$HOST/MacOS/wpengine" | grep -E '/opt/homebrew|/usr/local/(opt|Cellar)'; then
-            echo "::error::wpengine still links against Homebrew paths"; exit 1
-          fi
 
       - name: Verify the bundle
         run: scripts/verify-bundle.sh build/LiveWallpaper.app "${{ steps.version.outputs.version }}"
