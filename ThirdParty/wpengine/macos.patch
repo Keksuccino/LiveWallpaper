@@ -745,6 +745,138 @@ index 11565a1..84cb7a1 100644
 +    ${OPENGL_FW} ${COCOA_FW} ${IOKIT_FW} GLEW::GLEW glfw ZLIB::ZLIB Freetype::Freetype
 +    ${LZ4_LIBRARIES} ${SDL2_LIBRARIES} ${MPV_LIBRARIES} ${FFMPEG_LIBRARIES}
 +    kissfft glslang spirv-cross-core spirv-cross-glsl argparse qjs)
+diff --git a/src/WallpaperEngine/Application/WallpaperApplication.cpp b/src/WallpaperEngine/Application/WallpaperApplication.cpp
+index c9107af..453cbec 100644
+--- a/src/WallpaperEngine/Application/WallpaperApplication.cpp
++++ b/src/WallpaperEngine/Application/WallpaperApplication.cpp
+@@ -29,6 +29,11 @@
+ #define STB_IMAGE_WRITE_IMPLEMENTATION
+ #include <stb_image_write.h>
+ #include <thread>
++#include <fstream>
++#include <regex>
++#include <set>
++#include <sstream>
++#include "WallpaperEngine/Render/Shaders/Shader.h"
+ 
+ #define FULLSCREEN_CHECK_WAIT_TIME 250
+ 
+@@ -822,12 +827,101 @@ void WallpaperApplication::setupOpenGLDebugging () {
+ #endif
+ }
+ 
++void WallpaperApplication::checkShaders (const char* listFile) {
++    std::ifstream in (listFile);
++    const auto& project = *this->m_backgrounds.begin ()->second;
++    int failed = 0, total = 0;
++    std::string name;
++
++    while (std::getline (in, name)) {
++	if (name.empty ()) {
++	    continue;
++	}
++	total++;
++	std::string problem;
++	try {
++	    Data::Model::ComboMap combos;
++	    Data::Model::TextureMap textures;
++	    Data::Model::ShaderConstantMap constants;
++	    Render::Shaders::Shader shader (*project.assetLocator, name, combos, combos, textures, textures, constants);
++	    for (int stage = 0; stage < 2; stage++) {
++		const std::string label = stage == 0 ? "vertex" : "fragment";
++		std::string source = stage == 0 ? shader.vertex () : shader.fragment ();
++		if (!source.empty ()) {
++		    // the engine defines per-pass macros (SPRITESHEET, BLENDMODE, ...) at runtime; default the unknown ones
++		    // to 0 so only real incompatibilities are reported
++		    std::set<std::string> macros;
++		    std::istringstream lines (source);
++		    std::string line;
++		    const std::regex condition (R"(^\s*#\s*(?:el)?if\b(.*)$)");
++		    const std::regex token (R"(\b([A-Z][A-Z0-9_]+)\b)");
++		    std::smatch match;
++		    while (std::getline (lines, line)) {
++			if (!line.empty () && line.back () == '\r') line.pop_back ();   // shader files use CRLF
++			if (std::regex_match (line, match, condition)) {
++			    const std::string expression = match[1].str ();
++			    for (auto it = std::sregex_iterator (expression.begin (), expression.end (), token);
++				 it != std::sregex_iterator (); ++it) {
++				macros.insert ((*it)[1].str ());
++			    }
++			}
++		    }
++		    std::string defines;
++		    for (const auto& macro : macros) {
++			if (macro == "GLSL" || source.find ("#define " + macro) != std::string::npos) continue;
++			defines += "#define " + macro + " 0\n";
++		    }
++		    const size_t afterVersion = source.find ('\n');
++		    if (!defines.empty () && afterVersion != std::string::npos) {
++			source.insert (afterVersion + 1, defines);
++		    }
++		}
++		if (source.empty ()) {
++		    problem += "[" + label + ": rejected before GL (glslang/SPIRV-Cross)] ";
++		    continue;
++		}
++		const GLuint id = glCreateShader (stage == 0 ? GL_VERTEX_SHADER : GL_FRAGMENT_SHADER);
++		const char* text = source.c_str ();
++		glShaderSource (id, 1, &text, nullptr);
++		glCompileShader (id);
++		GLint ok = 0;
++		glGetShaderiv (id, GL_COMPILE_STATUS, &ok);
++		if (!ok) {
++		    char log[1024] = {};
++		    glGetShaderInfoLog (id, sizeof (log) - 1, nullptr, log);
++		    std::string firstLine (log);
++		    firstLine = firstLine.substr (0, firstLine.find ('\n'));
++		    problem += "[" + label + " GL: " + firstLine + "] ";
++		    if (const char* dumpDir = getenv ("WPENGINE_CHECK_DUMP")) {
++			std::string safe = name;
++			std::replace (safe.begin (), safe.end (), '/', '_');
++			std::ofstream (std::string (dumpDir) + "/" + safe + "." + label + ".glsl") << source;
++		    }
++		}
++		glDeleteShader (id);
++	    }
++	} catch (const std::exception& error) {
++	    problem = std::string ("exception: ") + error.what ();
++	}
++	if (!problem.empty ()) {
++	    failed++;
++	    fprintf (stderr, "SHADERCHECK FAIL %s %s\n", name.c_str (), problem.c_str ());
++	}
++    }
++    fprintf (stderr, "SHADERCHECK %d/%d failed\n", failed, total);
++}
++
+ void WallpaperApplication::setup () {
+     this->setupOutput ();
+     this->setupAudio ();
+     this->prepareOutputs ();
+     this->setupOpenGLDebugging ();
+ 
++    if (const char* list = getenv ("WPENGINE_CHECK_SHADERS")) {
++	this->checkShaders (list);
++	exit (0);
++    }
++
+     if (this->m_context.settings.general.dumpStructure) {
+ 	auto prettyPrinter = Data::Dumpers::StringPrinter ();
+ 
+diff --git a/src/WallpaperEngine/Application/WallpaperApplication.h b/src/WallpaperEngine/Application/WallpaperApplication.h
+index 1d1302a..ad3984d 100644
+--- a/src/WallpaperEngine/Application/WallpaperApplication.h
++++ b/src/WallpaperEngine/Application/WallpaperApplication.h
+@@ -118,6 +118,9 @@ private:
+      * Prepares CEF browser to be used
+      */
+     void setupBrowser ();
++    /** Dev tool (WPENGINE_CHECK_SHADERS=<file with one shader name per line>): compiles each shader through the whole
++     *  pipeline and the GL driver, reports the failures and exits */
++    void checkShaders (const char* listFile);
+     /**
+      * Prepares desktop environment-related things (like render, window, fullscreen detector, etc)
+      */
 diff --git a/src/WallpaperEngine/Audio/Drivers/Detectors/PulseAudioPlayingDetector.cpp b/src/WallpaperEngine/Audio/Drivers/Detectors/PulseAudioPlayingDetector.cpp
 index 3d32b18..e69de29 100644
 --- a/src/WallpaperEngine/Audio/Drivers/Detectors/PulseAudioPlayingDetector.cpp
@@ -2723,6 +2855,82 @@ index dd4f4d4..dfcc16e 100644
      fragmentCompiler.set_common_options (options);
  
      return { vertexCompiler.compile () + "#if 0\n" + vertex + "\n#endif",
+diff --git a/src/WallpaperEngine/Render/Shaders/ShaderUnit.cpp b/src/WallpaperEngine/Render/Shaders/ShaderUnit.cpp
+index fcc03fc..0725a1e 100644
+--- a/src/WallpaperEngine/Render/Shaders/ShaderUnit.cpp
++++ b/src/WallpaperEngine/Render/Shaders/ShaderUnit.cpp
+@@ -414,6 +414,47 @@ std::string ShaderUnit::applyLinkedVaryingCompatibility (std::string source) con
+     return source;
+ }
+ 
++std::string ShaderUnit::applyWritableVaryingCompatibility (std::string source) const {
++    if (this->m_type != GLSLContext::UnitType_Fragment) {
++	return source;
++    }
++
++    struct Varying {
++	std::string type;
++	std::string name;
++    };
++    std::vector<Varying> writable;
++    const std::regex declaration (R"(\bvarying\s+(\w+)\s+([A-Za-z_]\w*)\s*;)");
++    for (auto it = std::sregex_iterator (source.begin (), source.end (), declaration); it != std::sregex_iterator ();
++	 ++it) {
++	const std::string name = (*it)[2].str ();
++	const std::regex write ("\\b" + name + "\\b(\\s*\\.\\s*\\w+)?\\s*([-+*/]?=)(?!=)");
++	if (std::regex_search (source, write)) {
++	    writable.push_back ({ (*it)[1].str (), name });
++	}
++    }
++
++    for (const auto& varying : writable) {
++	const std::string local = varying.name + "_w";
++	const std::regex exactDeclaration ("\\bvarying\\s+" + varying.type + "\\s+" + varying.name + "\\s*;");
++	source = std::regex_replace (source, exactDeclaration, "@@VARYING_DECL@@");
++	source = std::regex_replace (source, std::regex ("\\b" + varying.name + "\\b"), local);
++	const std::string keep = "varying " + varying.type + " " + varying.name + ";\n" + varying.type + " " + local + ";";
++	const size_t marker = source.find ("@@VARYING_DECL@@");
++	if (marker != std::string::npos) {
++	    source.replace (marker, std::string ("@@VARYING_DECL@@").size (), keep);
++	}
++	const std::regex mainStart (R"(void\s+main\s*\(\s*(void)?\s*\)\s*\{)");
++	std::smatch match;
++	if (std::regex_search (source, match, mainStart)) {
++	    source.insert (match.position () + match.length (), "\n" + local + " = " + varying.name + ";\n");
++	}
++	sLog.out ("Made varying ", varying.name, " writable in ", this->m_file);
++    }
++
++    return source;
++}
++
+ std::string ShaderUnit::applyFragmentTexCoordCompatibility (std::string source) const {
+     if (this->m_type != GLSLContext::UnitType_Fragment) {
+ 	return source;
+@@ -715,7 +756,9 @@ const std::string& ShaderUnit::compile () {
+ 
+     // this should be the rest of the shader
+     this->m_final
+-	+= this->applyFragmentTexCoordCompatibility (this->applyLinkedVaryingCompatibility (this->m_preprocessed));
++	+= this->applyWritableVaryingCompatibility (
++	    this->applyFragmentTexCoordCompatibility (this->applyLinkedVaryingCompatibility (this->m_preprocessed))
++	);
+ 
+     // the pass itself handles shader compilation, the unit doesn't have enough information for this step
+     return this->m_final;
+diff --git a/src/WallpaperEngine/Render/Shaders/ShaderUnit.h b/src/WallpaperEngine/Render/Shaders/ShaderUnit.h
+index 0a5d5d6..fa23446 100644
+--- a/src/WallpaperEngine/Render/Shaders/ShaderUnit.h
++++ b/src/WallpaperEngine/Render/Shaders/ShaderUnit.h
+@@ -104,6 +104,8 @@ private:
+      * Adjusts fragment shaders that use wide texture coordinates as vec2 values in Wallpaper Engine effects.
+      */
+     [[nodiscard]] std::string applyFragmentTexCoordCompatibility (std::string source) const;
++    /** Wallpaper Engine lets fragment shaders modify their varyings; GLSL does not (glslang: "can't modify shader input") */
++    [[nodiscard]] std::string applyWritableVaryingCompatibility (std::string source) const;
+ 
+     /**
+      * Parses a COMBO value to add the proper define to the code
 diff --git a/src/WallpaperEngine/Render/Wallpapers/CScene.cpp b/src/WallpaperEngine/Render/Wallpapers/CScene.cpp
 index 4933440..01945f5 100644
 --- a/src/WallpaperEngine/Render/Wallpapers/CScene.cpp

@@ -1,5 +1,7 @@
 # Live Wallpaper
 
+<img src="assets/logos/app-icon.svg" width="128" alt="">
+
 A small macOS app that plays your own videos as a looping desktop wallpaper, can rotate through several of them on a timer, and plays a wallpaper on the lock screen too (macOS 26 or later). The desktop and the lock screen can show different wallpapers. Wallpapers can come from your Mac or from the Steam Workshop for Wallpaper Engine (videos now; scenes are being added, see "Scenes" below).
 
 It is three apps in one bundle:

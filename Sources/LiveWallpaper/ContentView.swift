@@ -131,7 +131,8 @@ struct LibraryView: View {
                 Text(item.name).font(.headline).lineLimit(1).truncationMode(.middle)
                 Spacer()
                 Menu("Set as") {
-                    SetAsItems(roles: model.roles(of: item.id), assign: { model.assign(item.id, to: $0) })
+                    SetAsItems(roles: model.roles(of: item.id), isScene: item.isScene,
+                               assign: { model.assign(item.id, to: $0) })
                 }
                 .fixedSize()
             }
@@ -279,18 +280,25 @@ struct LibraryView: View {
 @MainActor
 fileprivate struct SetAsItems: View {
     let roles: Set<WallpaperTarget>
+    /// Scenes are live-rendered, so they can only be the desktop wallpaper; the lock screen needs a video.
+    var isScene = false
     let assign: (Set<WallpaperTarget>) -> Void
 
     var body: some View {
-        entry("Set as Desktop", [.desktop], checked: roles.contains(.desktop))
-        entry("Set as Lock Screen", [.lock], checked: roles.contains(.lock))
-        entry("Set as Both", [.desktop, .lock], checked: roles.count == WallpaperTarget.allCases.count)
+        entry("Set as Desktop", [.desktop], checked: roles.contains(.desktop), enabled: true)
+        entry("Set as Lock Screen", [.lock], checked: roles.contains(.lock), enabled: !isScene)
+        entry("Set as Both", [.desktop, .lock], checked: roles.count == WallpaperTarget.allCases.count, enabled: !isScene)
+        if isScene {
+            Divider()
+            Text("Scenes can’t be used on the lock screen.\nUse a video for it.")
+        }
     }
 
-    @ViewBuilder private func entry(_ title: String, _ targets: Set<WallpaperTarget>, checked: Bool) -> some View {
+    @ViewBuilder private func entry(_ title: String, _ targets: Set<WallpaperTarget>, checked: Bool, enabled: Bool) -> some View {
         Button { assign(targets) } label: {
             if checked { Label(title, systemImage: "checkmark") } else { Text(title) }
         }
+        .disabled(!enabled)
     }
 }
 
@@ -362,14 +370,15 @@ fileprivate struct LibraryRow: View {
 
     private var setAsMenu: some View {
         Menu {
-            SetAsItems(roles: roles, assign: assign)
+            SetAsItems(roles: roles, isScene: item.isScene, assign: assign)
         } label: {
             Image(systemName: "ellipsis.circle")
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Set as Desktop, Lock Screen or Both")
+        .help(item.isScene ? "Set as Desktop (scenes can’t be used on the lock screen)"
+                           : "Set as Desktop, Lock Screen or Both")
         .accessibilityLabel("Set as")
     }
 
@@ -474,16 +483,17 @@ fileprivate struct LibrarySettingsCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle("Same wallpaper for desktop and lock screen",
-                   isOn: Binding(get: { model.sameForBoth }, set: { model.setSameForBoth($0) }))
-            Divider().padding(.vertical, 4)
-            if model.sameForBoth {
-                RotationBlock(model: model, target: .desktop, title: nil, showsSwitch: false)
-                applyToRow
-            } else {
-                RotationBlock(model: model, target: .desktop, title: "Desktop", showsSwitch: true)
+            if model.selectedItem?.isScene == true {
+                Label("Scenes can’t be used on the lock screen. Use a video for it.", systemImage: "info.circle")
+                    .font(.caption).foregroundStyle(.secondary)
                 Divider().padding(.vertical, 4)
-                RotationBlock(model: model, target: .lock, title: "Lock Screen", showsSwitch: true)
+            }
+            if model.sameForBoth {
+                RotationBlock(model: model, target: .desktop, title: nil)
+            } else {
+                if model.applyToDesktop { RotationBlock(model: model, target: .desktop, title: "Desktop") }
+                if model.applyToDesktop && model.applyToLockScreen { Divider().padding(.vertical, 4) }
+                if model.applyToLockScreen { RotationBlock(model: model, target: .lock, title: "Lock Screen") }
             }
             Divider().padding(.vertical, 4)
             Toggle("Mute sound", isOn: $model.muted)
@@ -494,15 +504,6 @@ fileprivate struct LibrarySettingsCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12).fill(.quaternary))
         .animation(.default, value: model.sameForBoth)
-    }
-
-    private var applyToRow: some View {
-        HStack(spacing: 16) {
-            Text("Apply to")
-            Toggle("Desktop", isOn: $model.applyToDesktop)
-            Toggle("Lock Screen", isOn: $model.applyToLockScreen)
-        }
-        .toggleStyle(.checkbox)
     }
 
     private var lockNote: some View {
@@ -522,15 +523,13 @@ fileprivate struct RotationBlock: View {
     @ObservedObject var model: SettingsModel
     let target: WallpaperTarget
     let title: String?
-    let showsSwitch: Bool
     @State private var intervalText: String
     @FocusState private var intervalFocused: Bool
 
-    init(model: SettingsModel, target: WallpaperTarget, title: String?, showsSwitch: Bool) {
+    init(model: SettingsModel, target: WallpaperTarget, title: String?) {
         self._model = ObservedObject(wrappedValue: model)
         self.target = target
         self.title = title
-        self.showsSwitch = showsSwitch
         self._intervalText = State(initialValue: String(model.snapshot.config(for: target).intervalValue))
     }
 
@@ -542,10 +541,6 @@ fileprivate struct RotationBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let title { Text(title).font(.headline) }
-            if showsSwitch {
-                Toggle(target == .desktop ? "Show on desktop" : "Show on lock screen", isOn: enabledBinding)
-                    .toggleStyle(.switch)
-            }
             HStack {
                 Text("Rotate wallpaper")
                 Spacer()
@@ -555,7 +550,7 @@ fileprivate struct RotationBlock: View {
             .help("Automatically switch between your wallpapers, in list order.")
             if config.rotateEnabled && canRotate { intervalRow }
             if let helper { Text(helper.text).font(.caption).foregroundStyle(helper.warning ? Color.orange : Color.secondary) }
-            if showsSwitch, let name = playingName {
+            if title != nil, let name = playingName {
                 Text("Playing now: “\(name)”").font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
         }
@@ -591,10 +586,6 @@ fileprivate struct RotationBlock: View {
     private var playingName: String? {
         guard model.isRunning, let id = model.currentID(for: target) else { return nil }
         return model.videos.first { $0.id == id }?.name
-    }
-
-    private var enabledBinding: Binding<Bool> {
-        target == .desktop ? $model.applyToDesktop : $model.applyToLockScreen
     }
 
     private var rotateBinding: Binding<Bool> {

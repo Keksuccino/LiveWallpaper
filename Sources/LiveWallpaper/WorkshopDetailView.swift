@@ -21,6 +21,12 @@ struct AnimatedImageView: NSViewRepresentable {
     func updateNSView(_ view: NSImageView, context: Context) {
         if view.image !== image { view.image = image }
     }
+
+    /// An NSImageView asks for the image's pixel size, which for a 4K preview pushes the whole pane apart.
+    /// The view takes the size SwiftUI proposes and scales the image into it instead.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSImageView, context: Context) -> CGSize? {
+        proposal.replacingUnspecifiedDimensions()
+    }
 }
 
 /// Loads a preview image from a URL (http(s) or file) once; keeps the original bytes so GIFs keep their frames.
@@ -114,7 +120,6 @@ struct WorkshopDetailView: View {
                     .font(.callout).foregroundStyle(item.summary.isEmpty ? .secondary : .primary)
                     .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                 actions
-                steamLink
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -125,6 +130,23 @@ struct WorkshopDetailView: View {
     // MARK: Preview
 
     @ViewBuilder private var previewArea: some View {
+        ZStack(alignment: .bottomTrailing) {
+            previewImage
+            if let url = steamCommunityURL {
+                Link(destination: url) {
+                    Label("Open on Steam", systemImage: "arrow.up.right.square")
+                        .font(.caption)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.ultraThinMaterial, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .padding(8)
+            }
+        }
+    }
+
+    @ViewBuilder private var previewImage: some View {
         if let video = libraryItem {
             ItemPreviewPane(item: video, broken: !FileManager.default.fileExists(atPath: video.path),
                             openSteamSetup: openSteamSetup)
@@ -133,6 +155,7 @@ struct WorkshopDetailView: View {
                 Rectangle().fill(.quaternary)
                 if let image = preview.image {
                     AnimatedImageView(image: image)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if preview.failed || item.previewURL == nil {
                     Image(systemName: "photo").font(.system(size: 32)).foregroundStyle(.secondary)
                 } else {
@@ -145,6 +168,11 @@ struct WorkshopDetailView: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(item.title)
         }
+    }
+
+    /// The item's page on the Steam Community.
+    private var steamCommunityURL: URL? {
+        URL(string: "https://steamcommunity.com/sharedfiles/filedetails/?id=\(item.id)")
     }
 
     // MARK: Facts
@@ -215,11 +243,5 @@ struct WorkshopDetailView: View {
     private func showInLibrary() {
         if let video = libraryItem { model.focusedID = video.id }
         openLibrary()
-    }
-
-    @ViewBuilder private var steamLink: some View {
-        if let url = URL(string: "https://steamcommunity.com/sharedfiles/filedetails/?id=\(item.id)") {
-            Link("Open on Steam", destination: url).font(.caption)
-        }
     }
 }
