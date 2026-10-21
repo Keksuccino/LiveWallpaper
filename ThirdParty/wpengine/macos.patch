@@ -1559,6 +1559,18 @@ index c108a0d..e24a081 100644
                      .delay = general.user ("cameraparallaxdelay", properties, 0.0f),
                      .mouseInfluence = general.user ("cameraparallaxmouseinfluence", properties, 1.0f),
                  },
+diff --git a/src/WallpaperEngine/Data/Utils/TypeCaster.h b/src/WallpaperEngine/Data/Utils/TypeCaster.h
+index 80d54a9..9905e81 100644
+--- a/src/WallpaperEngine/Data/Utils/TypeCaster.h
++++ b/src/WallpaperEngine/Data/Utils/TypeCaster.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ 
+ #include <stdexcept>
++#include <typeinfo>
+ 
+ namespace WallpaperEngine::Data::Utils {
+ /**
 diff --git a/src/WallpaperEngine/Input/Drivers/GLFWMouseInput.cpp b/src/WallpaperEngine/Input/Drivers/GLFWMouseInput.cpp
 index 8ddce13..009f91e 100644
 --- a/src/WallpaperEngine/Input/Drivers/GLFWMouseInput.cpp
@@ -2046,10 +2058,15 @@ index d0f7eab..42138cc 100644
  
      sLog.exception ("Unsupported wallpaper type");
 diff --git a/src/WallpaperEngine/Render/Camera.cpp b/src/WallpaperEngine/Render/Camera.cpp
-index 6655670..4488119 100644
+index 6655670..332d82f 100644
 --- a/src/WallpaperEngine/Render/Camera.cpp
 +++ b/src/WallpaperEngine/Render/Camera.cpp
-@@ -3,6 +3,10 @@
+@@ -1,8 +1,15 @@
++#include <algorithm>
++#include <cmath>
++#include <cstdlib>
+ #include <glm/glm.hpp>
+ #include <glm/gtc/matrix_transform.hpp>
  
  #include "Camera.h"
  
@@ -2060,7 +2077,7 @@ index 6655670..4488119 100644
  using namespace WallpaperEngine;
  using namespace WallpaperEngine::Render;
  
-@@ -37,6 +41,8 @@ float Camera::getFov () const { return this->m_camera.projection.fov->value->get
+@@ -37,6 +44,8 @@ float Camera::getFov () const { return this->m_camera.projection.fov->value->get
  
  float Camera::getNearZ () const { return this->m_camera.projection.nearz->value->getFloat (); }
  
@@ -2069,7 +2086,7 @@ index 6655670..4488119 100644
  float Camera::getFarZ () const { return this->m_camera.projection.farz->value->getFloat (); }
  
  void Camera::setOrthogonalProjection (const float width, const float height) {
-@@ -46,7 +52,19 @@ void Camera::setOrthogonalProjection (const float width, const float height) {
+@@ -46,7 +55,19 @@ void Camera::setOrthogonalProjection (const float width, const float height) {
      float nearz = this->m_camera.projection.nearz->value->getFloat ();
      float farz = this->m_camera.projection.farz->value->getFloat ();
  
@@ -2284,10 +2301,19 @@ index 556a6eb..5067a99 100644
  using namespace WallpaperEngine::Render;
  using namespace WallpaperEngine::Data::Model;
 diff --git a/src/WallpaperEngine/Render/Objects/CImage.cpp b/src/WallpaperEngine/Render/Objects/CImage.cpp
-index be0baca..71648b6 100644
+index be0baca..bfb249b 100644
 --- a/src/WallpaperEngine/Render/Objects/CImage.cpp
 +++ b/src/WallpaperEngine/Render/Objects/CImage.cpp
-@@ -23,6 +23,8 @@
+@@ -3,6 +3,8 @@
+ #include "CRenderable.h"
+ 
+ #include <algorithm>
++#include <cmath>
++#include <cstdlib>
+ #include <cstring>
+ #include <iterator>
+ #include <optional>
+@@ -23,6 +25,8 @@
  #include "WallpaperEngine/Data/Utils/MemoryStream.h"
  #include "WallpaperEngine/Logging/Log.h"
  
@@ -2296,7 +2322,7 @@ index be0baca..71648b6 100644
  using namespace WallpaperEngine;
  using namespace WallpaperEngine::Render::Objects;
  using namespace WallpaperEngine::Render::Objects::Effects;
-@@ -134,6 +136,7 @@ CImage::ResolvedTransform CImage::resolveTransform (const Object& object) const
+@@ -134,6 +138,7 @@ CImage::ResolvedTransform CImage::resolveTransform (const Object& object) const
      // Walk up the parent chain leaf-first, bounded by kMaxParentDepth to guard
      // against cycles. chain[0] is the requested object; the last entry is the root.
      const Object* chain[kMaxParentDepth + 1];
@@ -2304,7 +2330,7 @@ index be0baca..71648b6 100644
      int count = 0;
      const Object* current = &object;
      chain[count++] = current;
-@@ -148,6 +151,7 @@ CImage::ResolvedTransform CImage::resolveTransform (const Object& object) const
+@@ -148,6 +153,7 @@ CImage::ResolvedTransform CImage::resolveTransform (const Object& object) const
  	    break;
  	}
  	current = &parentObject->getObject ();
@@ -2312,7 +2338,7 @@ index be0baca..71648b6 100644
  	chain[count++] = current;
      }
  
-@@ -156,6 +160,16 @@ CImage::ResolvedTransform CImage::resolveTransform (const Object& object) const
+@@ -156,6 +162,16 @@ CImage::ResolvedTransform CImage::resolveTransform (const Object& object) const
      ResolvedTransform resolved = localTransform (*chain[count - 1]);
      for (int i = count - 2; i >= 0; --i) {
  	ResolvedTransform local = localTransform (*chain[i]);
@@ -2329,7 +2355,7 @@ index be0baca..71648b6 100644
  	const glm::vec2 offset
  	    = rotateVec2 ({ local.origin.x * resolved.scale.x, local.origin.y * resolved.scale.y }, resolved.angle);
  	local.origin.x = resolved.origin.x + offset.x;
-@@ -268,11 +282,19 @@ CImage::CImage (Wallpapers::CScene& scene, const Image& image) :
+@@ -268,11 +284,19 @@ CImage::CImage (Wallpapers::CScene& scene, const Image& image) :
      nameA << "_rt_imageLayerComposite_" << this->getImage ().id << "_a";
      nameB << "_rt_imageLayerComposite_" << this->getImage ().id << "_b";
  
@@ -2351,7 +2377,7 @@ index be0baca..71648b6 100644
      );
  
      // build a list of vertices, these might need some change later (or maybe invert the camera)
-@@ -431,6 +453,37 @@ bool CImage::loadPuppetMesh (const glm::vec2& size) {
+@@ -431,6 +455,37 @@ bool CImage::loadPuppetMesh (const glm::vec2& size) {
  	const auto stream = this->getScene ().getScene ().project.assetLocator->read (*this->getImage ().model->puppet);
  	std::vector<char> data { std::istreambuf_iterator<char> (*stream), std::istreambuf_iterator<char> () };
  
@@ -2389,7 +2415,7 @@ index be0baca..71648b6 100644
  	constexpr size_t markerSize = 9;
  	constexpr size_t meshHeaderSize = sizeof (uint32_t) * 2;
  	constexpr size_t vertexStride = 80;
-@@ -918,6 +971,8 @@ void CImage::render () {
+@@ -918,6 +973,8 @@ void CImage::render () {
  
      glColorMask (true, true, true, true);
  
@@ -2398,7 +2424,7 @@ index be0baca..71648b6 100644
      // Always update screen transform (handles rotation + parallax dynamically)
      this->updateScreenSpacePosition ();
  
-@@ -1116,6 +1171,10 @@ void CImage::updateScreenSpacePosition () {
+@@ -1116,6 +1173,10 @@ void CImage::updateScreenSpacePosition () {
  	const float referenceSize = static_cast<float> (this->getScene ().getWidth ());
  	float x = (depth.x + parallaxAmount) * displacement->x * referenceSize;
  	float y = (depth.y + parallaxAmount) * displacement->y * referenceSize;
@@ -2409,7 +2435,7 @@ index be0baca..71648b6 100644
  	mvp = glm::translate (mvp, { x, y, 0.0f });
      }
  
-@@ -1146,3 +1205,38 @@ GLuint CImage::getPassSpacePosition () const { return this->m_passSpacePosition;
+@@ -1146,3 +1207,38 @@ GLuint CImage::getPassSpacePosition () const { return this->m_passSpacePosition;
  GLuint CImage::getTexCoordCopy () const { return this->m_texcoordCopy; }
  
  GLuint CImage::getTexCoordPass () const { return this->m_texcoordPass; }
@@ -2485,10 +2511,18 @@ index 07eeda2..4519856 100644
      glm::mat4 m_modelViewProjectionScreen = {};
      glm::mat4 m_modelViewProjectionPass = {};
 diff --git a/src/WallpaperEngine/Render/Objects/CParticle.cpp b/src/WallpaperEngine/Render/Objects/CParticle.cpp
-index 444752a..fc424a3 100644
+index 444752a..f1f2e93 100644
 --- a/src/WallpaperEngine/Render/Objects/CParticle.cpp
 +++ b/src/WallpaperEngine/Render/Objects/CParticle.cpp
-@@ -1871,9 +1871,10 @@ void CParticle::applyParallaxToModelMatrix () {
+@@ -7,6 +7,7 @@
+ 
+ #include <GL/glew.h>
+ #include <algorithm>
++#include <cstdlib>
+ #include <cmath>
+ #include <glm/gtc/constants.hpp>
+ #include <glm/gtc/matrix_transform.hpp>
+@@ -1871,9 +1872,10 @@ void CParticle::applyParallaxToModelMatrix () {
  
      const glm::vec2* displacement = getScene ().getParallaxDisplacement ();
      const float referenceSize = static_cast<float> (getScene ().getWidth ());
@@ -2982,10 +3016,20 @@ index dd4f4d4..dfcc16e 100644
  
      return { vertexCompiler.compile () + "#if 0\n" + vertex + "\n#endif",
 diff --git a/src/WallpaperEngine/Render/Shaders/ShaderUnit.cpp b/src/WallpaperEngine/Render/Shaders/ShaderUnit.cpp
-index fcc03fc..0725a1e 100644
+index fcc03fc..e5f589b 100644
 --- a/src/WallpaperEngine/Render/Shaders/ShaderUnit.cpp
 +++ b/src/WallpaperEngine/Render/Shaders/ShaderUnit.cpp
-@@ -414,6 +414,47 @@ std::string ShaderUnit::applyLinkedVaryingCompatibility (std::string source) con
+@@ -1,7 +1,9 @@
+ #include "ShaderUnit.h"
+ 
+ #include "WallpaperEngine/Logging/Log.h"
++#include <algorithm>
+ #include <exception>
++#include <vector>
+ #include <regex>
+ #include <stack>
+ #include <string>
+@@ -414,6 +416,47 @@ std::string ShaderUnit::applyLinkedVaryingCompatibility (std::string source) con
      return source;
  }
  
@@ -3033,7 +3077,7 @@ index fcc03fc..0725a1e 100644
  std::string ShaderUnit::applyFragmentTexCoordCompatibility (std::string source) const {
      if (this->m_type != GLSLContext::UnitType_Fragment) {
  	return source;
-@@ -715,7 +756,9 @@ const std::string& ShaderUnit::compile () {
+@@ -715,7 +758,9 @@ const std::string& ShaderUnit::compile () {
  
      // this should be the rest of the shader
      this->m_final
@@ -3058,10 +3102,19 @@ index 0a5d5d6..fa23446 100644
      /**
       * Parses a COMBO value to add the proper define to the code
 diff --git a/src/WallpaperEngine/Render/Wallpapers/CScene.cpp b/src/WallpaperEngine/Render/Wallpapers/CScene.cpp
-index 4933440..e4fba52 100644
+index 4933440..f446bb1 100644
 --- a/src/WallpaperEngine/Render/Wallpapers/CScene.cpp
 +++ b/src/WallpaperEngine/Render/Wallpapers/CScene.cpp
-@@ -306,15 +306,24 @@ void CScene::renderFrame (const glm::ivec4& viewport) {
+@@ -11,6 +11,8 @@
+ #include "WallpaperEngine/Data/Model/Wallpaper.h"
+ #include "WallpaperEngine/Data/Parsers/ObjectParser.h"
+ 
++#include <algorithm>
++#include <cmath>
+ #include <ranges>
+ 
+ extern float g_Time;
+@@ -306,15 +308,24 @@ void CScene::renderFrame (const glm::ivec4& viewport) {
  	&& !this->getContext ().getApp ().getContext ().settings.mouse.disableparallax) {
  	const float influence = this->getScene ().camera.parallax.mouseInfluence->value->getFloat ();
  	const float amount = this->getScene ().camera.parallax.amount->value->getFloat ();
@@ -3091,7 +3144,7 @@ index 4933440..e4fba52 100644
      // run a tick in the javascript logic
      this->getScriptEngine ().tick ();
  
-@@ -418,6 +427,12 @@ const glm::vec2* CScene::getMousePositionNormalized () const { return &this->m_m
+@@ -418,6 +429,12 @@ const glm::vec2* CScene::getMousePositionNormalized () const { return &this->m_m
  
  const glm::vec2* CScene::getParallaxDisplacement () const { return &this->m_parallaxDisplacement; }
  

@@ -64,7 +64,7 @@ jobs:
           LOG="$RUNNER_TEMP/wpengine-build.log"
           if ! scripts/build-wpengine.sh "$RUNNER_TEMP/wpengine" > "$LOG" 2>&1; then
             # Job logs need a sign-in to read; annotations do not, so surface the errors as annotations too.
-            ERRORS="$(grep -nE 'error|Error|undefined|fatal|not found|CMake Error' "$LOG" | head -25 | cut -c1-300)"
+            ERRORS="$(grep -nE 'error:|\*\*\*|CMake Error|undefined symbol|ld: |fatal' "$LOG" | head -25 | cut -c1-300)"
             TAIL="$(tail -15 "$LOG" | cut -c1-300)"
             for var in ERRORS TAIL; do
               value="${!var}"; value="${value//'%'/'%25'}"; value="${value//$'\n'/'%0A'}"
