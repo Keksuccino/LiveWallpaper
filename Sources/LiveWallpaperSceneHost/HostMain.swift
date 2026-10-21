@@ -113,7 +113,7 @@ enum ProbeCommand {
                 player.show(itemID: id, scenePath: URL(fileURLWithPath: path),
                             previewPath: command.previewPath.map { URL(fileURLWithPath: $0) },
                             assetsPath: command.assetsPath.map { URL(fileURLWithPath: $0) },
-                            fpsCap: command.fpsCap ?? 30)
+                            fpsCap: command.fpsCap ?? 30, zoom: command.sceneZoom ?? 1.0)
             }
         case .hideScene:
             player.hide()

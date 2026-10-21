@@ -40,6 +40,7 @@ public struct HostCommand: Equatable, Sendable {
     public var muted: Bool?
     public var paused: Bool?
     public var fpsCap: Int?                // showScene: live frame cap (agent sends 30 on battery, 60 on power)
+    public var sceneZoom: Double?          // showScene: the user's zoom (see LibraryState.sceneZoom)
     public var jobID: String?              // renderLock / cancelRender
     public var width: Int?                 // renderLock: output pixels
     public var height: Int?
@@ -49,7 +50,7 @@ public struct HostCommand: Equatable, Sendable {
 
     public init(kind: Kind, agentPID: Int32 = ProcessInfo.processInfo.processIdentifier,
                 itemID: UUID? = nil, scenePath: String? = nil, previewPath: String? = nil, assetsPath: String? = nil,
-                muted: Bool? = nil, paused: Bool? = nil, fpsCap: Int? = nil,
+                muted: Bool? = nil, paused: Bool? = nil, fpsCap: Int? = nil, sceneZoom: Double? = nil,
                 jobID: String? = nil, width: Int? = nil, height: Int? = nil, fps: Int? = nil,
                 loopSeconds: Double? = nil, outputPath: String? = nil, id: String = UUID().uuidString) {
         self.id = id
@@ -62,6 +63,7 @@ public struct HostCommand: Equatable, Sendable {
         self.muted = muted
         self.paused = paused
         self.fpsCap = fpsCap
+        self.sceneZoom = sceneZoom
         self.jobID = jobID
         self.width = width
         self.height = height
@@ -79,6 +81,7 @@ public struct HostCommand: Equatable, Sendable {
         if let muted { info["muted"] = muted }
         if let paused { info["paused"] = paused }
         if let fpsCap { info["fpsCap"] = fpsCap }
+        if let sceneZoom { info["zoom"] = sceneZoom }
         if let jobID { info["job"] = jobID }
         if let width { info["w"] = width }
         if let height { info["h"] = height }
@@ -104,6 +107,7 @@ public struct HostCommand: Equatable, Sendable {
         self.muted = info["muted"] as? Bool
         self.paused = info["paused"] as? Bool
         self.fpsCap = info["fpsCap"] as? Int
+        self.sceneZoom = info["zoom"] as? Double
         self.jobID = info["job"] as? String
         self.width = info["w"] as? Int
         self.height = info["h"] as? Int

@@ -51,6 +51,7 @@ enum AgentPresence: Equatable {
         }
     }
     @Published var sceneFPS: Int = LibraryState.defaultSceneFPS { didSet { persist() } }
+    @Published var sceneZoom: Double = 1.0 { didSet { persist() } }
     @Published var muted: Bool = true {
         didSet {
             guard !writesSuspended, muted != oldValue else { return }
@@ -108,6 +109,7 @@ enum AgentPresence: Equatable {
         state.lock = lock
         state.muted = muted
         state.sceneFPS = sceneFPS
+        state.sceneZoom = sceneZoom
         state.normalize()
         return state
     }
@@ -371,6 +373,7 @@ enum AgentPresence: Equatable {
         sameForBoth = state.sameForBoth
         lockConfig = state.lock
         sceneFPS = state.sceneFPS
+        sceneZoom = state.sceneZoom
         muted = state.muted
     }
 

@@ -505,6 +505,15 @@ fileprivate struct LibrarySettingsCard: View {
                 .labelsHidden().fixedSize()
             }
             .help("Smoothness of scene wallpapers. Higher looks smoother but keeps the GPU busier, which can make the whole Mac lag. Videos play at their own frame rate. On battery it is limited to 24.")
+            HStack {
+                Text("Scene zoom")
+                Spacer()
+                Picker("Scene zoom", selection: $model.sceneZoom) {
+                    ForEach([0.8, 0.9, 1.0, 1.1, 1.25, 1.5], id: \.self) { Text("\(Int(($0 * 100).rounded()))%").tag($0) }
+                }
+                .labelsHidden().fixedSize()
+            }
+            .help("Zoom of scene wallpapers. Below 100% shows more of the scene; the edges may turn black.")
             Toggle("Mute sound", isOn: $model.muted)
                 .help("Videos play silently. The lock screen never has sound.")
             lockNote

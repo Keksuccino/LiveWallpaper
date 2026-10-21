@@ -29,7 +29,7 @@ import AppKit
 
     /// Starts one child per screen. `projectFolder` is the folder with project.json (and scene.pkg).
     /// Returns false when the binary is missing or a child could not be launched.
-    func start(projectFolder: URL, assets: URL?, fps: Int) -> Bool {
+    func start(projectFolder: URL, assets: URL?, fps: Int, zoom: Double) -> Bool {
         stop()
         guard let binary = Self.binaryURL else { return false }
         generation += 1
@@ -57,6 +57,7 @@ import AppKit
             // Scenes are GPU heavy (4000+ px layers with several effect passes each); at full size one can keep the
             // GPU near 100% and starve the window server, which makes the whole desktop lag. Effect buffers at 60%.
             environment["WPENGINE_LAYER_SCALE"] = "0.6"
+            environment["WPENGINE_VIEW_ZOOM"] = String(zoom)   // the user's zoom; the renderer adds its parallax margin
             process.environment = environment
             process.qualityOfService = .utility   // foreground apps win the CPU when both are busy
             process.standardOutput = FileHandle.nullDevice

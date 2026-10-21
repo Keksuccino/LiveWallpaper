@@ -242,7 +242,7 @@ import Core
             if desktopSceneID != nil { host.send(HostCommand(kind: .setMuted, muted: fresh.muted)) }
         }
         // The renderer takes its frame rate at launch, so a new value restarts the running scene.
-        if old.sceneFPS != fresh.sceneFPS, isRunning, let id = desktopSceneID,
+        if old.sceneFPS != fresh.sceneFPS || old.sceneZoom != fresh.sceneZoom, isRunning, let id = desktopSceneID,
            let item = fresh.videos.first(where: { $0.id == id }) {
             host.send(sceneCommand(for: item))
         }
@@ -418,7 +418,7 @@ import Core
     private func sceneCommand(for item: VideoItem) -> HostCommand {
         sentFPSCap = sceneFPSCap
         return HostCommand(kind: .showScene, itemID: item.id, scenePath: item.path, previewPath: item.previewPath,
-                           assetsPath: sharedAssetsPath, muted: state.muted, fpsCap: sentFPSCap)
+                           assetsPath: sharedAssetsPath, muted: state.muted, fpsCap: sentFPSCap, sceneZoom: state.sceneZoom)
     }
 
     private var sharedAssetsPath: String? {

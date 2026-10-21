@@ -78,7 +78,7 @@ import SceneEngine
     /// Loads the scene (SceneLoader), builds renderers, opens the windows and starts the pump. Reports `.loading`,
     /// then `.playing` after the first frame was presented; `.fallbackStill` when only the preview image can be
     /// shown (analysis.support == .previewOnly, or a load/shader/texture error); `.failed` when not even that works.
-    func show(itemID: UUID, scenePath: URL, previewPath: URL?, assetsPath: URL?, fpsCap: Int) {
+    func show(itemID: UUID, scenePath: URL, previewPath: URL?, assetsPath: URL?, fpsCap: Int, zoom: Double) {
         self.itemID = itemID
         generation += 1
         let current = generation
@@ -92,7 +92,7 @@ import SceneEngine
         // Armed only once the engine survived its start: an exit in the first seconds (e.g. no shared assets) must
         // reach the Metal fallback below, not be reported as a failure.
         runner.onUnexpectedExit = nil
-        if runner.start(projectFolder: scenePath.deletingLastPathComponent(), assets: assetsPath, fps: fpsCap) {
+        if runner.start(projectFolder: scenePath.deletingLastPathComponent(), assets: assetsPath, fps: fpsCap, zoom: zoom) {
             Task { @MainActor [weak self] in
                 // A scene the engine cannot load exits within a moment; only then is it playing.
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
