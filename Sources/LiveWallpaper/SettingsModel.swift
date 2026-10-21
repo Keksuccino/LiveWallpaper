@@ -4,26 +4,14 @@ import Combine
 import Core
 import SceneFormat
 
-// The Settings app's model: the only writer of state.json and the only IPC client of the wallpaper agent.
-// It never plays anything. Persisted changes are committed and announced with a `.reload` command; the agent
-// (a separate process) applies them. SPEC2.md sections 3.4 and 3.6.
-
-/// What the Settings app knows about the agent process.
-enum AgentPresence: Equatable {
-    case unknown       // nothing checked yet (app just launched)
-    case notRunning    // no agent process
-    case launching     // launched or found, waiting for its first status
-    case running       // a status arrived
-    case unresponsive  // process exists but did not answer within ~4.5 s (three tries)
-}
+// The Settings app's model. It holds the library and settings the user edits and the status the service reports;
+// it never plays anything and never writes state.json. Every change is sent to the service as `.commit`.
 
 @MainActor final class SettingsModel: ObservableObject {
     static let shared = SettingsModel()
     static let minimumInterval: TimeInterval = LibraryState.minimumInterval
-    private static let launchFailure = "Couldn’t start the wallpaper agent."
 
-    // Persisted in state.json; UI-bound. Every change is written (StateStore.commit) and followed by a
-    // `.reload` command to the agent. Bulk changes go through `batch` (one write) and never write while loading.
+    // Persisted in state.json; UI-bound. Every change is sent to the service (`.commit`). Bulk changes go through `batch` (one write) and never write while loading.
     @Published var videos: [VideoItem] = [] { didSet { persist() } }
     @Published var selectedID: VideoItem.ID? = nil { didSet { persist() } }
     @Published var rotateEnabled: Bool = true { didSet { persist() } }
@@ -41,7 +29,7 @@ enum AgentPresence: Equatable {
     // the DESKTOP config (shared with the lock screen while `sameForBoth`); `lockConfig` is the lock screen's own
     // config, used only while !sameForBoth, and its `enabled` is always `applyToLockScreen`. `sameForBoth` is
     // changed through `setSameForBoth` so the lock config starts from what the lock screen showed. `muted` is
-    // written through StateStore.setMuted, never by persist().
+    // sent as `.setMuted`.
     @Published private(set) var sameForBoth: Bool = true { didSet { persist() } }
     @Published var lockConfig: TargetConfig = TargetConfig() {
         didSet {
@@ -63,36 +51,29 @@ enum AgentPresence: Equatable {
     /// so "Show in Library" in the Workshop can point the Library at an item without changing any wallpaper.
     @Published var focusedID: VideoItem.ID? = nil
 
-    // Agent mirror (read-only for views).
-    @Published private(set) var presence: AgentPresence = .unknown
-    @Published private(set) var agentStatus: AgentStatus? = nil
+    // Service mirror (read-only for views).
     /// Videos imported from the phase-1 app on this launch (0 = none). Drives a dismissible banner.
     @Published private(set) var importedFromPhase1: Int = 0
-    /// A phase-1 copy of the app is running; it would fight the agent over the wallpaper.
+    /// A phase-1 copy of the app is running; it would fight the service over the wallpaper.
     @Published private(set) var legacyAppRunning: Bool = false
-    /// The agent process ended without announcing it (crash or kill). Cleared by the next launch.
-    @Published private(set) var agentStoppedUnexpectedly: Bool = false
-    /// Settings-side problem (could not launch the agent, could not write state.json); cleared by clearStatus().
+    /// Settings-side problem (service unreachable, command failed); cleared by clearStatus().
     @Published private(set) var localMessage: String? = nil
 
-    var isRunning: Bool { agentStatus?.isRunning ?? false }
-    var isPaused: Bool { agentStatus?.isPaused ?? false }
-    var currentID: VideoItem.ID? { agentStatus?.currentID }
-    var failedIDs: Set<VideoItem.ID> { Set(agentStatus?.failedIDs ?? []) }
-    var lockBusy: Bool { agentStatus?.lockBusy ?? false }
+    private var serviceStatus: ServiceStatus? { client.status }
+    var isRunning: Bool { serviceStatus.map { $0.playback != .stopped } ?? false }
+    var isPaused: Bool { serviceStatus?.playback == .paused }
+    var currentID: VideoItem.ID? { serviceStatus?.slot(.desktop)?.itemID }
+    /// Items a slot reported an error for.
+    var failedIDs: Set<VideoItem.ID> {
+        Set((serviceStatus?.slots ?? []).compactMap { $0.error == nil ? nil : $0.itemID })
+    }
     /// The item the lock screen channel currently shows (the desktop one is `currentID`).
-    var lockID: VideoItem.ID? { agentStatus?.lockID }
-    /// Progress of the scene -> lock screen video render, nil when none is running or reported.
-    var lockRender: LockRenderStatus? { agentStatus?.lockRender }
-    var statusMessage: String? { localMessage ?? agentStatus?.message }
-
-    /// An agent process exists (whether or not it answers).
-    var agentIsAlive: Bool { presence != .notRunning && presence != .unknown }
-    /// The running agent comes from another build of the app (an old process that survived a bundle replacement).
-    var agentIsOutdated: Bool {
-        guard let running = agentStatus?.agentVersion, !running.isEmpty,
-              let own = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String else { return false }
-        return running != own
+    var lockID: VideoItem.ID? { serviceStatus?.slot(.lock)?.itemID }
+    // shortcut: ServiceStatus carries no scene->lock render progress yet; the UI shows none until it does.
+    var lockBusy: Bool { false }
+    var lockRender: LockRenderStatus? { nil }
+    var statusMessage: String? {
+        localMessage ?? serviceStatus?.message ?? serviceStatus?.slots.compactMap(\.error).first
     }
 
     /// The persisted fields as one value (what gets written to state.json).
@@ -117,7 +98,7 @@ enum AgentPresence: Equatable {
     /// Roles of an item for the badges: the enabled targets it is currently selected for.
     func roles(of id: VideoItem.ID) -> Set<WallpaperTarget> { snapshot.targets(of: id) }
 
-    /// The wallpaper source of `target` as the agent sees it: the library item currently shown there.
+    /// The wallpaper source of `target` as the service reports it: the library item currently shown there.
     func currentID(for target: WallpaperTarget) -> VideoItem.ID? {
         target == .desktop ? currentID : lockID
     }
@@ -132,7 +113,7 @@ enum AgentPresence: Equatable {
         }
     }
 
-    /// "Set as Desktop / Lock Screen / Both" (SPEC3.md 6.2). Commits and tells the agent (`.reload`); starts nothing.
+    /// "Set as Desktop / Lock Screen / Both" (SPEC3.md 6.2). Commits through the service; starts nothing.
     func assign(_ id: VideoItem.ID, to targets: Set<WallpaperTarget>) {
         var state = snapshot
         state.assign(id, to: targets)
@@ -147,26 +128,19 @@ enum AgentPresence: Equatable {
     var intervalSeconds: TimeInterval { snapshot.intervalSeconds }
     var intervalIsClamped: Bool { snapshot.intervalIsClamped }
 
-    private let endpoint = SettingsEndpoint()
+    let client = ServiceClient.shared
     private var written = LibraryState()           // what state.json last held, revision included
     private var writesSuspended = false
     private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
-    private var queued: AgentCommand?              // the wanted command, sent when the agent's first status arrives
-    private var awaiting: [String: Task<Void, Never>] = [:]   // command id -> retransmit chain
-    private var launchTimeout: Task<Void, Never>?
-    private var reloadGuard: Task<Void, Never>?
-    private var lastPID: Int32 = 0
-    private var lastSeq = 0
-    private var expectedExit = false               // the agent announced (or was told) that it quits
-    private var restartPending = false
+    private var clientWatch: [AnyCancellable] = []
 
     // Loads state only; bootstrap() starts the first real work.
     init() {}
 
     // MARK: Lifecycle (called by AppDelegate)
 
-    /// Once, from applicationDidFinishLaunching: loads (or migrates) the library, checks for a phase-1 copy,
-    /// listens for agent statuses and launches/terminations, then pings. Does not launch the agent.
+    /// Once, from applicationDidFinishLaunching: reads the library (to show it before the service answers),
+    /// checks for a phase-1 copy and connects to the service. Never writes state.json.
     func bootstrap() {
         let loaded = StateStore.loadOrMigrate()
         batch(persisting: false) { apply(loaded.state) }
@@ -175,19 +149,20 @@ enum AgentPresence: Equatable {
         reanalyzeStaleScenes()
         importedFromPhase1 = loaded.importedCount
         legacyAppRunning = Self.otherInstances().contains { $0.legacy }
-        endpoint.onStatus = { [weak self] status in self?.received(status) }
-        endpoint.startListening()
+        clientWatch = [
+            client.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() },
+            client.$status.compactMap { $0 }.sink { [weak self] status in self?.statusReceived(status) },
+        ]
         observeSystem()
-        refreshAgent()
+        client.start()
     }
 
-    /// From applicationWillTerminate. Does not stop the agent.
+    /// From applicationWillTerminate. Does not stop the service.
     func shutdown() {
         observers.forEach { $0.center.removeObserver($0.token) }
         observers = []
-        endpoint.onStatus = nil
-        [launchTimeout, reloadGuard].forEach { $0?.cancel() }
-        awaiting.values.forEach { $0.cancel() }
+        clientWatch = []
+        client.stop()
     }
 
     // MARK: Library intents (phase-1 semantics)
@@ -248,68 +223,31 @@ enum AgentPresence: Equatable {
         remove(ids: Set(videos.map(\.id)))
     }
 
-    // MARK: Agent intents
+    // MARK: Playback intents (all go to the service)
 
-    /// Starts the agent if needed, then sends `.start` once it answers (queued, 10 s timeout -> localMessage).
-    func start() {
-        deliver(AgentCommand(kind: .start))   // no video: each target starts with its own selection
-    }
+    func start() { send(.start(itemID: nil, target: nil)) }   // each target starts with its own selection
 
-    func stop() {
-        queued = nil
-        if agentIsAlive { send(AgentCommand(kind: .stop)) }
-    }
+    func stop() { send(.stop) }
 
     func toggleRunning() {
         if isRunning { stop() } else { start() }
     }
 
-    /// Selects `id` for `target` (nil = both) and jumps to it, starting playback, and the agent, if needed.
+    /// Selects `id` for `target` (nil = both) and jumps to it, starting playback if needed.
     func play(_ id: VideoItem.ID, target: WallpaperTarget? = nil) {
         guard videos.contains(where: { $0.id == id }) else { return }
         let targets: Set<WallpaperTarget> = target.map { Set([$0]) } ?? Set(WallpaperTarget.allCases)
         assign(id, to: targets)
-        deliver(AgentCommand(kind: .play, videoID: id, target: target))
+        send(.start(itemID: id, target: target))
     }
 
-    /// Terminates the agent (`.quit`: it restores Apple's wallpapers first).
-    func quitAgent() {
-        expectedExit = true
-        send(AgentCommand(kind: .quit))
-        if presence == .unresponsive { Self.agentApplications().forEach { $0.terminate() } }
-    }
+    /// Terminates the service (`.quit`: it restores Apple's wallpapers first).
+    func quitService() { send(.quit) }
 
-    /// Quits a running agent and launches a fresh one once the old process is gone.
-    func restartAgent() {
-        guard agentIsAlive else { launchAgentIfNeeded(); return }
-        restartPending = true
-        quitAgent()
-    }
+    func restartService() { Task { await client.restart() } }
 
-    /// Launches the nested agent app if it is not running (idempotent).
-    func launchAgentIfNeeded() {
-        guard presence == .notRunning || presence == .unknown else { return }
-        presence = .launching
-        agentStoppedUnexpectedly = false
-        expectedExit = false
-        launchTimeout?.cancel()
-        launchTimeout = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 10_000_000_000)
-            guard !Task.isCancelled, let self, self.presence == .launching else { return }
-            self.launchFailed()
-        }
-        if Self.agentApplications().isEmpty { openAgent() } else { ping() }
-    }
-
-    /// Sends a ping; presence becomes .unresponsive if nothing answers.
-    func refreshAgent() {
-        if Self.agentApplications().isEmpty {
-            markAgentGone()
-        } else {
-            if !agentIsAlive { presence = .launching }
-            ping()
-        }
-    }
+    /// Registers/connects to the service again.
+    func startService() { client.start() }
 
     func clearStatus() {
         localMessage = nil
@@ -334,13 +272,8 @@ enum AgentPresence: Equatable {
         var state = snapshot
         state.revision = written.revision
         guard state != written else { return }
-        guard StateStore.commit(&state) else {
-            localMessage = "Couldn’t save your changes."
-            return
-        }
         written = state
-        if state.muted != muted { batch(persisting: false) { muted = state.muted } }   // the menu toggled it meanwhile
-        sendReload(revision: state.revision)
+        send(.commit(state))   // the service writes state.json and bumps the revision
     }
 
     /// Scenes analysed by an older analyzer get a fresh support verdict (off the main thread; the files are tiny
@@ -377,24 +310,12 @@ enum AgentPresence: Equatable {
         muted = state.muted
     }
 
-    /// Mute toggle: written on its own (StateStore.setMuted) so a stale snapshot can never undo the agent menu's
-    /// toggle, then announced like any other change.
+    /// Mute toggle: its own command so a stale snapshot can never undo the service menu's toggle.
     private func changeMuted(_ value: Bool) {
-        guard let updated = StateStore.setMuted(value) else {
-            localMessage = "Couldn’t save your changes."
-            return
-        }
-        written.muted = updated.muted
-        written.revision = max(written.revision, updated.revision)
-        sendReload(revision: updated.revision)
+        written.muted = value
+        send(.setMuted(value))
     }
 
-    /// Another writer (a second Settings process) committed while this one was in the background.
-    private func adoptDiskStateIfNewer() {
-        guard let disk = StateStore.load(), disk.revision > written.revision else { return }
-        batch(persisting: false) { apply(disk) }
-        written = disk
-    }
 
     private static func deleteDownloadedFiles(of item: VideoItem) {
         let file = item.url.standardizedFileURL
@@ -403,159 +324,40 @@ enum AgentPresence: Equatable {
         try? FileManager.default.removeItem(at: AppPaths.isInsideLibrary(folder) ? folder : file)
     }
 
-    // MARK: IPC
+    // MARK: Service
 
-    private func sendReload(revision: Int) {
-        send(AgentCommand(kind: .reload, revision: revision))
-        reloadGuard?.cancel()
-        reloadGuard = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            guard !Task.isCancelled, let self, self.presence == .running,
-                  let applied = self.agentStatus?.stateRevision, applied < revision else { return }
-            self.send(AgentCommand(kind: .reload, revision: revision))   // once: a lost message self-heals
-        }
-    }
-
-    /// Sends now when an agent process answers, else queues the command and launches the agent.
-    private func deliver(_ command: AgentCommand) {
-        switch presence {
-        case .running, .unresponsive:
-            send(command)
-        case .launching:
-            queued = command
-        case .unknown, .notRunning:
-            queued = command
-            launchAgentIfNeeded()
-        }
-    }
-
-    private func ping() {
-        send(AgentCommand(kind: .ping))
-    }
-
-    /// Posts the command. While an agent process exists it is retransmitted (same id, the agent de-duplicates)
-    /// after 1.5 s and 3 s; with no answer after 4.5 s the agent counts as unresponsive.
-    private func send(_ command: AgentCommand) {
-        endpoint.send(command)
-        guard agentIsAlive else { return }
-        awaiting[command.id]?.cancel()
-        awaiting[command.id] = Task { @MainActor [weak self] in
-            for _ in 1...2 {
-                try? await Task.sleep(nanoseconds: 1_500_000_000)
-                guard !Task.isCancelled, let self else { return }
-                self.endpoint.send(command)
+    /// Sends a command; a failure shows up as `localMessage`.
+    private func send(_ command: ServiceCommand) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let status = try await self.client.perform(command)
+                if case .commit = command { self.written.revision = max(self.written.revision, status.stateRevision) }
+            } catch {
+                self.localMessage = error.localizedDescription
             }
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            guard !Task.isCancelled, let self else { return }
-            self.awaiting[command.id] = nil
-            if self.agentIsAlive { self.presence = .unresponsive }
         }
     }
 
-    private func received(_ status: AgentStatus) {
-        if let reply = status.reply { awaiting.removeValue(forKey: reply)?.cancel() }
-        guard accept(status) else { return }
-        // The agent's menu can change `muted` (StateStore.setMuted bumps the revision): pick that up.
-        if status.stateRevision > written.revision { adoptDiskStateIfNewer() }
-        if status.quitting {
-            expectedExit = true
-            markAgentGone()
-            return
-        }
-        agentStatus = status
-        presence = .running
-        agentStoppedUnexpectedly = false
-        launchTimeout?.cancel()
-        if localMessage == Self.launchFailure { localMessage = nil }
-        if let command = queued {
-            queued = nil
-            send(command)
-        }
+    /// A status arrived (reply or push): the service owns `muted` (its menu can toggle it).
+    private func statusReceived(_ status: ServiceStatus) {
+        if status.muted != muted { batch(persisting: false) { muted = status.muted } }
     }
 
-    /// Ignores statuses that are older than one already seen from the same agent process.
-    private func accept(_ status: AgentStatus) -> Bool {
-        if status.pid != lastPID {
-            lastPID = status.pid
-            lastSeq = 0
-        }
-        guard status.seq > lastSeq else { return false }
-        lastSeq = status.seq
-        return true
-    }
-
-    private func launchFailed() {
-        queued = nil
-        launchTimeout?.cancel()
-        localMessage = Self.launchFailure
-        presence = Self.agentApplications().isEmpty ? .notRunning : .unresponsive
-    }
-
-    private func markAgentGone() {
-        presence = .notRunning
-        agentStatus = nil
-        lastPID = 0
-        lastSeq = 0
-        awaiting.values.forEach { $0.cancel() }
-        awaiting = [:]
-        reloadGuard?.cancel()
-    }
 
     // MARK: Workspace
 
     private func observeSystem() {
         let workspace = NSWorkspace.shared.notificationCenter
         let appKey = NSWorkspace.applicationUserInfoKey
-        let events = [(NSWorkspace.didLaunchApplicationNotification, true),
-                      (NSWorkspace.didTerminateApplicationNotification, false)]
-        for (name, launched) in events {
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
             let token = workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 let bundleID = (note.userInfo?[appKey] as? NSRunningApplication)?.bundleIdentifier
-                Task { @MainActor [weak self] in self?.applicationChanged(bundleID, launched: launched) }
+                Task { @MainActor [weak self] in
+                    if bundleID == AppIdentity.settingsBundleID { self?.legacyAppRunning = Self.otherInstances().contains { $0.legacy } }
+                }
             }
             observers.append((workspace, token))
-        }
-        let center = NotificationCenter.default
-        let token = center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.adoptDiskStateIfNewer() }
-        }
-        observers.append((center, token))
-    }
-
-    private func applicationChanged(_ bundleID: String?, launched: Bool) {
-        if bundleID == IPC.settingsBundleID {
-            legacyAppRunning = Self.otherInstances().contains { $0.legacy }
-        } else if bundleID == IPC.agentBundleID {
-            if launched { agentLaunched() } else { agentTerminated() }
-        }
-    }
-
-    /// The agent was started by someone else (Finder, a login item): find out whether it answers.
-    private func agentLaunched() {
-        guard !agentIsAlive else { return }
-        presence = .launching
-        expectedExit = false
-        ping()
-    }
-
-    private func agentTerminated() {
-        guard Self.agentApplications().isEmpty else { return }   // a second agent gave way; the first one stays
-        markAgentGone()
-        agentStoppedUnexpectedly = !expectedExit
-        expectedExit = false
-        if restartPending || queued != nil {   // a restart, or a Start pressed while the old agent was quitting
-            restartPending = false
-            launchAgentIfNeeded()
-        }
-    }
-
-    private func openAgent() {
-        let url = Bundle.main.bundleURL.appendingPathComponent("Contents/Library/LoginItems/LiveWallpaperAgent.app", isDirectory: true)
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = false
-        NSWorkspace.shared.openApplication(at: url, configuration: configuration) { [weak self] _, error in
-            guard error != nil else { return }
-            Task { @MainActor [weak self] in self?.launchFailed() }
         }
     }
 
@@ -564,15 +366,11 @@ enum AgentPresence: Equatable {
     /// Other running copies of this app's bundle id. `legacy`: a phase-1 build (its Info.plist has no LWRole key).
     static func otherInstances() -> [(app: NSRunningApplication, legacy: Bool)] {
         let me = ProcessInfo.processInfo.processIdentifier
-        return NSRunningApplication.runningApplications(withBundleIdentifier: IPC.settingsBundleID)
+        return NSRunningApplication.runningApplications(withBundleIdentifier: AppIdentity.settingsBundleID)
             .compactMap { app -> (app: NSRunningApplication, legacy: Bool)? in
                 guard app.processIdentifier != me, !app.isTerminated else { return nil }
-                let role = app.bundleURL.flatMap { Bundle(url: $0) }?.object(forInfoDictionaryKey: IPC.roleKey)
+                let role = app.bundleURL.flatMap { Bundle(url: $0) }?.object(forInfoDictionaryKey: AppIdentity.roleKey)
                 return (app, role == nil)
             }
-    }
-
-    private static func agentApplications() -> [NSRunningApplication] {
-        NSRunningApplication.runningApplications(withBundleIdentifier: IPC.agentBundleID).filter { !$0.isTerminated }
     }
 }

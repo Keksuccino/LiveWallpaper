@@ -162,17 +162,18 @@ struct LibraryView: View {
         HStack(spacing: 8) {
             Text(status.text).font(.subheadline).foregroundStyle(status.warning ? Color.orange : Color.secondary)
                 .lineLimit(1).truncationMode(.middle)
-            if model.presence == .unresponsive {
-                Button("Restart Agent") { model.restartAgent() }.buttonStyle(.link).font(.subheadline)
+            if model.client.state == .unavailable {
+                Button("Retry") { model.startService() }.buttonStyle(.link).font(.subheadline)
             }
         }
     }
 
     private var status: (text: String, warning: Bool) {
         if let message = model.localMessage { return (message, true) }
-        if model.presence == .launching { return ("Starting the wallpaper agent…", false) }
-        if model.presence == .unresponsive { return ("The wallpaper agent isn’t responding.", true) }
-        if let message = model.agentStatus?.message { return (message, true) }
+        if model.client.state == .connecting { return ("Starting the wallpaper service…", false) }
+        if model.client.state == .needsApproval { return ("Allow the wallpaper service in Login Items.", true) }
+        if model.client.state == .unavailable { return (model.client.connectionError ?? "The wallpaper service isn’t responding.", true) }
+        if let message = model.statusMessage { return (message, true) }
         if model.isRunning { return (runningSummary, false) }
         if !model.canStart { return ("Turn on Desktop or Lock Screen to start.", true) }
         if model.videos.allSatisfy({ isBroken($0) }) { return ("None of your wallpapers can be played.", true) }

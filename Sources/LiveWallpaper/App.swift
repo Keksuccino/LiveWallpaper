@@ -39,7 +39,7 @@ struct LiveWallpaperApp: App {
         }
     }
 
-    // Closing the window quits Settings; the wallpaper agent is a separate process and keeps playing.
+    // Closing the window quits Settings; the wallpaper service is a separate process and keeps playing.
     // While a Workshop download runs, Settings stays alive without a window and quits when the queue is empty.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         lingering = WorkshopModel.shared.hasActiveDownloads
@@ -129,14 +129,6 @@ struct RootView: View {
         if model.legacyAppRunning {
             return Banner(text: "An older copy of Live Wallpaper is still running. Quit it so the two don’t fight over your wallpaper.")
         }
-        if model.agentStoppedUnexpectedly {
-            return Banner(text: "The wallpaper agent stopped unexpectedly.",
-                          action: (title: "Restart Agent", run: { model.restartAgent() }))
-        }
-        if model.agentIsOutdated {
-            return Banner(text: "The wallpaper agent is from an older build. Restart it to finish updating.",
-                          action: (title: "Restart Agent", run: { model.restartAgent() }))
-        }
         if model.importedFromPhase1 > 0 {
             let count = model.importedFromPhase1
             return Banner(text: "Imported \(count) \(count == 1 ? "video" : "videos") from the previous version.",
@@ -188,9 +180,9 @@ fileprivate struct AgentPill: View {
         HStack(spacing: 6) {
             Circle().fill(dot).frame(width: 8, height: 8)
             Menu {
-                Button("Start Agent") { model.launchAgentIfNeeded() }.disabled(model.agentIsAlive)
-                Button("Restart Agent") { model.restartAgent() }.disabled(!model.agentIsAlive)
-                Button("Quit Agent") { model.quitAgent() }.disabled(!model.agentIsAlive)
+                Button("Connect to Service") { model.startService() }.disabled(model.client.state == .connected)
+                Button("Restart Service") { model.restartService() }.disabled(model.client.state != .connected)
+                Button("Quit Service") { model.quitService() }.disabled(model.client.state != .connected)
             } label: {
                 Text(text).font(.caption)
             }
@@ -200,19 +192,20 @@ fileprivate struct AgentPill: View {
     }
 
     private var dot: Color {
-        switch model.presence {
-        case .running: return .green
-        case .unresponsive: return .orange
-        case .unknown, .notRunning, .launching: return .secondary
+        switch model.client.state {
+        case .connected: return .green
+        case .needsApproval, .unavailable: return .orange
+        case .unknown, .connecting: return .secondary
         }
     }
 
     private var text: String {
-        switch model.presence {
-        case .running: return "Agent running"
-        case .launching: return "Agent starting…"
-        case .unresponsive: return "Agent not responding"
-        case .unknown, .notRunning: return "Agent not running"
+        switch model.client.state {
+        case .connected: return "Service running"
+        case .connecting: return "Service starting…"
+        case .needsApproval: return "Service needs approval"
+        case .unavailable: return "Service not responding"
+        case .unknown: return "Service not running"
         }
     }
 }

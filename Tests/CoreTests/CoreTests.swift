@@ -144,20 +144,4 @@ final class CoreTests: XCTestCase {
         LockRenderCache.removeStale(for: item, keepingWidth: 1920, height: 1080)
         XCTAssertFalse(FileManager.default.fileExists(atPath: LockRenderCache.videoURL(for: item, width: 3024, height: 1964).path))
     }
-
-    func testIPCRoundTrips() {
-        let id = UUID(), lock = UUID()
-        let command = AgentCommand(kind: .play, videoID: id, revision: 4, target: .lock)
-        XCTAssertEqual(AgentCommand(userInfo: command.userInfo as [AnyHashable: Any]), command)
-        let status = AgentStatus(seq: 2, reply: command.id, pid: 9, agentVersion: "3.0", isRunning: true,
-                                 currentID: id, stateRevision: 4, lockID: lock, muted: false, sceneHostRunning: true,
-                                 lockRender: LockRenderStatus(itemID: lock, state: .rendering, progress: 0.4))
-        XCTAssertEqual(AgentStatus(userInfo: status.userInfo as [AnyHashable: Any]), status)
-        let host = HostCommand(kind: .renderLock, agentPID: 11, itemID: id, scenePath: "/s.pkg", jobID: "j",
-                               width: 3024, height: 1964, fps: 30, loopSeconds: 20, outputPath: "/o.mov")
-        XCTAssertEqual(HostCommand(userInfo: host.userInfo as [AnyHashable: Any]), host)
-        let hostStatus = HostStatus(seq: 1, pid: 5, sceneItemID: id, sceneState: .playing, jobID: "j",
-                                    jobState: .rendering, jobProgress: 0.5, residentMB: 321)
-        XCTAssertEqual(HostStatus(userInfo: hostStatus.userInfo as [AnyHashable: Any]), hostStatus)
-    }
 }
