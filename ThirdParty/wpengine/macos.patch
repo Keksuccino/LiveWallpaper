@@ -2045,8 +2045,73 @@ index d0f7eab..42138cc 100644
      }
  
      sLog.exception ("Unsupported wallpaper type");
+diff --git a/src/WallpaperEngine/Render/Camera.cpp b/src/WallpaperEngine/Render/Camera.cpp
+index 6655670..4488119 100644
+--- a/src/WallpaperEngine/Render/Camera.cpp
++++ b/src/WallpaperEngine/Render/Camera.cpp
+@@ -3,6 +3,10 @@
+ 
+ #include "Camera.h"
+ 
++#include "WallpaperEngine/Application/ApplicationContext.h"
++#include "WallpaperEngine/Application/WallpaperApplication.h"
++#include "WallpaperEngine/Render/Wallpapers/CScene.h"
++
+ using namespace WallpaperEngine;
+ using namespace WallpaperEngine::Render;
+ 
+@@ -37,6 +41,8 @@ float Camera::getFov () const { return this->m_camera.projection.fov->value->get
+ 
+ float Camera::getNearZ () const { return this->m_camera.projection.nearz->value->getFloat (); }
+ 
++float Camera::getParallaxZoom () const { return this->m_parallaxZoom; }
++
+ float Camera::getFarZ () const { return this->m_camera.projection.farz->value->getFloat (); }
+ 
+ void Camera::setOrthogonalProjection (const float width, const float height) {
+@@ -46,7 +52,19 @@ void Camera::setOrthogonalProjection (const float width, const float height) {
+     float nearz = this->m_camera.projection.nearz->value->getFloat ();
+     float farz = this->m_camera.projection.farz->value->getFloat ();
+ 
+-    this->m_projection = glm::ortho<float> (-width / 2.0, width / 2.0, -height / 2.0, height / 2.0, nearz, farz);
++    // macOS port: parallax moves layers by up to (1 - 1/zoom)/2 of the scene size, and the zoom hides exactly that
++    // margin. WPENGINE_PARALLAX_ZOOM changes it (1 = no margin, parallax shift is then 0).
++    this->m_parallaxZoom = 1.0f;
++    if (this->m_camera.parallax.enabled->value->getBool ()
++	&& !this->m_scene.getContext ().getApp ().getContext ().settings.mouse.disableparallax) {
++	const char* custom = getenv ("WPENGINE_PARALLAX_ZOOM");
++	this->m_parallaxZoom = std::max (1.0f, custom != nullptr ? static_cast<float> (atof (custom)) : 1.06f);
++    }
++    const float zoom = this->m_parallaxZoom;
++
++    this->m_projection = glm::ortho<float> (
++	-width / 2.0 / zoom, width / 2.0 / zoom, -height / 2.0 / zoom, height / 2.0 / zoom, nearz, farz
++    );
+     this->m_projection = glm::translate (this->m_projection, this->getEye ());
+     this->m_isOrthogonal = true;
+ }
+\ No newline at end of file
+diff --git a/src/WallpaperEngine/Render/Camera.h b/src/WallpaperEngine/Render/Camera.h
+index 79618e8..e4ea4bb 100644
+--- a/src/WallpaperEngine/Render/Camera.h
++++ b/src/WallpaperEngine/Render/Camera.h
+@@ -33,11 +33,14 @@ public:
+     [[nodiscard]] float getFov () const;
+     [[nodiscard]] float getNearZ () const;
+     [[nodiscard]] float getFarZ () const;
++    /** Zoom applied to the whole scene while camera parallax is on, so shifted layers never show the scene edge */
++    [[nodiscard]] float getParallaxZoom () const;
+ 
+ private:
+     float m_width;
+     float m_height;
+     bool m_isOrthogonal = false;
++    float m_parallaxZoom = 1.0f;
+     glm::mat4 m_projection = {};
+     glm::mat4 m_lookat = {};
+     const SceneData::Camera& m_camera;
 diff --git a/src/WallpaperEngine/Render/Drivers/GLFWOpenGLDriver.cpp b/src/WallpaperEngine/Render/Drivers/GLFWOpenGLDriver.cpp
-index 01063d9..3761c6a 100644
+index 01063d9..ccb94c0 100644
 --- a/src/WallpaperEngine/Render/Drivers/GLFWOpenGLDriver.cpp
 +++ b/src/WallpaperEngine/Render/Drivers/GLFWOpenGLDriver.cpp
 @@ -6,13 +6,14 @@
@@ -2066,7 +2131,7 @@ index 01063d9..3761c6a 100644
  using namespace WallpaperEngine::Render::Drivers;
  
  void CustomGLFWErrorHandler (int errorCode, const char* reason) { sLog.error ("GLFW error ", errorCode, ": ", reason); }
-@@ -27,20 +28,19 @@ GLFWOpenGLDriver::GLFWOpenGLDriver (const char* windowTitle, ApplicationContext&
+@@ -27,20 +28,23 @@ GLFWOpenGLDriver::GLFWOpenGLDriver (const char* windowTitle, ApplicationContext&
      }
  
      // set some window hints (opengl version to be used)
@@ -2080,6 +2145,10 @@ index 01063d9..3761c6a 100644
 +    glfwWindowHint (GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
      glfwWindowHint (GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
      glfwWindowHint (GLFW_VISIBLE, GLFW_FALSE);
++    // WPENGINE_RETINA=0 renders at 1 pixel per point: a quarter of the GPU work on a Retina display
++    if (const char* retina = getenv ("WPENGINE_RETINA"); retina != nullptr && retina[0] == '0') {
++	glfwWindowHint (GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_FALSE);
++    }
      // set X11-specific hints
 -    glfwWindowHintString (GLFW_X11_CLASS_NAME, "linux-wallpaperengine");
 -    glfwWindowHintString (GLFW_X11_INSTANCE_NAME, "linux-wallpaperengine");
@@ -2092,7 +2161,7 @@ index 01063d9..3761c6a 100644
      }
  
  #if !NDEBUG
-@@ -93,7 +93,12 @@ void GLFWOpenGLDriver::resizeWindow (glm::ivec4 sizeandpos) {
+@@ -93,7 +97,12 @@ void GLFWOpenGLDriver::resizeWindow (glm::ivec4 sizeandpos) {
      glfwSetWindowSize (this->m_window, sizeandpos.z, sizeandpos.w);
  }
  
@@ -2106,20 +2175,21 @@ index 01063d9..3761c6a 100644
  
  void GLFWOpenGLDriver::hideWindow () { glfwHideWindow (this->m_window); }
  
-@@ -109,6 +114,12 @@ uint32_t GLFWOpenGLDriver::getFrameCounter () const { return this->m_frameCounte
+@@ -109,6 +118,13 @@ uint32_t GLFWOpenGLDriver::getFrameCounter () const { return this->m_frameCounte
  
  void GLFWOpenGLDriver::dispatchEventQueue () {
      static float startTime, endTime, minimumTime = 1.0f / this->m_context.settings.render.maximumFPS;
 +    // macOS: a wallpaper hidden behind windows (or on a sleeping display) costs nothing; the scenes are GPU heavy
 +    if (this->m_context.settings.render.mode == Application::ApplicationContext::EXPLICIT_WINDOW
-+	&& !this->m_context.settings.screenshot.take && !wpWindowVisible (this->m_window)) {
++	&& !this->m_context.settings.screenshot.take && getenv ("WPENGINE_NO_OCCLUSION") == nullptr
++	&& !wpWindowVisible (this->m_window)) {
 +	glfwWaitEventsTimeout (0.25);
 +	return;
 +    }
      // get the start time of the frame
      startTime = this->getRenderTime ();
      // clear the screen
-@@ -145,6 +156,12 @@ void GLFWOpenGLDriver::dispatchEventQueue () {
+@@ -145,15 +161,31 @@ void GLFWOpenGLDriver::dispatchEventQueue () {
      // TODO: AS THOSE, MORE THAN LIKELY, WILL REQUIRE OF A DIFFERENT PROCESSING RATE
      // update the output with the given image
      this->m_output->updateRender ();
@@ -2132,7 +2202,13 @@ index 01063d9..3761c6a 100644
      // do buffer swapping first
      glfwSwapBuffers (this->m_window);
      // poll for events
-@@ -154,6 +171,12 @@ void GLFWOpenGLDriver::dispatchEventQueue () {
+     glfwPollEvents ();
+     // increase frame counter
+     this->m_frameCounter++;
++    // benchmarking (WPENGINE_FPS_LOG): wait for the GPU so the frame time is the real cost
++    if (getenv ("WPENGINE_FPS_LOG") != nullptr) {
++	glFinish ();
++    }
      // get the end time of the frame
      endTime = this->getRenderTime ();
  
@@ -2208,7 +2284,7 @@ index 556a6eb..5067a99 100644
  using namespace WallpaperEngine::Render;
  using namespace WallpaperEngine::Data::Model;
 diff --git a/src/WallpaperEngine/Render/Objects/CImage.cpp b/src/WallpaperEngine/Render/Objects/CImage.cpp
-index be0baca..7b72c1c 100644
+index be0baca..71648b6 100644
 --- a/src/WallpaperEngine/Render/Objects/CImage.cpp
 +++ b/src/WallpaperEngine/Render/Objects/CImage.cpp
 @@ -23,6 +23,8 @@
@@ -2253,7 +2329,29 @@ index be0baca..7b72c1c 100644
  	const glm::vec2 offset
  	    = rotateVec2 ({ local.origin.x * resolved.scale.x, local.origin.y * resolved.scale.y }, resolved.angle);
  	local.origin.x = resolved.origin.x + offset.x;
-@@ -431,6 +445,37 @@ bool CImage::loadPuppetMesh (const glm::vec2& size) {
+@@ -268,11 +282,19 @@ CImage::CImage (Wallpapers::CScene& scene, const Image& image) :
+     nameA << "_rt_imageLayerComposite_" << this->getImage ().id << "_a";
+     nameB << "_rt_imageLayerComposite_" << this->getImage ().id << "_b";
+ 
++    // WPENGINE_LAYER_SCALE (0.25 - 1): render the effect buffers of every layer at a fraction of the layer's texture
++    // size. Big layers (4000+ px) with several effect passes are what makes a scene GPU heavy, not the screen size.
++    static const float layerScale = [] () {
++	const char* custom = getenv ("WPENGINE_LAYER_SCALE");
++	return custom != nullptr ? glm::clamp (static_cast<float> (atof (custom)), 0.25f, 1.0f) : 1.0f;
++    }();
++    const glm::vec2 bufferSize = { std::max (1.0f, std::round (size.x * layerScale)),
++				   std::max (1.0f, std::round (size.y * layerScale)) };
+     this->m_currentMainFBO = this->m_mainFBO = scene.create (
+-	nameA.str (), TextureFormat_ARGB8888, this->m_texture->getFlags (), 1, { size.x, size.y }, { size.x, size.y }
++	nameA.str (), TextureFormat_ARGB8888, this->m_texture->getFlags (), 1, bufferSize, bufferSize
+     );
+     this->m_currentSubFBO = this->m_subFBO = scene.create (
+-	nameB.str (), TextureFormat_ARGB8888, this->m_texture->getFlags (), 1, { size.x, size.y }, { size.x, size.y }
++	nameB.str (), TextureFormat_ARGB8888, this->m_texture->getFlags (), 1, bufferSize, bufferSize
+     );
+ 
+     // build a list of vertices, these might need some change later (or maybe invert the camera)
+@@ -431,6 +453,37 @@ bool CImage::loadPuppetMesh (const glm::vec2& size) {
  	const auto stream = this->getScene ().getScene ().project.assetLocator->read (*this->getImage ().model->puppet);
  	std::vector<char> data { std::istreambuf_iterator<char> (*stream), std::istreambuf_iterator<char> () };
  
@@ -2291,7 +2389,7 @@ index be0baca..7b72c1c 100644
  	constexpr size_t markerSize = 9;
  	constexpr size_t meshHeaderSize = sizeof (uint32_t) * 2;
  	constexpr size_t vertexStride = 80;
-@@ -918,6 +963,8 @@ void CImage::render () {
+@@ -918,6 +971,8 @@ void CImage::render () {
  
      glColorMask (true, true, true, true);
  
@@ -2300,7 +2398,18 @@ index be0baca..7b72c1c 100644
      // Always update screen transform (handles rotation + parallax dynamically)
      this->updateScreenSpacePosition ();
  
-@@ -1146,3 +1193,38 @@ GLuint CImage::getPassSpacePosition () const { return this->m_passSpacePosition;
+@@ -1116,6 +1171,10 @@ void CImage::updateScreenSpacePosition () {
+ 	const float referenceSize = static_cast<float> (this->getScene ().getWidth ());
+ 	float x = (depth.x + parallaxAmount) * displacement->x * referenceSize;
+ 	float y = (depth.y + parallaxAmount) * displacement->y * referenceSize;
++	// the camera zoom leaves exactly this much margin; moving a layer further would show the scene edge
++	const glm::vec2 limit = this->getScene ().getParallaxLimit ();
++	x = glm::clamp (x, -limit.x, limit.x);
++	y = glm::clamp (y, -limit.y, limit.y);
+ 	mvp = glm::translate (mvp, { x, y, 0.0f });
+     }
+ 
+@@ -1146,3 +1205,38 @@ GLuint CImage::getPassSpacePosition () const { return this->m_passSpacePosition;
  GLuint CImage::getTexCoordCopy () const { return this->m_texcoordCopy; }
  
  GLuint CImage::getTexCoordPass () const { return this->m_texcoordPass; }
@@ -2375,6 +2484,23 @@ index 07eeda2..4519856 100644
  
      glm::mat4 m_modelViewProjectionScreen = {};
      glm::mat4 m_modelViewProjectionPass = {};
+diff --git a/src/WallpaperEngine/Render/Objects/CParticle.cpp b/src/WallpaperEngine/Render/Objects/CParticle.cpp
+index 444752a..fc424a3 100644
+--- a/src/WallpaperEngine/Render/Objects/CParticle.cpp
++++ b/src/WallpaperEngine/Render/Objects/CParticle.cpp
+@@ -1871,9 +1871,10 @@ void CParticle::applyParallaxToModelMatrix () {
+ 
+     const glm::vec2* displacement = getScene ().getParallaxDisplacement ();
+     const float referenceSize = static_cast<float> (getScene ().getWidth ());
++    const glm::vec2 limit = getScene ().getParallaxLimit ();
+     const glm::vec3 parallaxOffset {
+-	(depth.x + parallaxAmount) * displacement->x * referenceSize,
+-	(depth.y + parallaxAmount) * displacement->y * referenceSize,
++	glm::clamp ((depth.x + parallaxAmount) * displacement->x * referenceSize, -limit.x, limit.x),
++	glm::clamp ((depth.y + parallaxAmount) * displacement->y * referenceSize, -limit.y, limit.y),
+ 	0.0f,
+     };
+     m_modelMatrix = glm::translate (m_modelMatrix, parallaxOffset);
 diff --git a/src/WallpaperEngine/Render/Objects/Effects/CPass.cpp b/src/WallpaperEngine/Render/Objects/Effects/CPass.cpp
 index e93c293..fc3ee7b 100644
 --- a/src/WallpaperEngine/Render/Objects/Effects/CPass.cpp
@@ -2932,10 +3058,28 @@ index 0a5d5d6..fa23446 100644
      /**
       * Parses a COMBO value to add the proper define to the code
 diff --git a/src/WallpaperEngine/Render/Wallpapers/CScene.cpp b/src/WallpaperEngine/Render/Wallpapers/CScene.cpp
-index 4933440..01945f5 100644
+index 4933440..e4fba52 100644
 --- a/src/WallpaperEngine/Render/Wallpapers/CScene.cpp
 +++ b/src/WallpaperEngine/Render/Wallpapers/CScene.cpp
-@@ -315,6 +315,11 @@ void CScene::renderFrame (const glm::ivec4& viewport) {
+@@ -306,15 +306,24 @@ void CScene::renderFrame (const glm::ivec4& viewport) {
+ 	&& !this->getContext ().getApp ().getContext ().settings.mouse.disableparallax) {
+ 	const float influence = this->getScene ().camera.parallax.mouseInfluence->value->getFloat ();
+ 	const float amount = this->getScene ().camera.parallax.amount->value->getFloat ();
+-	const float delay = glm::clamp (
+-	    this->getScene ().camera.parallax.delay->value->getFloat () * (g_Time - g_TimeLast), 0.0f, 1.0f
+-	);
+-
+-	const glm::vec2 centeredMouse = this->m_mousePosition - glm::vec2 (0.5f, 0.5f);
++	// the scene's delay is the smoothing time in seconds (0 follows the cursor immediately); upstream's
++	// delay * frameTime made the camera crawl (and never move at all for a delay of 0)
++	const float smoothing = std::max (0.0f, this->getScene ().camera.parallax.delay->value->getFloat ());
++	const float frameTime = std::max (0.0f, g_Time - g_TimeLast);
++	const float delay = smoothing > 0.0f ? 1.0f - std::exp (-frameTime / smoothing) : 1.0f;
++
++	// the global cursor can be far outside this window (menu bar, dock, another display); an unbounded offset
++	// shifts layers past the scene edge and shows black bars
++	const glm::vec2 centeredMouse = glm::clamp (this->m_mousePosition - glm::vec2 (0.5f, 0.5f), -0.5f, 0.5f);
+ 	this->m_parallaxDisplacement
  	    = glm::mix (this->m_parallaxDisplacement, (centeredMouse * amount) * influence, delay);
      }
  
@@ -2947,6 +3091,32 @@ index 4933440..01945f5 100644
      // run a tick in the javascript logic
      this->getScriptEngine ().tick ();
  
+@@ -418,6 +427,12 @@ const glm::vec2* CScene::getMousePositionNormalized () const { return &this->m_m
+ 
+ const glm::vec2* CScene::getParallaxDisplacement () const { return &this->m_parallaxDisplacement; }
+ 
++glm::vec2 CScene::getParallaxLimit () const {
++    const float margin = (1.0f - 1.0f / this->m_camera->getParallaxZoom ()) / 2.0f;
++
++    return { this->getWidth () * margin, this->getHeight () * margin };
++}
++
+ const std::vector<CObject*>& CScene::getObjectsByRenderOrder () const { return this->m_objectsByRenderOrder; }
+ 
+ const CObject* CScene::getObject (int id) const {
+diff --git a/src/WallpaperEngine/Render/Wallpapers/CScene.h b/src/WallpaperEngine/Render/Wallpapers/CScene.h
+index 9e12f3f..e0a0fb9 100644
+--- a/src/WallpaperEngine/Render/Wallpapers/CScene.h
++++ b/src/WallpaperEngine/Render/Wallpapers/CScene.h
+@@ -41,6 +41,8 @@ public:
+     const glm::vec2* getMousePositionLast () const;
+     const glm::vec2* getMousePositionNormalized () const;
+     const glm::vec2* getParallaxDisplacement () const;
++    /** The furthest (scene units) a layer may be shifted by parallax before the scene edge would show */
++    [[nodiscard]] glm::vec2 getParallaxLimit () const;
+ 
+     [[nodiscard]] const std::vector<CObject*>& getObjectsByRenderOrder () const;
+     [[nodiscard]] const CObject* getObject (int id) const;
 diff --git a/src/WallpaperEngine/Scripting/Adapters/ScriptableObjectAdapter.h b/src/WallpaperEngine/Scripting/Adapters/ScriptableObjectAdapter.h
 index ea8bc32..5df6999 100644
 --- a/src/WallpaperEngine/Scripting/Adapters/ScriptableObjectAdapter.h

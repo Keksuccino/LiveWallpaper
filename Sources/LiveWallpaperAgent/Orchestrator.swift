@@ -80,7 +80,7 @@ import Core
     private var sceneShown = false
     private var handedOver = false
     private var lastVideoURL: URL?  // what to show again if the host dies while it owns the screen
-    private var sentFPSCap = 60
+    private var sentFPSCap = LibraryState.defaultSceneFPS
     private var powerTimer: Timer?
 
     private var lockJob: LockJob?
@@ -240,6 +240,11 @@ import Core
         if old.muted != fresh.muted {
             windows.setMuted(fresh.muted)
             if desktopSceneID != nil { host.send(HostCommand(kind: .setMuted, muted: fresh.muted)) }
+        }
+        // The renderer takes its frame rate at launch, so a new value restarts the running scene.
+        if old.sceneFPS != fresh.sceneFPS, isRunning, let id = desktopSceneID,
+           let item = fresh.videos.first(where: { $0.id == id }) {
+            host.send(sceneCommand(for: item))
         }
         guard isRunning else { return }
         guard hasPlayableTarget else {
@@ -407,8 +412,11 @@ import Core
         syncHost()
     }
 
+    /// The user's scene frame rate; on battery at most 24, because a heavy scene keeps the GPU near its limit.
+    private var sceneFPSCap: Int { PowerSupply.isBattery ? min(state.sceneFPS, 24) : state.sceneFPS }
+
     private func sceneCommand(for item: VideoItem) -> HostCommand {
-        sentFPSCap = PowerSupply.isBattery ? 30 : 60
+        sentFPSCap = sceneFPSCap
         return HostCommand(kind: .showScene, itemID: item.id, scenePath: item.path, previewPath: item.previewPath,
                            assetsPath: sharedAssetsPath, muted: state.muted, fpsCap: sentFPSCap)
     }
@@ -648,7 +656,7 @@ import Core
     // 30 fps on battery, 60 on power: the same showScene again only updates the host's cap.
     private func powerSourceMayHaveChanged() {
         guard let id = desktopSceneID, let item = state.videos.first(where: { $0.id == id }),
-              (PowerSupply.isBattery ? 30 : 60) != sentFPSCap else { return }
+              sceneFPSCap != sentFPSCap else { return }
         host.send(sceneCommand(for: item))
     }
 

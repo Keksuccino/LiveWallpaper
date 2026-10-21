@@ -51,9 +51,14 @@ import AppKit
             var environment = ProcessInfo.processInfo.environment
             environment["XDG_SESSION_TYPE"] = "x11"   // the port has a single driver, registered under this name
             // Many scenes switch camera parallax on but author an amount of 0 (the mouse then does nothing); give
-            // those a usable amount. A scene's own non-zero amount wins.
-            environment["WPENGINE_PARALLAX_FALLBACK"] = "0.5"
+            // those a usable amount. A scene's own non-zero amount wins. The renderer zooms the scene a little while
+            // parallax is on and never shifts a layer past that margin, so a large amount cannot show the scene edge.
+            environment["WPENGINE_PARALLAX_FALLBACK"] = "0.35"
+            // Scenes are GPU heavy (4000+ px layers with several effect passes each); at full size one can keep the
+            // GPU near 100% and starve the window server, which makes the whole desktop lag. Effect buffers at 60%.
+            environment["WPENGINE_LAYER_SCALE"] = "0.6"
             process.environment = environment
+            process.qualityOfService = .utility   // foreground apps win the CPU when both are busy
             process.standardOutput = FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice
             process.terminationHandler = { [weak self] _ in

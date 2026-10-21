@@ -496,6 +496,15 @@ fileprivate struct LibrarySettingsCard: View {
                 if model.applyToLockScreen { RotationBlock(model: model, target: .lock, title: "Lock Screen") }
             }
             Divider().padding(.vertical, 4)
+            HStack {
+                Text("Scene frame rate")
+                Spacer()
+                Picker("Scene frame rate", selection: $model.sceneFPS) {
+                    ForEach([20, 24, 30, 45, 60], id: \.self) { Text("\($0) fps").tag($0) }
+                }
+                .labelsHidden().fixedSize()
+            }
+            .help("Smoothness of scene wallpapers. Higher looks smoother but keeps the GPU busier, which can make the whole Mac lag. Videos play at their own frame rate. On battery it is limited to 24.")
             Toggle("Mute sound", isOn: $model.muted)
                 .help("Videos play silently. The lock screen never has sound.")
             lockNote
@@ -508,7 +517,7 @@ fileprivate struct LibrarySettingsCard: View {
 
     private var lockNote: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Label("Lock Screen plays your wallpaper through an Apple Aerial wallpaper (macOS 26+; older versions get a still frame). Download and select any Aerial in Wallpaper settings once.", systemImage: "info.circle")
+            Label("Lock Screen plays your wallpaper through an Apple Aerial wallpaper (macOS 26+; older versions get a still frame). Download and select any Aerial in Wallpaper settings once, and turn on “Show as screen saver” there so an automatic lock uses it too.", systemImage: "info.circle")
                 .font(.caption).foregroundStyle(.secondary)
             Link("Open Wallpaper Settings", destination: URL(string: "x-apple.systempreferences:com.apple.Wallpaper-Settings.extension")!)
                 .font(.caption)
