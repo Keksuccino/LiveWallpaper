@@ -8,6 +8,7 @@ name: release
 on:
   push:
     tags: ['v*']
+    branches: [feat-pkg-renderer]   # TEMPORARY: dry runs while the renderer build is brought up on CI
   workflow_dispatch:
     inputs:
       version:
@@ -59,7 +60,19 @@ jobs:
         run: brew install cmake pkg-config glfw glm glew mpv ffmpeg lz4 freetype sdl2-compat
 
       - name: Build the scene renderer
-        run: scripts/build-wpengine.sh "$RUNNER_TEMP/wpengine"
+        run: |
+          LOG="$RUNNER_TEMP/wpengine-build.log"
+          if ! scripts/build-wpengine.sh "$RUNNER_TEMP/wpengine" > "$LOG" 2>&1; then
+            # Job logs need a sign-in to read; annotations do not, so surface the errors as annotations too.
+            ERRORS="$(grep -nE 'error|Error|undefined|fatal|not found|CMake Error' "$LOG" | head -25 | cut -c1-300)"
+            TAIL="$(tail -15 "$LOG" | cut -c1-300)"
+            for var in ERRORS TAIL; do
+              value="${!var}"; value="${value//'%'/'%25'}"; value="${value//$'\n'/'%0A'}"
+              echo "::error title=wpengine build $var::$value"
+            done
+            tail -60 "$LOG"
+            exit 1
+          fi
 
       - name: Build and assemble the app
         env:
