@@ -42,5 +42,7 @@
 	<string>Live Wallpaper needs access to play the videos you chose.</string>
 	<key>NSRemovableVolumesUsageDescription</key>
 	<string>Live Wallpaper needs access to play the videos you chose.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Live Wallpaper uses system audio so scene wallpapers can react to the music you play.</string>
 </dict>
 </plist>

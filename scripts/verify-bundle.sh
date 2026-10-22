@@ -22,6 +22,8 @@ plist() { /usr/libexec/PlistBuddy -c "Print :$2" "$1/Contents/Info.plist"; }
 [[ "$(plist "$SERVICE" CFBundleIdentifier)" == "com.noob3301.LiveWallpaper.service" ]] || fail "service bundle id"
 [[ "$(plist "$APP" LWRole)" == "settings" ]] || fail "Settings LWRole"
 [[ "$(plist "$SERVICE" LWRole)" == "service" ]] || fail "service LWRole"
+[[ -n "$(plist "$APP" NSAudioCaptureUsageDescription 2>/dev/null || true)" ]] || fail "Settings Info.plist is missing NSAudioCaptureUsageDescription"
+[[ -n "$(plist "$SERVICE" NSAudioCaptureUsageDescription 2>/dev/null || true)" ]] || fail "service Info.plist is missing NSAudioCaptureUsageDescription"
 
 V_APP="$(plist "$APP" CFBundleShortVersionString)"
 [[ "$(plist "$SERVICE" CFBundleShortVersionString)" == "$V_APP" ]] || fail "service version differs from the app"
