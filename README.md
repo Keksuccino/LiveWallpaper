@@ -38,7 +38,7 @@ Everything the app installs stays in `~/Library/Application Support/LiveWallpape
 
 - macOS 15 or later on Apple silicon.
 - Live lock-screen video on macOS 26 or later. On macOS 15 the lock screen uses a still frame of the current video instead.
-- To build from source: macOS 26 with Xcode 26 or matching Command Line Tools (libc++ 19+), Rust nightly, and Homebrew at `/opt/homebrew`.
+- To build from source: macOS 26 with Xcode 26 or matching Command Line Tools (libc++ 19+), Rust stable (our scene renderer) and nightly (the old render service), and Homebrew at `/opt/homebrew`.
 
 The release build is arm64-only. The renderer and its Homebrew dependencies are arm64; universal builds are not supported.
 
@@ -47,11 +47,12 @@ The release build is arm64-only. The renderer and its Homebrew dependencies are 
 ```sh
 ./scripts/install-render-deps.sh
 ./scripts/build-render-service.sh
+./scripts/build-scene-renderer.sh
 ./build.sh
 open build/LiveWallpaper.app
 ```
 
-`install-render-deps.sh` installs the Homebrew libraries, the project-specific LGPL FFmpeg formula and the pinned Rust toolchain. `build-render-service.sh` builds the Rust renderer and regenerates the UniFFI Swift bindings in `Sources/RenderBridge`. `build.sh` builds the two Swift products and assembles `build/LiveWallpaper.app` with `LiveWallpaperService.app` nested at `Contents/Library/LoginItems/`, then signs both ad hoc.
+`install-render-deps.sh` installs the Homebrew libraries, the project-specific LGPL FFmpeg formula and the pinned Rust toolchain. `build-render-service.sh` builds the old Rust renderer and regenerates the UniFFI Swift bindings in `Sources/RenderBridge`. `build-scene-renderer.sh` builds our own Rust renderer (`SceneRenderer/target/release/libscene_renderer.a`) and regenerates the bindings in `Sources/SceneBridge`; it needs a Rust stable toolchain and no Docker. `build.sh` calls it automatically, then builds the two Swift products and assembles `build/LiveWallpaper.app` with `LiveWallpaperService.app` nested at `Contents/Library/LoginItems/`, and signs both ad hoc.
 
 Run the app through the `.app` bundle. `swift run` does not work, because both products need their `Info.plist`.
 

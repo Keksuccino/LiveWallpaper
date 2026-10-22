@@ -129,6 +129,8 @@ update(LibraryState)
 
 It does not use the base `apply` path for scene settings; it pushes only changed values to the Rust bridge. `setScreenLocked` is inherited from the base class as a no-op; the orchestrator calls it, but it has no effect for scenes. One scene runs at a time across all displays.
 
+While the new renderer is on trial, `SceneRenderService` hosts two of them in the service process. `LibraryState.useNewRenderer` selects which one draws: false (the default) uses the old `RenderService/` bridge through `RenderBridge`, true (the experimental "New scene renderer" setting in Settings) uses our own `SceneRenderer/` through `SceneBridge`. Both are statically linked, so switching does not restart the service, and the same scene can look different under the new renderer while particles, text, puppet animation, audio response, bloom and video textures are still missing or reported as unsupported.
+
 `LockScreenWallpaper` is separate from the playback hierarchy. It applies and restores Aerial files, and on macOS 15 produces a still image instead of a live video.
 
 `Orchestrator` owns one `VideoRenderService`, one `SceneRenderService` and one `LockScreenWallpaper`, with separate desktop and lock-screen channels. It decides which service shows which item, handles rotation and failure fallback, and is the normal writer of `state.json`.

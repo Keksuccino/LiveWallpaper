@@ -53,13 +53,31 @@ jobs:
           swift --version
           xcodebuild -version
 
-      # The scene renderer: WallpaperMachine's Rust core (RenderService/), built and bindgen'd for Swift.
-      # It must come before `swift test` too, because SwiftPM builds every target of the package.
+      # Restore before installing the toolchain so a cached ~/.cargo/bin cannot overwrite a newer rustup.
+      - name: Cache cargo registry and scene renderer
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo
+            SceneRenderer/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('SceneRenderer/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Ensure stable Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+
+      # The scene renderers, built and bindgen'd for Swift: WallpaperMachine's Rust core
+      # (RenderService/, the old bridge) and our own SceneRenderer/. Both must come before
+      # `swift test`, because SwiftPM builds every target of the package.
       - name: Install renderer dependencies
         run: scripts/install-render-deps.sh
 
       - name: Build the render service
         run: scripts/build-render-service.sh
+
+      - name: Build our scene renderer
+        run: scripts/build-scene-renderer.sh
 
       - name: Tests (Core and SceneFormat)
         run: swift test

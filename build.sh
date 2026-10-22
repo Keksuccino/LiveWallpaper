@@ -27,6 +27,12 @@ if [[ "${UNIVERSAL:-0}" == "1" ]]; then
   ARCH_FLAGS=(--arch arm64 --arch x86_64)
 fi
 
+# Our own scene renderer (SceneRenderer/) has to exist before SwiftPM starts: SceneBridge links
+# SceneRenderer/target/release/libscene_renderer.a and compiles the generated Sources/SceneBridge
+# bindings. This needs Rust, not Docker. The old render service is still built separately with
+# scripts/build-render-service.sh (see README).
+scripts/build-scene-renderer.sh
+
 # The expansion form keeps an empty array safe under `set -u` on macOS's bash 3.2.
 # Only the two bundled products, so targets that are not bundled never break the bundle build.
 for product in LiveWallpaper LiveWallpaperService; do

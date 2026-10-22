@@ -45,6 +45,16 @@ if otool -L "$SERVICE/Contents/MacOS/LiveWallpaperService" | grep -Eq '/opt/home
   fail "the service still loads dylibs from Homebrew (not distributable)"
 fi
 
+# Our own renderer (SceneRenderer/) is a static library, so it leaves no dylib to check. Its UniFFI
+# entry points are prefixed; release builds may strip the symbol table, so fall back to strings.
+SERVICE_BIN="$SERVICE/Contents/MacOS/LiveWallpaperService"
+if ! nm "$SERVICE_BIN" 2>/dev/null | grep -q 'uniffi_scene_renderer'; then
+  if ! strings -a "$SERVICE_BIN" | grep -q 'uniffi_scene_renderer'; then
+    fail "the service does not contain the new SceneRenderer (no uniffi_scene_renderer symbols)"
+  fi
+fi
+echo "--- new SceneRenderer linked into the service ---"
+
 echo "--- version $V_APP ---"
 for bin in "$APP/Contents/MacOS/LiveWallpaper" "$SERVICE/Contents/MacOS/LiveWallpaperService"; do
   echo "$(basename "$bin"): $(lipo -archs "$bin")  $(du -h "$bin" | cut -f1)"
