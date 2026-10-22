@@ -18,3 +18,4 @@ SteamHome/
 
 # Rust renderer build output
 RenderService/target/
+SceneRenderer/target/
