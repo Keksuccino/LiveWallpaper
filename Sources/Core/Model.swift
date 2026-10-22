@@ -169,6 +169,9 @@ public struct LibraryState: Codable, Equatable, Sendable {
     public var lock: TargetConfig     // ignored apart from `enabled` while sameForBoth
     public var sceneOptions: [String: SceneOptions] = [:]   // per scene, keyed by VideoItem.id.uuidString
     public var power: PowerOptions = PowerOptions()           // global scene settings
+    /// Hidden switch: draw scenes with our own renderer (SceneRenderer) instead of the old one.
+    /// Off by default while the new renderer is being compared with the old.
+    public var useNewRenderer: Bool = false
 
     public init(schema: Int = LibraryState.currentSchema, revision: Int = 0, videos: [VideoItem] = [],
                 muted: Bool = true, sceneFPS: Int = LibraryState.defaultSceneFPS, sceneZoom: Double = 1.0, sameForBoth: Bool = true,
@@ -192,6 +195,7 @@ public struct LibraryState: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case schema, revision, videos, muted, sceneFPS, sceneZoom, sameForBoth, desktop, lock, sceneOptions, power
+        case useNewRenderer
         // schema 1 only
         case selectedID, rotateEnabled, intervalValue, intervalUnit, applyToDesktop, applyToLockScreen
     }
@@ -206,6 +210,7 @@ public struct LibraryState: Codable, Equatable, Sendable {
         sceneZoom = LibraryState.clampedSceneZoom(try c.decodeIfPresent(Double.self, forKey: .sceneZoom) ?? 1.0)
         sceneOptions = try c.decodeIfPresent([String: SceneOptions].self, forKey: .sceneOptions) ?? [:]
         power = try c.decodeIfPresent(PowerOptions.self, forKey: .power) ?? PowerOptions()
+        useNewRenderer = try c.decodeIfPresent(Bool.self, forKey: .useNewRenderer) ?? false
         if diskSchema >= 2 || c.contains(.desktop) {
             muted = try c.decodeIfPresent(Bool.self, forKey: .muted) ?? true
             sameForBoth = try c.decodeIfPresent(Bool.self, forKey: .sameForBoth) ?? true
@@ -241,6 +246,7 @@ public struct LibraryState: Codable, Equatable, Sendable {
         try c.encode(sceneZoom, forKey: .sceneZoom)
         try c.encode(sceneOptions, forKey: .sceneOptions)
         try c.encode(power, forKey: .power)
+        try c.encode(useNewRenderer, forKey: .useNewRenderer)
         try c.encode(sameForBoth, forKey: .sameForBoth)
         try c.encode(desktop, forKey: .desktop)
         try c.encode(lock, forKey: .lock)

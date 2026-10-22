@@ -5,6 +5,10 @@ edition = "2021"
 license = "MIT"
 description = "Lean Metal renderer for Wallpaper Engine scene packages"
 
+# The bindgen binary is a separate member so its dependencies stay out of the library.
+[workspace]
+members = ["uniffi-bindgen"]
+
 [lib]
 crate-type = ["rlib", "staticlib"]
 

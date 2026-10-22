@@ -1,0 +1,4 @@
+module SceneRendererFFI {
+    header "scene_rendererFFI.h"
+    export *
+}

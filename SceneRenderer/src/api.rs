@@ -4,8 +4,8 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -16,7 +16,7 @@ use objc2_metal::*;
 use objc2_quartz_core::{CAMetalDrawable, CAMetalLayer};
 use serde_json::Value;
 
-use crate::engine::{Engine, FrameInput};
+use crate::engine::{Engine, FitMode, FrameInput};
 use crate::gpu::TARGET_FORMAT;
 use crate::scene::project_properties;
 use crate::vfs::Vfs;
@@ -55,7 +55,12 @@ enum Command {
     Resize(u32, u32),
     Visible(bool),
     Pointer(f32, f32),
-    Attach(usize),
+    Attach(String, usize, u32, u32),
+    Detach(String),
+    Fit(FitMode),
+    PanZoom(f32, f32, f32),
+    RenderScale(f32),
+    AudioResponse(bool),
     RenderFrame(f64, Sender<Result<Vec<u8>, Error>>),
 }
 
@@ -82,18 +87,34 @@ impl Renderer {
     #[uniffi::constructor]
     pub fn new(pkg_path: String) -> Result<Arc<Self>, Error> {
         let path = PathBuf::from(&pkg_path);
-        let folder = if path.is_dir() { path.clone() } else { path.parent().map(Path::to_path_buf).unwrap_or_default() };
+        let folder = if path.is_dir() {
+            path.clone()
+        } else {
+            path.parent().map(Path::to_path_buf).unwrap_or_default()
+        };
         // Library/<id>/scene.pkg -> ../../WallpaperEngineAssets
-        let assets = folder.parent().and_then(Path::parent).map(|p| p.join("WallpaperEngineAssets")).filter(|p| p.is_dir());
+        let assets = folder
+            .parent()
+            .and_then(Path::parent)
+            .map(|p| p.join("WallpaperEngineAssets"))
+            .filter(|p| p.is_dir());
         let project: Value = std::fs::read_to_string(folder.join("project.json"))
             .ok()
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or(Value::Null);
         let props = project_properties(&project);
-        let values: HashMap<String, Value> = props.iter().map(|p| (p.name.clone(), p.value.clone())).collect();
+        let values: HashMap<String, Value> = props
+            .iter()
+            .map(|p| (p.name.clone(), p.value.clone()))
+            .collect();
         let properties = props
             .into_iter()
-            .map(|p| SceneProperty { name: p.name, kind: p.kind, label: p.label, value_json: p.value.to_string() })
+            .map(|p| SceneProperty {
+                name: p.name,
+                kind: p.kind,
+                label: p.label,
+                value_json: p.value.to_string(),
+            })
             .collect();
 
         let (tx, rx) = channel();
@@ -103,7 +124,8 @@ impl Renderer {
         let _ = std::thread::Builder::new()
             .name("scene-renderer".into())
             .spawn(move || {
-                let engine = Vfs::open(&path, assets.as_deref()).and_then(|vfs| Engine::load(vfs, values));
+                let engine =
+                    Vfs::open(&path, assets.as_deref()).and_then(|vfs| Engine::load(vfs, values));
                 match engine {
                     Ok(engine) => {
                         let _ = ready_tx.send(Ok(engine.warnings.clone()));
@@ -115,7 +137,9 @@ impl Renderer {
                 }
             })
             .map_err(|e| Error::Io(format!("render thread: {e}")))?;
-        let errors = ready_rx.recv().map_err(|_| Error::Metal("render thread exited".into()))??;
+        let errors = ready_rx
+            .recv()
+            .map_err(|_| Error::Metal("render thread exited".into()))??;
         Ok(Arc::new(Self {
             tx: Mutex::new(tx),
             properties: Mutex::new(properties),
@@ -126,9 +150,40 @@ impl Renderer {
     }
 
     /// Hands over the `CAMetalLayer` to draw into (pointer from `Unmanaged.passUnretained(layer).toOpaque()`).
-    /// The renderer retains it.
-    pub fn attach_layer(&self, layer_ptr: u64) {
-        self.send(Command::Attach(layer_ptr as usize));
+    /// The renderer retains it. One layer per display; the scene is shared between them.
+    pub fn attach_layer(&self, display_id: String, layer_ptr: u64, width: u32, height: u32) {
+        self.send(Command::Attach(
+            display_id,
+            layer_ptr as usize,
+            width.max(1),
+            height.max(1),
+        ));
+    }
+
+    /// Gives up a display's layer; its textures are freed with it.
+    pub fn detach_layer(&self, display_id: String) {
+        self.send(Command::Detach(display_id));
+    }
+
+    /// How the scene is mapped onto the target: fill, fit, stretch, unscaled or blurred fit.
+    pub fn set_fit_mode(&self, mode: FitMode) {
+        self.send(Command::Fit(mode));
+    }
+
+    /// Moves the picture on screen (in screen widths and heights) and magnifies it.
+    pub fn set_pan_zoom(&self, pan_x: f32, pan_y: f32, zoom: f32) {
+        self.send(Command::PanZoom(pan_x, pan_y, zoom));
+    }
+
+    /// Fraction of the target's pixels the scene is drawn in; the layer scales it up.
+    pub fn set_render_scale(&self, scale: f32) {
+        self.send(Command::RenderScale(scale));
+    }
+
+    /// Whether shaders that read an audio spectrum may do so. No audio yet, so the spectrum
+    /// stays silent either way; the flag is remembered for when it is.
+    pub fn set_audio_response(&self, enabled: bool) {
+        self.send(Command::AudioResponse(enabled));
     }
 
     pub fn play(&self) {
@@ -165,7 +220,10 @@ impl Renderer {
     }
 
     pub fn properties(&self) -> Vec<SceneProperty> {
-        self.properties.lock().map(|p| p.clone()).unwrap_or_default()
+        self.properties
+            .lock()
+            .map(|p| p.clone())
+            .unwrap_or_default()
     }
 
     pub fn set_muted(&self, muted: bool) {
@@ -204,7 +262,14 @@ impl Renderer {
     pub fn stats(&self) -> RenderStats {
         let frames = self.counters.frames.load(Ordering::Relaxed);
         let ns = self.counters.gpu_ns.load(Ordering::Relaxed);
-        RenderStats { frames, gpu_ms_per_frame: if frames == 0 { 0.0 } else { ns as f64 / frames as f64 / 1e6 } }
+        RenderStats {
+            frames,
+            gpu_ms_per_frame: if frames == 0 {
+                0.0
+            } else {
+                ns as f64 / frames as f64 / 1e6
+            },
+        }
     }
 
     /// Renders the scene at `time` seconds into BGRA8 pixels at the last `resize` size (or the
@@ -212,7 +277,8 @@ impl Renderer {
     pub fn render_frame(&self, time: f64) -> Result<Vec<u8>, Error> {
         let (tx, rx) = channel();
         self.send(Command::RenderFrame(time, tx));
-        rx.recv().map_err(|_| Error::Metal("render thread exited".into()))?
+        rx.recv()
+            .map_err(|_| Error::Metal("render thread exited".into()))?
     }
 }
 
@@ -226,7 +292,8 @@ impl Renderer {
 
 struct Loop {
     engine: Engine,
-    layer: Option<Retained<CAMetalLayer>>,
+    /// One target per display; the scene's textures are shared between them.
+    targets: Vec<(String, Target)>,
     size: Option<(u32, u32)>,
     playing: bool,
     visible: bool,
@@ -238,14 +305,24 @@ struct Loop {
     /// A static scene only draws when something changed.
     dirty: bool,
     animated: bool,
+    /// Fraction of the target's pixels the scene is drawn in.
+    render_scale: f32,
+    /// Whether the scene may read an audio spectrum.
+    audio_response: bool,
     counters: Arc<Counters>,
+}
+
+/// A display the scene is drawn on.
+struct Target {
+    layer: Retained<CAMetalLayer>,
+    size: (u32, u32),
 }
 
 fn run(engine: Engine, rx: Receiver<Command>, counters: Arc<Counters>) {
     let animated = engine.is_animated();
     let mut s = Loop {
         engine,
-        layer: None,
+        targets: Vec::new(),
         size: None,
         playing: false,
         visible: true,
@@ -255,11 +332,13 @@ fn run(engine: Engine, rx: Receiver<Command>, counters: Arc<Counters>) {
         last: Instant::now(),
         dirty: true,
         animated,
+        render_scale: 1.0,
+        audio_response: false,
         counters,
     };
     let mut next = Instant::now();
     loop {
-        let drawing = s.playing && s.visible && s.layer.is_some() && (s.animated || s.dirty);
+        let drawing = s.playing && s.visible && !s.targets.is_empty() && (s.animated || s.dirty);
         let cmd = if drawing {
             rx.recv_timeout(next.saturating_duration_since(Instant::now()))
         } else {
@@ -269,7 +348,11 @@ fn run(engine: Engine, rx: Receiver<Command>, counters: Arc<Counters>) {
             Ok(c) => s.handle(c),
             Err(RecvTimeoutError::Disconnected) => return,
             Err(RecvTimeoutError::Timeout) => {
-                let period = if s.fps > 0.0 { Duration::from_secs_f32(1.0 / s.fps) } else { Duration::from_millis(16) };
+                let period = if s.fps > 0.0 {
+                    Duration::from_secs_f32(1.0 / s.fps)
+                } else {
+                    Duration::from_millis(16)
+                };
                 // Fixed cadence; after a stall, restart from now instead of bursting.
                 next += period;
                 if next < Instant::now() {
@@ -304,8 +387,12 @@ impl Loop {
             Command::FpsCap(f) => self.fps = f.max(0.0),
             Command::Resize(w, h) => {
                 self.size = Some((w.max(1), h.max(1)));
-                if let Some(layer) = &self.layer {
-                    layer.setDrawableSize(CGSize::new(w.max(1) as f64, h.max(1) as f64));
+                for target in self.targets.iter_mut() {
+                    target.1.size = (w.max(1), h.max(1));
+                    target.1.layer.setDrawableSize(CGSize::new(
+                        w.max(1) as f64 * self.render_scale as f64,
+                        h.max(1) as f64 * self.render_scale as f64,
+                    ));
                 }
             }
             Command::Visible(v) => {
@@ -318,20 +405,58 @@ impl Loop {
             Command::Pointer(x, y) => {
                 self.pointer = [x, y];
             }
-            Command::Attach(ptr) => {
+            Command::Attach(id, ptr, w, h) => {
                 // SAFETY: the caller passes a live CAMetalLayer; retaining keeps it alive here.
                 let layer = unsafe { Retained::retain(ptr as *mut CAMetalLayer) };
-                if let Some(layer) = &layer {
-                    layer.setDevice(Some(&self.engine.gpu.device));
-                    layer.setPixelFormat(TARGET_FORMAT);
-                    layer.setFramebufferOnly(!self.engine.reads_framebuffer());
-                    // Two drawables: less memory, and a wallpaper does not need deep pipelining.
-                    layer.setMaximumDrawableCount(2);
-                    if let Some((w, h)) = self.size {
-                        layer.setDrawableSize(CGSize::new(w as f64, h as f64));
+                let Some(layer) = layer else {
+                    return;
+                };
+                layer.setDevice(Some(&self.engine.gpu.device));
+                layer.setPixelFormat(TARGET_FORMAT);
+                layer.setFramebufferOnly(!self.engine.reads_framebuffer());
+                // Two drawables: less memory, and a wallpaper does not need deep pipelining.
+                layer.setMaximumDrawableCount(2);
+                layer.setDrawableSize(CGSize::new(
+                    w as f64 * self.render_scale as f64,
+                    h as f64 * self.render_scale as f64,
+                ));
+                match self.targets.iter_mut().find(|(name, _)| name == &id) {
+                    Some(target) => {
+                        target.1 = Target {
+                            layer,
+                            size: (w, h),
+                        }
                     }
+                    None => self.targets.push((
+                        id,
+                        Target {
+                            layer,
+                            size: (w, h),
+                        },
+                    )),
                 }
-                self.layer = layer;
+            }
+            Command::Detach(id) => {
+                self.targets.retain(|(name, _)| name != &id);
+            }
+            Command::Fit(mode) => {
+                self.engine.fit = mode;
+            }
+            Command::PanZoom(x, y, zoom) => {
+                self.engine.pan = [x, y];
+                self.engine.zoom = zoom.max(0.05);
+            }
+            Command::AudioResponse(enabled) => {
+                self.audio_response = enabled;
+            }
+            Command::RenderScale(scale) => {
+                self.render_scale = scale.clamp(0.1, 1.0);
+                for target in self.targets.iter_mut() {
+                    target.1.layer.setDrawableSize(CGSize::new(
+                        target.1.size.0 as f64 * self.render_scale as f64,
+                        target.1.size.1 as f64 * self.render_scale as f64,
+                    ));
+                }
             }
             Command::RenderFrame(time, reply) => {
                 let _ = reply.send(self.offscreen(time as f32));
@@ -344,53 +469,96 @@ impl Loop {
         let dt = (now - self.last).as_secs_f32().min(0.25);
         self.last = now;
         self.time += dt;
-        let Some(layer) = self.layer.clone() else { return };
-        let input = FrameInput { time: self.time, frame_time: dt, pointer: self.pointer };
+        if self.targets.is_empty() {
+            return;
+        }
+        let input = FrameInput {
+            time: self.time,
+            frame_time: dt,
+            pointer: self.pointer,
+        };
         objc2::rc::autoreleasepool(|_| {
-            let Some(drawable) = layer.nextDrawable() else { return };
-            let Some(cb) = self.engine.gpu.queue.commandBuffer() else { return };
-            match self.engine.encode(&cb, &drawable.texture(), input) {
-                Ok(()) => {
-                    let counters = self.counters.clone();
-                    let done = block2::RcBlock::new(move |cb: std::ptr::NonNull<ProtocolObject<dyn MTLCommandBuffer>>| {
-                        // SAFETY: Metal passes the completed command buffer, valid for this call.
-                        let cb = unsafe { cb.as_ref() };
-                        let ns = ((cb.GPUEndTime() - cb.GPUStartTime()).max(0.0) * 1e9) as u64;
-                        let _ = counters.gpu_ns.fetch_add(ns, Ordering::Relaxed);
-                        let _ = counters.frames.fetch_add(1, Ordering::Relaxed);
-                    });
-                    // SAFETY: the block is retained by the command buffer until it runs.
-                    unsafe { cb.addCompletedHandler(block2::RcBlock::as_ptr(&done)) };
-                    cb.presentDrawable(drawable.as_ref());
-                    cb.commit();
-                    self.dirty = false;
-                }
-                Err(e) => {
-                    self.engine.warnings.push(e.to_string());
-                    self.playing = false;
+            for (_, target) in self.targets.iter() {
+                let Some(drawable) = target.layer.nextDrawable() else {
+                    continue;
+                };
+                let Some(cb) = self.engine.gpu.queue.commandBuffer() else {
+                    continue;
+                };
+                match self.engine.encode(&cb, &drawable.texture(), input) {
+                    Ok(()) => {
+                        let counters = self.counters.clone();
+                        let done = block2::RcBlock::new(
+                            move |cb: std::ptr::NonNull<ProtocolObject<dyn MTLCommandBuffer>>| {
+                                // SAFETY: Metal passes the completed command buffer, valid for this call.
+                                let cb = unsafe { cb.as_ref() };
+                                let ns =
+                                    ((cb.GPUEndTime() - cb.GPUStartTime()).max(0.0) * 1e9) as u64;
+                                let _ = counters.gpu_ns.fetch_add(ns, Ordering::Relaxed);
+                                let _ = counters.frames.fetch_add(1, Ordering::Relaxed);
+                            },
+                        );
+                        // SAFETY: the block is retained by the command buffer until it runs.
+                        unsafe { cb.addCompletedHandler(block2::RcBlock::as_ptr(&done)) };
+                        cb.presentDrawable(drawable.as_ref());
+                        cb.commit();
+                        self.dirty = false;
+                    }
+                    Err(e) => {
+                        self.engine.warnings.push(e.to_string());
+                        self.playing = false;
+                    }
                 }
             }
         });
     }
 
     fn offscreen(&mut self, time: f32) -> Result<Vec<u8>, Error> {
-        let (w, h) = self.size.unwrap_or((self.engine.scene.width as u32, self.engine.scene.height as u32));
+        let (w, h) = self.size.unwrap_or((
+            self.engine.scene.width as u32,
+            self.engine.scene.height as u32,
+        ));
         let (w, h) = (w.max(1) as usize, h.max(1) as usize);
         objc2::rc::autoreleasepool(|_| {
             let gpu = &self.engine.gpu;
             // SAFETY: plain descriptor construction.
-            let desc = unsafe { MTLTextureDescriptor::texture2DDescriptorWithPixelFormat_width_height_mipmapped(TARGET_FORMAT, w, h, false) };
+            let desc = unsafe {
+                MTLTextureDescriptor::texture2DDescriptorWithPixelFormat_width_height_mipmapped(
+                    TARGET_FORMAT,
+                    w,
+                    h,
+                    false,
+                )
+            };
             desc.setUsage(MTLTextureUsage::RenderTarget | MTLTextureUsage::ShaderRead);
             desc.setStorageMode(MTLStorageMode::Shared);
-            let target = gpu.device.newTextureWithDescriptor(&desc).ok_or_else(|| Error::Metal("offscreen target".into()))?;
-            let cb = gpu.queue.commandBuffer().ok_or_else(|| Error::Metal("command buffer".into()))?;
-            let input = FrameInput { time, frame_time: 1.0 / 30.0, pointer: [0.5, 0.5] };
+            let target = gpu
+                .device
+                .newTextureWithDescriptor(&desc)
+                .ok_or_else(|| Error::Metal("offscreen target".into()))?;
+            let cb = gpu
+                .queue
+                .commandBuffer()
+                .ok_or_else(|| Error::Metal("command buffer".into()))?;
+            let input = FrameInput {
+                time,
+                frame_time: 1.0 / 30.0,
+                pointer: [0.5, 0.5],
+            };
             self.engine.encode(&cb, &target, input)?;
             cb.commit();
             cb.waitUntilCompleted();
             let mut out = vec![0u8; w * h * 4];
-            let region = MTLRegion { origin: MTLOrigin { x: 0, y: 0, z: 0 }, size: MTLSize { width: w, height: h, depth: 1 } };
-            let ptr = std::ptr::NonNull::new(out.as_mut_ptr().cast()).ok_or_else(|| Error::Metal("buffer".into()))?;
+            let region = MTLRegion {
+                origin: MTLOrigin { x: 0, y: 0, z: 0 },
+                size: MTLSize {
+                    width: w,
+                    height: h,
+                    depth: 1,
+                },
+            };
+            let ptr = std::ptr::NonNull::new(out.as_mut_ptr().cast())
+                .ok_or_else(|| Error::Metal("buffer".into()))?;
             // SAFETY: `out` holds exactly w * h * 4 bytes, the size of the region.
             unsafe { target.getBytes_bytesPerRow_fromRegion_mipmapLevel(ptr, w * 4, region, 0) };
             Ok(out)

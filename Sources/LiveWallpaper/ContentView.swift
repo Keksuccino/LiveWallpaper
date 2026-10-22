@@ -514,6 +514,8 @@ fileprivate struct LibrarySettingsCard: View {
             Divider().padding(.vertical, 4)
             Toggle("Mute sound", isOn: $model.muted)
                 .help("Videos play silently. The lock screen never has sound.")
+            Toggle("New scene renderer (experimental)", isOn: $model.useNewRenderer)
+                .help("Draws scenes with our own renderer instead of the old one. Scenes may miss parts (particles, text) and the picture can differ from the preview.")
             lockNote
         }
         .padding(16)

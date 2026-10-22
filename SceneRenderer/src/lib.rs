@@ -1,11 +1,16 @@
 //! Lean Metal renderer for Wallpaper Engine scenes, exposed to Swift through UniFFI.
 
+#![deny(unsafe_op_in_unsafe_fn)]
+
 pub mod api;
 pub mod engine;
 pub mod gpu;
+pub mod particles;
+pub mod puppet;
 pub mod scene;
 pub mod shader;
 pub mod tex;
+pub mod text;
 pub mod vfs;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error, uniffi::Error)]
@@ -26,5 +31,6 @@ pub enum Error {
 }
 
 pub use api::{RenderStats, Renderer, SceneProperty};
+pub use engine::FitMode;
 
 uniffi::setup_scaffolding!();

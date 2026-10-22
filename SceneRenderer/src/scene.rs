@@ -18,25 +18,45 @@ pub struct Bound {
 
 impl Bound {
     fn parse(v: Option<&Value>, default: Value) -> Self {
-        let Some(v) = v else { return Self { value: default, user: None, condition: None } };
-        let Some(obj) = v.as_object().filter(|o| o.contains_key("user") || o.contains_key("value")) else {
-            return Self { value: v.clone(), user: None, condition: None };
+        let Some(v) = v else {
+            return Self {
+                value: default,
+                user: None,
+                condition: None,
+            };
+        };
+        let Some(obj) = v
+            .as_object()
+            .filter(|o| o.contains_key("user") || o.contains_key("value"))
+        else {
+            return Self {
+                value: v.clone(),
+                user: None,
+                condition: None,
+            };
         };
         let value = obj.get("value").cloned().unwrap_or(default);
         let (user, condition) = match obj.get("user") {
             Some(Value::String(s)) => (Some(s.clone()), None),
             Some(Value::Object(u)) => (
                 u.get("name").and_then(Value::as_str).map(str::to_string),
-                u.get("condition").map(|c| c.as_str().map_or_else(|| c.to_string(), str::to_string)),
+                u.get("condition")
+                    .map(|c| c.as_str().map_or_else(|| c.to_string(), str::to_string)),
             ),
             _ => (None, None),
         };
-        Self { value, user, condition }
+        Self {
+            value,
+            user,
+            condition,
+        }
     }
 
     /// The effective value given the current user property values.
     pub fn get(&self, props: &HashMap<String, Value>) -> Value {
-        let Some(p) = self.user.as_ref().and_then(|u| props.get(u)) else { return self.value.clone() };
+        let Some(p) = self.user.as_ref().and_then(|u| props.get(u)) else {
+            return self.value.clone();
+        };
         match &self.condition {
             Some(cond) => {
                 let current = p.as_str().map_or_else(|| p.to_string(), str::to_string);
@@ -65,7 +85,10 @@ pub fn floats(v: &Value) -> Vec<f32> {
     match v {
         Value::Number(n) => vec![n.as_f64().unwrap_or(0.0) as f32],
         Value::Bool(b) => vec![f32::from(u8::from(*b))],
-        Value::String(s) => s.split_whitespace().filter_map(|x| x.parse().ok()).collect(),
+        Value::String(s) => s
+            .split_whitespace()
+            .filter_map(|x| x.parse().ok())
+            .collect(),
         Value::Array(a) => a.iter().flat_map(floats).collect(),
         Value::Object(o) => o.get("value").map(floats).unwrap_or_default(),
         Value::Null => Vec::new(),
@@ -116,7 +139,10 @@ impl Material {
         let json = vfs.json(path)?;
         let pass = &json["passes"][0];
         let mut m = Self {
-            shader: pass["shader"].as_str().unwrap_or("genericimage2").to_string(),
+            shader: pass["shader"]
+                .as_str()
+                .unwrap_or("genericimage2")
+                .to_string(),
             blend: Blend::parse(pass["blending"].as_str()),
             textures: Vec::new(),
             combos: BTreeMap::new(),
@@ -140,12 +166,16 @@ impl Material {
         }
         if let Some(combos) = pass["combos"].as_object() {
             for (k, v) in combos {
-                let _ = self.combos.insert(k.clone(), floats(v).first().copied().unwrap_or(0.0) as i64);
+                let _ = self
+                    .combos
+                    .insert(k.clone(), floats(v).first().copied().unwrap_or(0.0) as i64);
             }
         }
         if let Some(values) = pass["constantshadervalues"].as_object() {
             for (k, v) in values {
-                let _ = self.constants.insert(k.clone(), Bound::parse(Some(v), Value::Null));
+                let _ = self
+                    .constants
+                    .insert(k.clone(), Bound::parse(Some(v), Value::Null));
             }
         }
     }
@@ -217,11 +247,16 @@ impl Scene {
         let ortho = &general["orthogonalprojection"];
         let width = ortho["width"].as_f64().unwrap_or(1920.0) as f32;
         let height = ortho["height"].as_f64().unwrap_or(1080.0) as f32;
-        let parallax = general["cameraparallax"].as_bool().unwrap_or(false).then(|| Parallax {
-            amount: general["cameraparallaxamount"].as_f64().unwrap_or(0.5) as f32,
-            delay: general["cameraparallaxdelay"].as_f64().unwrap_or(0.1) as f32,
-            mouse_influence: general["cameraparallaxmouseinfluence"].as_f64().unwrap_or(0.0) as f32,
-        });
+        let parallax = general["cameraparallax"]
+            .as_bool()
+            .unwrap_or(false)
+            .then(|| Parallax {
+                amount: general["cameraparallaxamount"].as_f64().unwrap_or(0.5) as f32,
+                delay: general["cameraparallaxdelay"].as_f64().unwrap_or(0.1) as f32,
+                mouse_influence: general["cameraparallaxmouseinfluence"]
+                    .as_f64()
+                    .unwrap_or(0.0) as f32,
+            });
         let mut scene = Self {
             width,
             height,
@@ -237,7 +272,10 @@ impl Scene {
             match kind {
                 Some("image") | None => match Self::layer(vfs, obj, kind.is_none(), warnings) {
                     Ok(layer) => scene.layers.push(layer),
-                    Err(e) => warnings.push(format!("layer {}: {e}", obj["name"].as_str().unwrap_or("?"))),
+                    Err(e) => warnings.push(format!(
+                        "layer {}: {e}",
+                        obj["name"].as_str().unwrap_or("?")
+                    )),
                 },
                 Some(other) => *scene.skipped.entry(other.to_string()).or_default() += 1,
             }
@@ -245,16 +283,25 @@ impl Scene {
         Ok(scene)
     }
 
-    fn layer(vfs: &Vfs, obj: &Value, group: bool, warnings: &mut Vec<String>) -> Result<Layer, Error> {
+    fn layer(
+        vfs: &Vfs,
+        obj: &Value,
+        group: bool,
+        warnings: &mut Vec<String>,
+    ) -> Result<Layer, Error> {
         let name = obj["name"].as_str().unwrap_or("").to_string();
         let material = if group {
             None
         } else {
             let model = vfs.json(obj["image"].as_str().unwrap_or(""))?;
             if model.get("puppet").is_some_and(|p| !p.is_null()) {
-                warnings.push(format!("layer {name}: puppet animation is drawn as a still image"));
+                warnings.push(format!(
+                    "layer {name}: puppet animation is drawn as a still image"
+                ));
             }
-            let path = model["material"].as_str().ok_or_else(|| Error::Format("model has no material".into()))?;
+            let path = model["material"]
+                .as_str()
+                .ok_or_else(|| Error::Format("model has no material".into()))?;
             let mut material = Material::load(vfs, path)?;
             // The layer's colour blend mode blends it with what is behind it (reads the frame).
             if let Some(mode) = obj["colorBlendMode"].as_i64().filter(|&m| m != 0) {
@@ -266,7 +313,9 @@ impl Scene {
         for e in obj["effects"].as_array().into_iter().flatten() {
             match Self::effect(vfs, e) {
                 Ok(effect) => effects.push(effect),
-                Err(err) => warnings.push(format!("layer {name}: effect {} skipped: {err}", e["file"])),
+                Err(err) => {
+                    warnings.push(format!("layer {name}: effect {} skipped: {err}", e["file"]))
+                }
             }
         }
         Ok(Layer {
@@ -280,7 +329,10 @@ impl Scene {
             parallax_depth: vec_n(obj.get("parallaxDepth"), [0.0, 0.0]),
             alpha: Bound::parse(obj.get("alpha"), Value::from(1.0)),
             color: Bound::parse(obj.get("color"), Value::String("1 1 1".into())),
-            brightness: floats(obj.get("brightness").unwrap_or(&Value::from(1.0))).first().copied().unwrap_or(1.0),
+            brightness: floats(obj.get("brightness").unwrap_or(&Value::from(1.0)))
+                .first()
+                .copied()
+                .unwrap_or(1.0),
             visible: Bound::parse(obj.get("visible"), Value::Bool(true)),
             material,
             effects,
@@ -293,7 +345,9 @@ impl Scene {
         let overrides = obj["passes"].as_array().cloned().unwrap_or_default();
         let mut passes = Vec::new();
         for (i, p) in json["passes"].as_array().into_iter().flatten().enumerate() {
-            let path = p["material"].as_str().ok_or_else(|| Error::Format("effect pass has no material".into()))?;
+            let path = p["material"]
+                .as_str()
+                .ok_or_else(|| Error::Format("effect pass has no material".into()))?;
             let mut material = Material::load(vfs, path)?;
             if let Some(o) = overrides.get(i) {
                 material.apply_overrides(o);
@@ -302,16 +356,28 @@ impl Scene {
                 .as_array()
                 .into_iter()
                 .flatten()
-                .filter_map(|b| Some((b["name"].as_str()?.to_string(), b["index"].as_u64()? as usize)))
+                .filter_map(|b| {
+                    Some((
+                        b["name"].as_str()?.to_string(),
+                        b["index"].as_u64()? as usize,
+                    ))
+                })
                 .collect();
-            passes.push(EffectPass { material, target: p["target"].as_str().map(str::to_string), binds });
+            passes.push(EffectPass {
+                material,
+                target: p["target"].as_str().map(str::to_string),
+                binds,
+            });
         }
         let fbos = json["fbos"]
             .as_array()
             .into_iter()
             .flatten()
             .filter_map(|f| {
-                Some(Fbo { name: f["name"].as_str()?.to_string(), scale: f["scale"].as_f64().unwrap_or(1.0) as f32 })
+                Some(Fbo {
+                    name: f["name"].as_str()?.to_string(),
+                    scale: f["scale"].as_f64().unwrap_or(1.0) as f32,
+                })
             })
             .collect();
         Ok(Effect {
@@ -357,8 +423,15 @@ mod tests {
 
     #[test]
     fn bound_values_follow_user_properties() {
-        let props: HashMap<String, Value> = [("bg".to_string(), json!("2")), ("on".to_string(), json!(false))].into();
-        let combo = Bound::parse(Some(&json!({"user": {"name": "bg", "condition": "1"}, "value": true})), Value::Null);
+        let props: HashMap<String, Value> = [
+            ("bg".to_string(), json!("2")),
+            ("on".to_string(), json!(false)),
+        ]
+        .into();
+        let combo = Bound::parse(
+            Some(&json!({"user": {"name": "bg", "condition": "1"}, "value": true})),
+            Value::Null,
+        );
         assert!(!combo.truthy(&props));
         let plain = Bound::parse(Some(&json!({"user": "on", "value": true})), Value::Null);
         assert!(!plain.truthy(&props));

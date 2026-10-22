@@ -102,9 +102,14 @@ pub fn decode(data: &[u8]) -> Result<Tex, Error> {
     }
     let _ = r.u32()?;
     let container = r.cstring()?;
-    let version: u32 = container.strip_prefix("TEXB").and_then(|s| s.parse().ok()).unwrap_or(0);
+    let version: u32 = container
+        .strip_prefix("TEXB")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
     if !(1..=4).contains(&version) {
-        return Err(Error::Format(format!("unknown texture container {container}")));
+        return Err(Error::Format(format!(
+            "unknown texture container {container}"
+        )));
     }
     let image_count = r.u32()? as usize;
     if !(1..=64).contains(&image_count) {
@@ -142,8 +147,16 @@ pub fn decode(data: &[u8]) -> Result<Tex, Error> {
             }
             let n = r.u32()? as usize;
             let bytes = r.bytes(n)?;
-            let bytes = if lz4 { lz4_block(bytes, raw_size)? } else { bytes.to_vec() };
-            mips.push(Mip { width: w as usize, height: h as usize, data: bytes });
+            let bytes = if lz4 {
+                lz4_block(bytes, raw_size)?
+            } else {
+                bytes.to_vec()
+            };
+            mips.push(Mip {
+                width: w as usize,
+                height: h as usize,
+                data: bytes,
+            });
         }
         images.push(mips);
     }
@@ -152,9 +165,14 @@ pub fn decode(data: &[u8]) -> Result<Tex, Error> {
     if image_format >= 0 {
         for mips in &mut images {
             let first = mips.swap_remove(0);
-            let img = image::load_from_memory(&first.data).map_err(|e| Error::Format(format!("texture image: {e}")))?;
+            let img = image::load_from_memory(&first.data)
+                .map_err(|e| Error::Format(format!("texture image: {e}")))?;
             let rgba = img.into_rgba8();
-            *mips = vec![Mip { width: rgba.width() as usize, height: rgba.height() as usize, data: rgba.into_raw() }];
+            *mips = vec![Mip {
+                width: rgba.width() as usize,
+                height: rgba.height() as usize,
+                data: rgba.into_raw(),
+            }];
         }
         format = Format::Rgba8;
     }
@@ -164,7 +182,11 @@ pub fn decode(data: &[u8]) -> Result<Tex, Error> {
         }
     }
 
-    let frames = if flags & 4 != 0 { read_frames(&mut r).unwrap_or_default() } else { Vec::new() };
+    let frames = if flags & 4 != 0 {
+        read_frames(&mut r).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     Ok(Tex {
         texture_width: dims[0],
         texture_height: dims[1],
@@ -188,13 +210,29 @@ fn read_frames(r: &mut Reader<'_>) -> Result<Vec<Frame>, Error> {
         let _ = (r.u32()?, r.u32()?);
     }
     let old = magic == "TEXS0001";
-    let num = |r: &mut Reader<'_>| -> Result<f32, Error> { if old { Ok(r.i32()? as f32) } else { r.f32() } };
+    let num = |r: &mut Reader<'_>| -> Result<f32, Error> {
+        if old {
+            Ok(r.i32()? as f32)
+        } else {
+            r.f32()
+        }
+    };
     (0..count)
         .map(|_| {
             let image = r.u32()? as usize;
             let seconds = r.f32()?;
-            let (x, y, width_x, width_y, height_x, height_y) = (num(r)?, num(r)?, num(r)?, num(r)?, num(r)?, num(r)?);
-            Ok(Frame { image, seconds, x, y, width_x, width_y, height_x, height_y })
+            let (x, y, width_x, width_y, height_x, height_y) =
+                (num(r)?, num(r)?, num(r)?, num(r)?, num(r)?, num(r)?);
+            Ok(Frame {
+                image,
+                seconds,
+                x,
+                y,
+                width_x,
+                width_y,
+                height_x,
+                height_y,
+            })
         })
         .collect()
 }

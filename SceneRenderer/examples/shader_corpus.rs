@@ -19,15 +19,22 @@ fn main() {
             if path.extension().and_then(|e| e.to_str()) != Some("frag") {
                 continue;
             }
-            let rel = path.strip_prefix(root.join("shaders")).unwrap().with_extension("");
+            let rel = path
+                .strip_prefix(root.join("shaders"))
+                .unwrap()
+                .with_extension("");
             let name = rel.to_string_lossy().to_string();
-            let result = scene_renderer::shader::Source::load(&vfs, &name).and_then(|s| s.compile(&BTreeMap::new()));
+            let result = scene_renderer::shader::Source::load(&vfs, &name)
+                .and_then(|s| s.compile(&BTreeMap::new()));
             match result {
                 Ok(_) => ok += 1,
                 Err(e) => {
                     failed += 1;
                     let msg = e.to_string();
-                    println!("FAIL {name}: {}", msg.lines().take(40).collect::<Vec<_>>().join(" | "));
+                    println!(
+                        "FAIL {name}: {}",
+                        msg.lines().take(40).collect::<Vec<_>>().join(" | ")
+                    );
                 }
             }
         }

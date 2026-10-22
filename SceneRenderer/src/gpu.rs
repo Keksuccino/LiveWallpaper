@@ -46,6 +46,29 @@ fragment float4 lw_composite_fs(VOut i [[stage_in]], constant U& u [[buffer(0)]]
 }
 "#;
 
+/// Blur for the background of the blurred-fit mode. Five taps along one axis, using the
+/// hardware's bilinear filtering to reach twice as far.
+const BLUR_MSL: &str = r#"
+#include <metal_stdlib>
+using namespace metal;
+struct VIn { float3 pos [[attribute(0)]]; float2 uv [[attribute(1)]]; };
+struct VOut { float4 pos [[position]]; float2 uv; };
+struct U { float4x4 mvp; float4 rect; float2 dir; };
+vertex VOut lw_blur_vs(VIn v [[stage_in]], constant U& u [[buffer(0)]]) {
+    VOut o; o.pos = u.mvp * float4(v.pos, 1.0); o.uv = v.uv; return o;
+}
+fragment float4 lw_blur_fs(VOut i [[stage_in]], constant U& u [[buffer(0)]],
+                           texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]]) {
+    float2 c = u.rect.xy + i.uv * u.rect.zw;
+    float3 sum = t.sample(s, c).rgb * 0.2270270270;
+    sum += t.sample(s, c + u.dir * 1.3846153846).rgb * 0.3162162162;
+    sum += t.sample(s, c - u.dir * 1.3846153846).rgb * 0.3162162162;
+    sum += t.sample(s, c + u.dir * 3.2307692308).rgb * 0.0702702703;
+    sum += t.sample(s, c - u.dir * 3.2307692308).rgb * 0.0702702703;
+    return float4(sum, 1.0);
+}
+"#;
+
 #[derive(Debug)]
 pub struct Gpu {
     pub device: Retained<Device>,
@@ -54,31 +77,65 @@ pub struct Gpu {
     pub samplers: [Retained<Sampler>; 4],
     composite: HashMap<(Blend, MTLPixelFormat, usize), Retained<Pipeline>>,
     composite_lib: Retained<ProtocolObject<dyn MTLLibrary>>,
+    blur: HashMap<usize, Retained<Pipeline>>,
+    blur_lib: Retained<ProtocolObject<dyn MTLLibrary>>,
 }
 
 impl Gpu {
     pub fn new() -> Result<Self, Error> {
-        let device = MTLCreateSystemDefaultDevice().ok_or_else(|| Error::Metal("no Metal device".into()))?;
-        let queue = device.newCommandQueue().ok_or_else(|| Error::Metal("no command queue".into()))?;
+        let device =
+            MTLCreateSystemDefaultDevice().ok_or_else(|| Error::Metal("no Metal device".into()))?;
+        let queue = device
+            .newCommandQueue()
+            .ok_or_else(|| Error::Metal("no command queue".into()))?;
         let sampler = |linear: bool, repeat: bool| {
             let d = MTLSamplerDescriptor::new();
-            let filter = if linear { MTLSamplerMinMagFilter::Linear } else { MTLSamplerMinMagFilter::Nearest };
-            let mode = if repeat { MTLSamplerAddressMode::Repeat } else { MTLSamplerAddressMode::ClampToEdge };
+            let filter = if linear {
+                MTLSamplerMinMagFilter::Linear
+            } else {
+                MTLSamplerMinMagFilter::Nearest
+            };
+            let mode = if repeat {
+                MTLSamplerAddressMode::Repeat
+            } else {
+                MTLSamplerAddressMode::ClampToEdge
+            };
             d.setMinFilter(filter);
             d.setMagFilter(filter);
             d.setMipFilter(MTLSamplerMipFilter::Linear);
             d.setSAddressMode(mode);
             d.setTAddressMode(mode);
-            device.newSamplerStateWithDescriptor(&d).ok_or_else(|| Error::Metal("sampler".into()))
+            device
+                .newSamplerStateWithDescriptor(&d)
+                .ok_or_else(|| Error::Metal("sampler".into()))
         };
-        let samplers = [sampler(true, false)?, sampler(true, true)?, sampler(false, false)?, sampler(false, true)?];
+        let samplers = [
+            sampler(true, false)?,
+            sampler(true, true)?,
+            sampler(false, false)?,
+            sampler(false, true)?,
+        ];
         let composite_lib = library(&device, COMPOSITE_MSL)?;
-        Ok(Self { device, queue, samplers, composite: HashMap::new(), composite_lib })
+        let blur_lib = library(&device, BLUR_MSL)?;
+        Ok(Self {
+            device,
+            queue,
+            samplers,
+            composite: HashMap::new(),
+            composite_lib,
+            blur: HashMap::new(),
+            blur_lib,
+        })
     }
 
     pub fn upload(&self, tex: &Tex, image: usize) -> Result<Retained<Texture>, Error> {
-        let mips = tex.images.get(image).ok_or_else(|| Error::Format("texture image index".into()))?;
-        let first = mips.first().ok_or_else(|| Error::Format("texture has no mips".into()))?;
+        let mips = tex
+            .images
+            .get(image)
+            .ok_or_else(|| Error::Format("texture image index".into()))?;
+        let first = mips
+            .first()
+            .ok_or_else(|| Error::Format("texture has no mips".into()))?;
         let format = match tex.format {
             Format::Rgba8 => MTLPixelFormat::RGBA8Unorm,
             Format::Rg8 => MTLPixelFormat::RG8Unorm,
@@ -100,18 +157,28 @@ impl Gpu {
         let levels = mips
             .iter()
             .enumerate()
-            .take_while(|(i, m)| m.width == (first.width >> i).max(1) && m.height == (first.height >> i).max(1))
+            .take_while(|(i, m)| {
+                m.width == (first.width >> i).max(1) && m.height == (first.height >> i).max(1)
+            })
             .count();
         // SAFETY: `levels` is at least 1 and matches the chain we upload below.
         unsafe { desc.setMipmapLevelCount(levels) };
         desc.setUsage(MTLTextureUsage::ShaderRead);
-        let texture = self.device.newTextureWithDescriptor(&desc).ok_or_else(|| Error::Metal("texture alloc".into()))?;
+        let texture = self
+            .device
+            .newTextureWithDescriptor(&desc)
+            .ok_or_else(|| Error::Metal("texture alloc".into()))?;
         for (level, mip) in mips.iter().take(levels).enumerate() {
             let region = MTLRegion {
                 origin: MTLOrigin { x: 0, y: 0, z: 0 },
-                size: MTLSize { width: mip.width.max(1), height: mip.height.max(1), depth: 1 },
+                size: MTLSize {
+                    width: mip.width.max(1),
+                    height: mip.height.max(1),
+                    depth: 1,
+                },
             };
-            let ptr = NonNull::new(mip.data.as_ptr() as *mut c_void).ok_or_else(|| Error::Format("empty mip".into()))?;
+            let ptr = NonNull::new(mip.data.as_ptr() as *mut c_void)
+                .ok_or_else(|| Error::Format("empty mip".into()))?;
             // SAFETY: decode() checked that `data` holds at least `bytes(width, height)` bytes.
             unsafe {
                 texture.replaceRegion_mipmapLevel_withBytes_bytesPerRow(
@@ -135,16 +202,31 @@ impl Gpu {
             format: Format::Rgba8,
             clamp: false,
             nearest: false,
-            images: vec![vec![crate::tex::Mip { width: 1, height: 1, data: rgba.to_vec() }]],
+            images: vec![vec![crate::tex::Mip {
+                width: 1,
+                height: 1,
+                data: rgba.to_vec(),
+            }]],
             frames: Vec::new(),
         };
         self.upload(&tex, 0)
     }
 
-    pub fn render_target(&self, w: usize, h: usize, format: MTLPixelFormat, samples: usize) -> Result<Retained<Texture>, Error> {
+    pub fn render_target(
+        &self,
+        w: usize,
+        h: usize,
+        format: MTLPixelFormat,
+        samples: usize,
+    ) -> Result<Retained<Texture>, Error> {
         // SAFETY: plain descriptor construction.
         let desc = unsafe {
-            MTLTextureDescriptor::texture2DDescriptorWithPixelFormat_width_height_mipmapped(format, w.max(1), h.max(1), false)
+            MTLTextureDescriptor::texture2DDescriptorWithPixelFormat_width_height_mipmapped(
+                format,
+                w.max(1),
+                h.max(1),
+                false,
+            )
         };
         desc.setUsage(MTLTextureUsage::RenderTarget | MTLTextureUsage::ShaderRead);
         desc.setStorageMode(MTLStorageMode::Private);
@@ -154,10 +236,18 @@ impl Gpu {
             unsafe { desc.setSampleCount(samples) };
             desc.setUsage(MTLTextureUsage::RenderTarget);
         }
-        self.device.newTextureWithDescriptor(&desc).ok_or_else(|| Error::Metal("render target alloc".into()))
+        self.device
+            .newTextureWithDescriptor(&desc)
+            .ok_or_else(|| Error::Metal("render target alloc".into()))
     }
 
-    pub fn pipeline(&self, program: &Program, blend: Blend, format: MTLPixelFormat, samples: usize) -> Result<Retained<Pipeline>, Error> {
+    pub fn pipeline(
+        &self,
+        program: &Program,
+        blend: Blend,
+        format: MTLPixelFormat,
+        samples: usize,
+    ) -> Result<Retained<Pipeline>, Error> {
         let vs_lib = library(&self.device, &program.vertex.msl)?;
         let fs_lib = library(&self.device, &program.fragment.msl)?;
         let vs = function(&vs_lib, &program.vertex.entry)?;
@@ -182,14 +272,22 @@ impl Gpu {
         self.finish_pipeline(&vs, &fs, &vd, blend, format, samples)
     }
 
-    pub fn composite(&mut self, blend: Blend, format: MTLPixelFormat, samples: usize) -> Result<Retained<Pipeline>, Error> {
+    pub fn composite(
+        &mut self,
+        blend: Blend,
+        format: MTLPixelFormat,
+        samples: usize,
+    ) -> Result<Retained<Pipeline>, Error> {
         if let Some(p) = self.composite.get(&(blend, format, samples)) {
             return Ok(p.clone());
         }
         let vs = function(&self.composite_lib, "lw_composite_vs")?;
         let fs = function(&self.composite_lib, "lw_composite_fs")?;
         let vd = MTLVertexDescriptor::new();
-        for (i, (format, offset)) in [(MTLVertexFormat::Float3, 0), (MTLVertexFormat::Float2, 12)].into_iter().enumerate() {
+        for (i, (format, offset)) in [(MTLVertexFormat::Float3, 0), (MTLVertexFormat::Float2, 12)]
+            .into_iter()
+            .enumerate()
+        {
             // SAFETY: fixed indices and offsets inside the vertex.
             unsafe {
                 let attr = vd.attributes().objectAtIndexedSubscript(i);
@@ -203,6 +301,31 @@ impl Gpu {
         Ok(p)
     }
 
+    /// Pipeline for the blur pass, without blending.
+    pub fn blur_pipeline(&mut self, samples: usize) -> Result<Retained<Pipeline>, Error> {
+        if let Some(p) = self.blur.get(&samples) {
+            return Ok(p.clone());
+        }
+        let vs = function(&self.blur_lib, "lw_blur_vs")?;
+        let fs = function(&self.blur_lib, "lw_blur_fs")?;
+        let vd = MTLVertexDescriptor::new();
+        for (i, (format, offset)) in [(MTLVertexFormat::Float3, 0), (MTLVertexFormat::Float2, 12)]
+            .into_iter()
+            .enumerate()
+        {
+            // SAFETY: fixed indices and offsets inside the vertex.
+            unsafe {
+                let attr = vd.attributes().objectAtIndexedSubscript(i);
+                attr.setFormat(format);
+                attr.setOffset(offset);
+                attr.setBufferIndex(VERTEX_BUFFER_SLOT as usize);
+            }
+        }
+        let p = self.finish_pipeline(&vs, &fs, &vd, Blend::Normal, FBO_FORMAT, samples)?;
+        let _ = self.blur.insert(samples, p.clone());
+        Ok(p)
+    }
+
     fn finish_pipeline(
         &self,
         vs: &ProtocolObject<dyn MTLFunction>,
@@ -213,7 +336,11 @@ impl Gpu {
         samples: usize,
     ) -> Result<Retained<Pipeline>, Error> {
         // SAFETY: fixed slot index inside the 31 buffer slots.
-        unsafe { vd.layouts().objectAtIndexedSubscript(VERTEX_BUFFER_SLOT as usize).setStride(VERTEX_STRIDE) };
+        unsafe {
+            vd.layouts()
+                .objectAtIndexedSubscript(VERTEX_BUFFER_SLOT as usize)
+                .setStride(VERTEX_STRIDE)
+        };
         let desc = MTLRenderPipelineDescriptor::new();
         desc.setVertexFunction(Some(vs));
         desc.setFragmentFunction(Some(fs));
@@ -224,7 +351,10 @@ impl Gpu {
         color.setPixelFormat(format);
         let (src, dst) = match blend {
             Blend::Normal | Blend::Disabled => (None, None),
-            Blend::Translucent => (Some(MTLBlendFactor::SourceAlpha), Some(MTLBlendFactor::OneMinusSourceAlpha)),
+            Blend::Translucent => (
+                Some(MTLBlendFactor::SourceAlpha),
+                Some(MTLBlendFactor::OneMinusSourceAlpha),
+            ),
             Blend::Additive => (Some(MTLBlendFactor::SourceAlpha), Some(MTLBlendFactor::One)),
         };
         if let (Some(src), Some(dst)) = (src, dst) {
@@ -249,8 +379,12 @@ fn library(device: &Device, src: &str) -> Result<Retained<ProtocolObject<dyn MTL
         .map_err(|e| Error::Metal(format!("MSL compile: {}", e.localizedDescription())))
 }
 
-fn function(lib: &ProtocolObject<dyn MTLLibrary>, name: &str) -> Result<Retained<ProtocolObject<dyn MTLFunction>>, Error> {
-    lib.newFunctionWithName(&NSString::from_str(name)).ok_or_else(|| Error::Metal(format!("missing function {name}")))
+fn function(
+    lib: &ProtocolObject<dyn MTLLibrary>,
+    name: &str,
+) -> Result<Retained<ProtocolObject<dyn MTLFunction>>, Error> {
+    lib.newFunctionWithName(&NSString::from_str(name))
+        .ok_or_else(|| Error::Metal(format!("missing function {name}")))
 }
 
 /// Intermediate render targets. They live in one Metal heap: a buffer handed back mid-frame is
@@ -279,11 +413,15 @@ impl Pool {
             }
         }
         // Heap too small this frame: allocate standalone; `end_frame` grows the heap.
-        gpu.device.newTextureWithDescriptor(&desc).ok_or_else(|| Error::Metal("render target alloc".into()))
+        gpu.device
+            .newTextureWithDescriptor(&desc)
+            .ok_or_else(|| Error::Metal("render target alloc".into()))
     }
 
     pub fn give(&mut self, t: Retained<Texture>) {
-        let need = t.device().heapTextureSizeAndAlignWithDescriptor(&texture_descriptor(t.width(), t.height()));
+        let need = t
+            .device()
+            .heapTextureSizeAndAlignWithDescriptor(&texture_descriptor(t.width(), t.height()));
         self.live = self.live.saturating_sub(need.size);
         if t.heap().is_some() {
             // SAFETY: the texture is not used by any command encoded after this point.
@@ -313,7 +451,12 @@ impl Pool {
 fn texture_descriptor(w: usize, h: usize) -> Retained<MTLTextureDescriptor> {
     // SAFETY: plain descriptor construction.
     let desc = unsafe {
-        MTLTextureDescriptor::texture2DDescriptorWithPixelFormat_width_height_mipmapped(FBO_FORMAT, w.max(1), h.max(1), false)
+        MTLTextureDescriptor::texture2DDescriptorWithPixelFormat_width_height_mipmapped(
+            FBO_FORMAT,
+            w.max(1),
+            h.max(1),
+            false,
+        )
     };
     desc.setUsage(MTLTextureUsage::RenderTarget | MTLTextureUsage::ShaderRead);
     desc.setStorageMode(MTLStorageMode::Private);
@@ -345,11 +488,17 @@ pub fn begin(
     match clear {
         Some([r, g, b, a]) => {
             att.setLoadAction(MTLLoadAction::Clear);
-            att.setClearColor(MTLClearColor { red: r, green: g, blue: b, alpha: a });
+            att.setClearColor(MTLClearColor {
+                red: r,
+                green: g,
+                blue: b,
+                alpha: a,
+            });
         }
         None => att.setLoadAction(MTLLoadAction::Load),
     }
-    cb.renderCommandEncoderWithDescriptor(&rp).ok_or_else(|| Error::Metal("render encoder".into()))
+    cb.renderCommandEncoderWithDescriptor(&rp)
+        .ok_or_else(|| Error::Metal("render encoder".into()))
 }
 
 /// Pushes small per-draw data (uniforms, the 4-vertex quad) without allocating buffers.
@@ -357,7 +506,9 @@ pub fn set_bytes(enc: &Encoder, vertex: bool, data: &[u8], slot: usize) {
     if data.is_empty() {
         return;
     }
-    let Some(ptr) = NonNull::new(data.as_ptr() as *mut c_void) else { return };
+    let Some(ptr) = NonNull::new(data.as_ptr() as *mut c_void) else {
+        return;
+    };
     // SAFETY: Metal copies `data.len()` bytes immediately; set*Bytes accepts up to 4 KB, and our
     // uniform blocks stay well below that (callers fall back to a buffer above it).
     unsafe {
@@ -374,9 +525,17 @@ pub fn set_buffer_or_bytes(gpu: &Gpu, enc: &Encoder, vertex: bool, data: &[u8], 
         set_bytes(enc, vertex, data, slot);
         return;
     }
-    let Some(ptr) = NonNull::new(data.as_ptr() as *mut c_void) else { return };
+    let Some(ptr) = NonNull::new(data.as_ptr() as *mut c_void) else {
+        return;
+    };
     // SAFETY: the buffer copies `data`.
-    let buffer = unsafe { gpu.device.newBufferWithBytes_length_options(ptr, data.len(), MTLResourceOptions::StorageModeShared) };
+    let buffer = unsafe {
+        gpu.device.newBufferWithBytes_length_options(
+            ptr,
+            data.len(),
+            MTLResourceOptions::StorageModeShared,
+        )
+    };
     if let Some(buffer) = buffer {
         // SAFETY: offset 0 in a buffer we own.
         unsafe {

@@ -22,7 +22,10 @@ impl Pkg {
         let len = file.metadata().map_err(io)?.len();
         // The header holds names only; 4 MB covers tens of thousands of entries.
         let mut data = Vec::new();
-        let _ = (&mut file).take(4 << 20).read_to_end(&mut data).map_err(io)?;
+        let _ = (&mut file)
+            .take(4 << 20)
+            .read_to_end(&mut data)
+            .map_err(io)?;
         let mut r = Reader::new(&data);
         let version = r.string()?;
         if !version.starts_with("PKGV") {
@@ -42,7 +45,9 @@ impl Pkg {
         for (name, offset, size) in raw {
             let start = base + offset as u64;
             if start + size as u64 > len {
-                return Err(Error::Format(format!("package entry {name} is out of bounds")));
+                return Err(Error::Format(format!(
+                    "package entry {name} is out of bounds"
+                )));
             }
             // Later duplicates win, like the editor's own loader.
             let _ = entries.insert(name.to_ascii_lowercase(), (start, size));
@@ -125,15 +130,20 @@ impl Vfs {
         if let Some(bytes) = self.pkg.as_ref().and_then(|p| p.get(name)) {
             return Some(bytes);
         }
-        self.roots.iter().find_map(|root| std::fs::read(root.join(name)).ok())
+        self.roots
+            .iter()
+            .find_map(|root| std::fs::read(root.join(name)).ok())
     }
 
     pub fn read_string(&self, name: &str) -> Option<String> {
-        self.read(name).map(|b| String::from_utf8_lossy(&b).into_owned())
+        self.read(name)
+            .map(|b| String::from_utf8_lossy(&b).into_owned())
     }
 
     pub fn json(&self, name: &str) -> Result<serde_json::Value, Error> {
-        let text = self.read_string(name).ok_or_else(|| Error::Missing(name.to_string()))?;
+        let text = self
+            .read_string(name)
+            .ok_or_else(|| Error::Missing(name.to_string()))?;
         serde_json::from_str(&text).map_err(|e| Error::Format(format!("{name}: {e}")))
     }
 }

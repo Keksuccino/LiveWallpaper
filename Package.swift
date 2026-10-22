@@ -58,10 +58,30 @@ let package = Package(
                 .linkedFramework("VideoToolbox"),
             ]
         ),
+        // Our own renderer (SceneRenderer/, a Rust library that draws scenes with Metal), via uniffi.
+        // Build the static lib and regenerate these sources with scripts/build-scene-renderer.sh.
+        .systemLibrary(
+            name: "SceneRendererFFI",
+            path: "Sources/SceneBridge/FFI"
+        ),
+        .target(
+            name: "SceneBridge",
+            dependencies: ["SceneRendererFFI"],
+            path: "Sources/SceneBridge",
+            exclude: ["FFI"],
+            linkerSettings: [
+                .unsafeFlags([
+                    "-L", Context.packageDirectory + "/SceneRenderer/target/release",
+                    "-lscene_renderer",
+                ]),
+                .linkedFramework("AppKit"), .linkedFramework("CoreFoundation"), .linkedFramework("CoreGraphics"),
+                .linkedFramework("Foundation"), .linkedFramework("Metal"), .linkedFramework("QuartzCore"),
+            ]
+        ),
         // Background service: the only writer of state.json, plays wallpapers, XPC to the UI. AppKit only.
         .executableTarget(
             name: "LiveWallpaperService",
-            dependencies: ["Core", "RenderBridge"],
+            dependencies: ["Core", "RenderBridge", "SceneBridge"],
             path: "Sources/LiveWallpaperService"
         ),
         .executableTarget(

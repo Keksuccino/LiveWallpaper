@@ -41,6 +41,8 @@ import SceneFormat
     @Published var sceneFPS: Int = LibraryState.defaultSceneFPS { didSet { persist() } }
     @Published var sceneOptions: [String: SceneOptions] = [:] { didSet { persist() } }
     @Published var power: PowerOptions = PowerOptions() { didSet { persist() } }
+    /// Hidden switch: draw scenes with our own renderer instead of the old one.
+    @Published var useNewRenderer: Bool = false { didSet { persist() } }
     @Published var muted: Bool = true {
         didSet {
             guard !writesSuspended, muted != oldValue else { return }
@@ -93,6 +95,7 @@ import SceneFormat
         state.sceneFPS = sceneFPS
         state.sceneOptions = sceneOptions
         state.power = power
+        state.useNewRenderer = useNewRenderer
         state.normalize()
         return state
     }
@@ -334,6 +337,7 @@ import SceneFormat
         sceneFPS = state.sceneFPS
         sceneOptions = state.sceneOptions
         power = state.power
+        useNewRenderer = state.useNewRenderer
         muted = state.muted
     }
 

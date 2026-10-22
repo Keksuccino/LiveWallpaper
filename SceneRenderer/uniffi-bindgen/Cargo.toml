@@ -1,0 +1,15 @@
+[package]
+name = "uniffi-bindgen"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+# A separate crate so the bindgen binary (and the crates it needs) stay out of the
+# renderer library that ends up in the app.
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/main.rs"
+
+[dependencies]
+uniffi = { version = "0.28.3", features = ["cli"] }
