@@ -73,43 +73,44 @@ struct SceneSettingsCard: View {
     private func percent(_ v: Double) -> String { "\(Int((v * 100).rounded()))%" }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Scene settings").font(.headline)
-                Spacer()
-                Button("Reset", action: reset)
-                    .disabled(isDefault)
-                    .help("Put every setting of this scene back to its default.")
-            }
-            HStack {
-                Text("Frame rate"); Spacer()
-                Picker("Frame rate", selection: binding(\.fps)) {
-                    Text("Use global").tag(Int?.none)
-                    ForEach([20, 24, 30, 45, 60], id: \.self) { Text("\($0) fps").tag(Int?.some($0)) }
-                }.labelsHidden().fixedSize()
-            }
-            .help("Frame rate for this scene. “Use global” follows Scene frame rate below.")
-            sliderRow("Resolution", binding(\.renderScale), 0.25...1)
-                .help("Share of the display’s pixels the scene is drawn at. Lower is lighter on the GPU.")
-            sliderRow("Zoom", binding(\.zoom), 0.5...2)
-            HStack {
-                Text("Fit"); Spacer()
-                Picker("Fit", selection: binding(\.fitMode)) {
-                    ForEach(SceneFitMode.allCases, id: \.self) { Text($0.title).tag($0) }
-                }.labelsHidden().fixedSize()
-            }
-            sliderRow("Volume", binding(\.volume), 0...1)
-            Toggle("Scene responds to music", isOn: binding(\.audioResponse))
-            Toggle("Antialiasing (coming soon)", isOn: .constant(false)).disabled(true)
-            if !properties.isEmpty {
-                Divider().padding(.vertical, 4)
-                Text("Properties").font(.headline)
-                ForEach(properties) { propertyRow($0) }
+        InspectorSection(title: "Scene", subtitle: "Tuning for this wallpaper only.") {
+            VStack(alignment: .leading, spacing: 11) {
+                HStack {
+                    Text("Frame rate"); Spacer()
+                    Picker("Frame rate", selection: binding(\.fps)) {
+                        Text("Use global").tag(Int?.none)
+                        ForEach([20, 24, 30, 45, 60], id: \.self) { Text("\($0) fps").tag(Int?.some($0)) }
+                    }.labelsHidden().fixedSize()
+                }
+                .help("Frame rate for this scene. “Use global” follows Scene frame rate below.")
+                sliderRow("Resolution", binding(\.renderScale), 0.25...1)
+                    .help("Share of the display’s pixels the scene is drawn at. Lower is lighter on the GPU.")
+                sliderRow("Zoom", binding(\.zoom), 0.5...2)
+                HStack {
+                    Text("Fit"); Spacer()
+                    Picker("Fit", selection: binding(\.fitMode)) {
+                        ForEach(SceneFitMode.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }.labelsHidden().fixedSize()
+                }
+                sliderRow("Volume", binding(\.volume), 0...1)
+                Toggle("Scene responds to music", isOn: binding(\.audioResponse))
+                Toggle("Antialiasing (coming soon)", isOn: .constant(false)).disabled(true)
+                HStack {
+                    Spacer()
+                    Button("Reset", action: reset)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(isDefault)
+                        .help("Put every setting of this scene back to its default.")
+                }
+                if !properties.isEmpty {
+                    Divider()
+                    Text("Properties").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    ForEach(properties) { propertyRow($0) }
+                }
             }
         }
-        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(.quaternary))
         .task(id: item.id) { await loadProperties() }
     }
 
@@ -243,7 +244,6 @@ struct ScenePowerRows: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Scenes").font(.headline)
             HStack {
                 Text("Frame rate cap"); Spacer()
                 Picker("Frame rate cap", selection: binding(\.frameRateCap)) {
@@ -275,7 +275,6 @@ struct ScenePowerRows: View {
             Toggle("Skip repeated frames", isOn: binding(\.skipRepeatedFrames))
             Toggle("Update only when the scene changes", isOn: binding(\.renderOnlyOnChange))
                 .help("Stops idle scenes completely until something in them moves.")
-            Text("Stops idle scenes completely.").font(.caption).foregroundStyle(.secondary)
         }
     }
 }

@@ -1,0 +1,53 @@
+import SwiftUI
+import AppKit
+import Core
+
+@MainActor
+enum VideoPicker {
+    static func choose() -> [URL] {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [.movie]
+        panel.message = "Choose videos to use as your wallpaper."
+        panel.prompt = "Add"
+        return panel.runModal() == .OK ? panel.urls : []
+    }
+}
+
+@MainActor
+struct AppCommands: Commands {
+    let model: SettingsModel
+
+    var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("Add Videos…") {
+                let urls = VideoPicker.choose()
+                if !urls.isEmpty { model.addVideos(urls: urls) }
+            }
+            .keyboardShortcut("o", modifiers: .command)
+        }
+
+        CommandMenu("Wallpaper") {
+            Button(model.isRunning ? "Stop Wallpaper" : "Start Wallpaper") {
+                model.clearStatus()
+                if model.isRunning { model.stop() } else { model.start() }
+            }
+            .keyboardShortcut(.return, modifiers: .command)
+            .disabled(!model.isRunning && !model.canStart)
+
+            Divider()
+
+            if let id = model.focusedID ?? model.selectedID {
+                Button("Set as Desktop") { model.assign(id, to: [.desktop]) }
+                    .keyboardShortcut("d", modifiers: [.option, .command])
+                Button("Set as Lock Screen") { model.assign(id, to: [.lock]) }
+                    .keyboardShortcut("l", modifiers: [.option, .command])
+                Button("Set as Both") { model.assign(id, to: [.desktop, .lock]) }
+                    .keyboardShortcut("b", modifiers: [.option, .command])
+            } else {
+                Button("Select a wallpaper first") {}
+                    .disabled(true)
+            }
+        }
+    }
+}

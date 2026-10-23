@@ -18,9 +18,16 @@ private func copyToPasteboard(_ text: String) {
 
 private extension View {
     func cardStyle() -> some View {
-        padding(16)
+        padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 12).fill(.quaternary))
+            .background {
+                RoundedRectangle(cornerRadius: LWTheme.cardRadius, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: LWTheme.cardRadius, style: .continuous)
+                            .strokeBorder(Color.primary.opacity(0.07), lineWidth: 1)
+                    }
+            }
     }
 }
 
@@ -117,7 +124,11 @@ private struct PreviewImage: View {
                 }
             }
             .aspectRatio(16 / 9, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.07), lineWidth: 1)
+            }
     }
 }
 
@@ -127,10 +138,7 @@ struct WorkshopChip: View {
     var tint: Color? = nil
 
     var body: some View {
-        Text(text).font(.caption)
-            .foregroundStyle(tint ?? Color.secondary)
-            .padding(.horizontal, 8).padding(.vertical, 2)
-            .background(Capsule().fill((tint ?? Color.secondary).opacity(0.18)))
+        LWChip(text: text, tint: tint)
     }
 }
 
@@ -253,20 +261,28 @@ private struct ResultCard<Actions: View>: View {
     let item: WorkshopItem
     let actions: Actions
 
+    @State private var hovering = false
+
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            PreviewImage(url: item.previewURL).frame(width: 192, height: 108)
+        HStack(alignment: .top, spacing: 18) {
+            PreviewImage(url: item.previewURL).frame(width: 224, height: 126)
+                .shadow(color: .black.opacity(hovering ? 0.20 : 0), radius: 14, y: 7)
             VStack(alignment: .leading, spacing: 8) {
-                Text(item.title).font(.headline).lineLimit(2)
+                Text(item.title).font(.title3.weight(.semibold)).lineLimit(2)
                 ChipRow(item: item)
                 Text(cardInfoLine(item)).font(.caption).foregroundStyle(.secondary)
                 if !item.summary.isEmpty {
                     Text(item.summary).font(.callout).foregroundStyle(.secondary).lineLimit(3)
                 }
+                Spacer(minLength: 2)
                 actions.frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
         .cardStyle()
+        .scaleEffect(hovering ? 1.005 : 1)
+        .animation(LWMotion.hover, value: hovering)
+        .onHover { hovering = $0 }
+        .contentShape(Rectangle())
     }
 }
 
@@ -282,14 +298,20 @@ private struct CompactCard<Actions: View>: View {
         return parts.joined(separator: " · ")
     }
 
+    @State private var hovering = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 9) {
             PreviewImage(url: item.previewURL)
-            Text(item.title).font(.subheadline).lineLimit(2, reservesSpace: true)
+                .scaleEffect(hovering ? 1.02 : 1)
+                .animation(LWMotion.hover, value: hovering)
+            Text(item.title).font(.subheadline.weight(.medium)).lineLimit(2, reservesSpace: true)
             Text(info).font(.caption).foregroundStyle(.secondary)
             actions
         }
         .cardStyle()
+        .onHover { hovering = $0 }
+        .contentShape(Rectangle())
     }
 }
 
@@ -319,6 +341,7 @@ struct WorkshopView: View {
         GeometryReader { proxy in
             content(wide: proxy.size.width >= 760)
         }
+        .animation(LWMotion.content, value: detail?.id)
         .onAppear { workshop.recheckSetup() }
     }
 
@@ -347,6 +370,11 @@ struct WorkshopView: View {
     private var resultsColumn: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Steam Workshop").font(.system(size: 30, weight: .semibold))
+                    Text("Download video and scene wallpapers with your own Steam account.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
                 if !workshop.setup.canDownload { setupBanner }
                 pasteRow
                 lookupSection
@@ -364,21 +392,59 @@ struct WorkshopView: View {
             Spacer()
             Button("Open Steam Setup", action: openSteamSetup)
         }
-        .padding(16)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.orange.opacity(0.15)))
+        .background {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.orange.opacity(0.12))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Color.orange.opacity(0.25), lineWidth: 1)
+                }
+        }
     }
 
     private var pasteRow: some View {
-        HStack(spacing: 8) {
-            TextField("Paste a Workshop link or item number", text: $workshop.pastedText)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit { workshop.lookUp() }
-            Button { paste() } label: { Label("Paste", systemImage: "doc.on.clipboard") }
-            Button("Look Up") { workshop.lookUp() }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(workshop.pastedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: "link")
+                    .foregroundStyle(.secondary)
+                TextField("Paste a Workshop link or item number", text: $workshop.pastedText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 17, weight: .medium))
+                    .onSubmit { workshop.lookUp() }
+                if !workshop.pastedText.isEmpty {
+                    Button { workshop.pastedText = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.tertiary)
+                    .accessibilityLabel("Clear")
+                }
+                Button { paste() } label: {
+                    Image(systemName: "doc.on.clipboard")
+                }
+                .buttonStyle(.borderless)
+                .help("Paste from the clipboard")
+                .accessibilityLabel("Paste from the clipboard")
+                Button("Look Up") { workshop.lookUp() }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(workshop.pastedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .padding(14)
+            .background {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                    }
+            }
+            Text("Paste a link from the Steam Workshop and it looks up automatically.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .padding(.leading, 4)
         }
         .task(id: workshop.pastedText) { await lookUpPastedText() }
     }
@@ -416,14 +482,24 @@ struct WorkshopView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "arrow.down.circle").font(.system(size: 48)).foregroundStyle(.secondary)
-            Text("Download wallpapers from Steam").font(.title3)
+        VStack(spacing: 10) {
+            Image(systemName: "arrow.down.circle")
+                .font(.system(size: 38, weight: .light))
+                .foregroundStyle(.tertiary)
+            Text("Download wallpapers from Steam").font(.title3.weight(.semibold))
             Text("Paste a Workshop link or item number above. Video and scene wallpapers can play.")
                 .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 32)
+        .padding(.vertical, 42)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.45))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+                }
+        }
     }
 
     private func actions(for item: WorkshopItem, compact: Bool) -> some View {
@@ -441,13 +517,19 @@ struct WorkshopView: View {
     // MARK: Browse
 
     private var keyHint: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 9) {
             Image(systemName: "info.circle")
             Text("Browsing needs a free Steam Web API key. Add one in Steam Setup, or paste a link above.")
+            Spacer(minLength: 6)
             Button("Steam Setup", action: openSteamSetup).buttonStyle(.link)
         }
         .font(.callout)
         .foregroundStyle(.secondary)
+        .padding(14)
+        .background {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.55))
+        }
     }
 
     private var browseSection: some View {
@@ -471,18 +553,35 @@ struct WorkshopView: View {
     }
 
     private var browseControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Picker("Sort", selection: $workshop.sort) {
-                ForEach(WorkshopSort.allCases) { Text($0.label).tag($0) }
+        HStack(spacing: 10) {
+            Menu {
+                ForEach(WorkshopSort.allCases) { sort in
+                    Button(sort.label) { workshop.sort = sort }
+                }
+            } label: {
+                Label(workshop.sort.label, systemImage: "arrow.up.arrow.down")
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 360)
+            .fixedSize()
+
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search video wallpapers", text: $workshop.searchText).textFieldStyle(.roundedBorder)
+                TextField("Search video wallpapers", text: $workshop.searchText)
+                    .textFieldStyle(.plain)
             }
-            Toggle("Include questionable and mature", isOn: $workshop.includeMature).toggleStyle(.checkbox)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                    }
+            }
+
+            Toggle("Mature", isOn: $workshop.includeMature)
+                .toggleStyle(.checkbox)
+                .help("Include questionable and mature items")
         }
     }
 
@@ -495,18 +594,43 @@ struct WorkshopView: View {
         }
         if !workshop.results.isEmpty { resultGrid }
         if workshop.listState == .loading {
-            ProgressView().controlSize(.small)
+            if workshop.results.isEmpty {
+                skeletonGrid
+            } else {
+                ProgressView().controlSize(.small)
+            }
         } else if workshop.canLoadMore {
             Button("Load More") { workshop.loadMore() }
+                .buttonStyle(.bordered)
+                .frame(maxWidth: .infinity)
         }
     }
 
     private var resultGrid: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 280), spacing: 16)], alignment: .leading, spacing: 16) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 240, maximum: 320), spacing: LWTheme.gridSpacing)],
+                  alignment: .leading, spacing: LWTheme.gridSpacing) {
             ForEach(workshop.results) { item in
                 CompactCard(item: item, actions: actions(for: item, compact: true))
                     .contentShape(Rectangle())
                     .onTapGesture { detail = item }
+            }
+        }
+    }
+
+    private var skeletonGrid: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 240, maximum: 320), spacing: LWTheme.gridSpacing)],
+                  alignment: .leading, spacing: LWTheme.gridSpacing) {
+            ForEach(0..<6, id: \.self) { _ in
+                VStack(alignment: .leading, spacing: 9) {
+                    SkeletonBlock(height: 132, radius: 10)
+                    SkeletonBlock(height: 12, width: 180)
+                    SkeletonBlock(height: 10, width: 110)
+                }
+                .padding(18)
+                .background {
+                    RoundedRectangle(cornerRadius: LWTheme.cardRadius, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                }
             }
         }
     }
@@ -524,14 +648,21 @@ struct SteamSetupView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Steam Setup").font(.system(size: 30, weight: .semibold))
+                    Text("Download wallpapers from the Steam Workshop with your own account.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
                 SteamWizardView(setup: setup)
                 DisclosureGroup("Advanced", isExpanded: $advancedOpen) {
-                    advanced.padding(.top, 8)
+                    advanced.padding(.top, 10)
                 }
+                .font(.callout)
                 .cardStyle()
             }
             .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .onAppear { workshop.recheckSetup() }
         .onChange(of: setup.account) { account in

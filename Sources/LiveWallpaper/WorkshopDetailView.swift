@@ -109,41 +109,52 @@ struct WorkshopDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                Button("‹ Results", action: close).buttonStyle(.link).keyboardShortcut(.cancelAction)
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Button(action: close) {
+                        Label("Results", systemImage: "chevron.left")
+                    }
+                    .buttonStyle(.borderless)
+                    .keyboardShortcut(.cancelAction)
+                    Spacer()
+                    if let url = steamCommunityURL {
+                        Link(destination: url) {
+                            Label("Open on Steam", systemImage: "arrow.up.right.square")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.link)
+                    }
+                }
                 previewArea
-                Text(item.title).font(.title2).textSelection(.enabled)
-                if let author = item.author { Text(author).foregroundStyle(.secondary) }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(item.title)
+                        .font(.system(size: 26, weight: .semibold))
+                        .textSelection(.enabled)
+                    if let author = item.author {
+                        Text(author).font(.callout).foregroundStyle(.secondary)
+                    }
+                }
                 chips
                 tags
                 Text(item.summary.isEmpty ? "No description." : item.summary)
-                    .font(.callout).foregroundStyle(item.summary.isEmpty ? .secondary : .primary)
-                    .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    .font(.callout)
+                    .foregroundStyle(item.summary.isEmpty ? .secondary : .primary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 actions
             }
-            .padding(16)
+            .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .background(Color(nsColor: .windowBackgroundColor))
         .task(id: item.id) { await preview.load(item.previewURL) }
     }
 
     // MARK: Preview
 
     @ViewBuilder private var previewArea: some View {
-        ZStack(alignment: .bottomTrailing) {
-            previewImage
-            if let url = steamCommunityURL {
-                Link(destination: url) {
-                    Label("Open on Steam", systemImage: "arrow.up.right.square")
-                        .font(.caption)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(.ultraThinMaterial, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .padding(8)
-            }
-        }
+        previewImage
+            .shadow(color: .black.opacity(0.16), radius: 20, y: 10)
     }
 
     @ViewBuilder private var previewImage: some View {
@@ -163,8 +174,12 @@ struct WorkshopDetailView: View {
                 }
             }
             .aspectRatio(16 / 9, contentMode: .fit)
-            .frame(maxHeight: 320)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .frame(maxHeight: 360)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+            }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(item.title)
         }

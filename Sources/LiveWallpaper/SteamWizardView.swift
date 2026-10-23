@@ -33,9 +33,16 @@ private func boldName(_ prefix: String, _ name: String, _ suffix: String) -> Att
 
 private extension View {
     func wizardCard() -> some View {
-        padding(16)
+        padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 12).fill(.quaternary))
+            .background {
+                RoundedRectangle(cornerRadius: LWTheme.cardRadius, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: LWTheme.cardRadius, style: .continuous)
+                            .strokeBorder(Color.primary.opacity(0.07), lineWidth: 1)
+                    }
+            }
     }
 }
 
@@ -52,11 +59,11 @@ struct SteamWizardView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 0) {
             toolsCard
             accountCard
             ownershipCard
-            if showsSharedFiles { SharedFilesCard(setup: setup) }
+            if showsSharedFiles { SharedFilesCard(setup: setup).padding(.top, 14) }
             Text("Not affiliated with Valve or Wallpaper Engine. Downloads use Valve’s own SteamCMD with your own account, for your personal use on this Mac. Workshop items belong to their creators; don’t redistribute them.")
                 .font(.caption).foregroundStyle(.secondary)
         }
@@ -110,17 +117,19 @@ struct SteamWizardView: View {
     // MARK: Cards
 
     private var toolsCard: some View {
-        WizardCard(phase: phases.tools, title: toolsTitle) { ToolsContent(setup: setup) }
+        WizardCard(index: 1, isLast: false, phase: phases.tools, title: toolsTitle) {
+            ToolsContent(setup: setup)
+        }
     }
 
     private var accountCard: some View {
-        WizardCard(phase: phases.account, title: accountTitle) {
+        WizardCard(index: 2, isLast: false, phase: phases.account, title: accountTitle) {
             AccountContent(setup: setup, onSignIn: { checkOwnershipAfterSignIn = true })
         }
     }
 
     private var ownershipCard: some View {
-        WizardCard(phase: phases.ownership, title: ownershipTitle) {
+        WizardCard(index: 3, isLast: true, phase: phases.ownership, title: ownershipTitle) {
             OwnershipContent(setup: setup, name: signedInName, continued: continuedAnyway,
                              continueAnyway: { continuedAnyway = true },
                              recheck: {
@@ -181,36 +190,95 @@ struct SteamWizardView: View {
 
 // MARK: - Card frame
 
-private enum WizardPhase {
+private enum WizardPhase: Equatable {
     case done, current, waiting
 }
 
-/// Title row with a status glyph; the content is shown only while the step is current.
+/// One step on the setup rail. Only the current step is open; completed steps collapse to a summary row.
 @MainActor
 private struct WizardCard<Content: View>: View {
+    let index: Int
+    let isLast: Bool
     let phase: WizardPhase
     let title: String
     let content: Content
 
-    init(phase: WizardPhase, title: String, @ViewBuilder content: () -> Content) {
+    init(index: Int, isLast: Bool, phase: WizardPhase, title: String, @ViewBuilder content: () -> Content) {
+        self.index = index
+        self.isLast = isLast
         self.phase = phase
         self.title = title
         self.content = content()
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: phase == .done ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(phase == .done ? Color.green : Color.secondary)
-                Text(title).font(.headline)
-                Spacer(minLength: 0)
+        HStack(alignment: .top, spacing: 12) {
+            rail
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    Text(title).font(.headline)
+                    Spacer(minLength: 0)
+                    if phase == .done {
+                        Text("Done").font(.caption).foregroundStyle(.green)
+                    } else if phase == .waiting {
+                        Text("Next").font(.caption).foregroundStyle(.tertiary)
+                    }
+                }
+                if phase == .current {
+                    content
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
             }
-            if phase == .current { content }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: LWTheme.cardRadius, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: LWTheme.cardRadius, style: .continuous)
+                            .strokeBorder(phase == .current ? Color.accentColor.opacity(0.32) : Color.primary.opacity(0.07),
+                                          lineWidth: phase == .current ? 1.5 : 1)
+                    }
+            }
         }
-        .wizardCard()
-        .opacity(phase == .waiting ? 0.6 : 1)
+        .opacity(phase == .waiting ? 0.58 : 1)
+        .animation(LWMotion.panel, value: phase)
         .accessibilityElement(children: .contain)
+    }
+
+    private var rail: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                Circle()
+                    .fill(nodeBackground)
+                    .frame(width: 24, height: 24)
+                if phase == .done {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.white)
+                } else {
+                    Text("\(index)")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(phase == .current ? Color.white : Color.secondary)
+                }
+            }
+            if !isLast {
+                Rectangle()
+                    .fill(Color.primary.opacity(0.10))
+                    .frame(width: 1.5)
+                    .frame(maxHeight: .infinity)
+                    .padding(.vertical, 4)
+            }
+        }
+        .frame(width: 24)
+    }
+
+    private var nodeBackground: Color {
+        switch phase {
+        case .done: return .green
+        case .current: return .accentColor
+        case .waiting: return Color.primary.opacity(0.08)
+        }
     }
 }
 
