@@ -8,10 +8,48 @@ permissions:
   contents: read
 
 jobs:
+  rust-renderer:
+    name: scene renderer (rust)
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      # Restore before installing the toolchain so a cached ~/.cargo/bin cannot overwrite a newer rustup.
+      - name: Cache cargo registry and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo
+            SceneRenderer/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('SceneRenderer/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Ensure stable Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustc --version
+          cargo --version
+
+      # The offline build/test/clippy steps need a warm registry; this fetch is the only online cargo step.
+      - name: Fetch Rust dependencies
+        working-directory: SceneRenderer
+        run: cargo +stable fetch --locked
+
+      - name: Build the scene renderer (offline)
+        working-directory: SceneRenderer
+        run: cargo +stable build --offline --release
+
+      - name: Unit tests (offline)
+        working-directory: SceneRenderer
+        run: cargo +stable test --offline
+
+      - name: Clippy (offline)
+        working-directory: SceneRenderer
+        run: cargo +stable clippy --offline --all-targets -- -D warnings
+
   build:
-    # One arm64 runner. macos-26 is required, not just preferred: the renderer's C++ uses std::jthread, which
-    # only exists from libc++ 18 (ungated in 19). macos-14 ships Xcode 15.4/libc++ 16 and cannot compile it,
-    # and those images are retired on 2026-11-02.
+    # One arm64 runner with the macOS 26 SDK (the audio tap needs the macOS 14.2+ Core Audio API).
     name: build (macos-26)
     runs-on: macos-26
     steps:
@@ -22,13 +60,27 @@ jobs:
           swift --version
           xcodebuild -version
 
-      # The service links RenderBridge, so the Rust/C++ renderer has to exist before any Swift build,
-      # including `swift test` (SwiftPM builds every target of the package).
-      - name: Install renderer dependencies
-        run: scripts/install-render-deps.sh
+      - name: Cache cargo registry and scene renderer
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo
+            SceneRenderer/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('SceneRenderer/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
-      - name: Build the render service
-        run: scripts/build-render-service.sh
+      - name: Ensure stable Rust toolchain
+        run: rustup toolchain install stable --profile minimal --component clippy
+
+      - name: Fetch scene renderer dependencies
+        working-directory: SceneRenderer
+        run: cargo +stable fetch --locked
+
+      # The service links the scene renderer (SceneBridge), so its static library has to exist before
+      # any Swift build, including `swift test` (SwiftPM builds every target of the package).
+      - name: Build the scene renderer (offline)
+        run: OFFLINE=1 scripts/build-scene-renderer.sh
 
       - name: Swift build (release)
         run: swift build -c release

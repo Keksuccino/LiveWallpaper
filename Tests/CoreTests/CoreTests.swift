@@ -67,29 +67,22 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(state.sameForBoth, "assigning to both makes the lock screen follow the desktop again")
     }
 
-    func testScenesNeverReachTheLockScreen() {
+    func testScenesCanBeTheLockScreen() {
         let video = VideoItem(path: "/v.mp4"), other = VideoItem(path: "/w.mp4")
         let scene = VideoItem(path: "/s/scene.pkg", scene: SceneInfo(support: .partial))
         var state = LibraryState(videos: [video, other, scene], desktop: TargetConfig(selectedID: video.id))
         state.normalize()
-        XCTAssertEqual(state.items(for: .lock).map(\.id), [video.id, other.id])
-        XCTAssertEqual(state.items(for: .desktop).count, 3)
+        XCTAssertEqual(state.items(for: .lock).count, 3, "the service renders a scene into a lock screen loop")
 
         var both = state
         both.assign(scene.id, to: [.desktop, .lock])
-        XCTAssertEqual(both.desktop.selectedID, scene.id)
-        XCTAssertEqual(both.config(for: .lock).selectedID, video.id, "the lock screen keeps its own video")
-        XCTAssertEqual(both.targets(of: scene.id), [.desktop])
+        XCTAssertEqual(both.config(for: .lock).selectedID, scene.id)
+        XCTAssertEqual(both.targets(of: scene.id), [.desktop, .lock])
 
         var lockOnly = state
         lockOnly.assign(scene.id, to: [.lock])
-        XCTAssertEqual(lockOnly, state, "a scene cannot be assigned to the lock screen alone")
-
-        var selected = state
-        selected.selectedID = scene.id   // the phase-2 accessor must not copy a scene onto the lock screen
-        XCTAssertEqual(selected.lock.selectedID, video.id)
-        selected.normalize()
-        XCTAssertEqual(selected.lock.selectedID, video.id)
+        XCTAssertEqual(lockOnly.config(for: .lock).selectedID, scene.id)
+        XCTAssertEqual(lockOnly.config(for: .desktop).selectedID, video.id)
     }
 
     func testSceneFrameRateDefaultsClampsAndRoundTrips() throws {

@@ -38,20 +38,18 @@ Everything the app installs stays in `~/Library/Application Support/LiveWallpape
 
 - macOS 15 or later on Apple silicon.
 - Live lock-screen video on macOS 26 or later. On macOS 15 the lock screen uses a still frame of the current video instead.
-- To build from source: macOS 26 with Xcode 26 or matching Command Line Tools (libc++ 19+), Rust nightly, and Homebrew at `/opt/homebrew`.
+- To build from source: macOS 26 with Xcode 26 or matching Command Line Tools, and Rust stable (rustup). No Homebrew libraries are needed.
 
-The release build is arm64-only. The renderer and its Homebrew dependencies are arm64; universal builds are not supported.
+Release builds are arm64. `UNIVERSAL=1 ./build.sh` adds an x86_64 slice (it needs `rustup target add x86_64-apple-darwin`).
 
 ## Build and run
 
 ```sh
-./scripts/install-render-deps.sh
-./scripts/build-render-service.sh
 ./build.sh
 open build/LiveWallpaper.app
 ```
 
-`install-render-deps.sh` installs the Homebrew libraries, the project-specific LGPL FFmpeg formula and the pinned Rust toolchain. `build-render-service.sh` builds the Rust renderer and regenerates the UniFFI Swift bindings in `Sources/RenderBridge`. `build.sh` builds the two Swift products and assembles `build/LiveWallpaper.app` with `LiveWallpaperService.app` nested at `Contents/Library/LoginItems/`, then signs both ad hoc.
+`build.sh` first runs `scripts/build-scene-renderer.sh`, which builds the scene renderer (`SceneRenderer/target/release/libscene_renderer.a`) and regenerates its UniFFI Swift bindings in `Sources/SceneBridge`. It then builds the two Swift products and assembles `build/LiveWallpaper.app` with `LiveWallpaperService.app` nested at `Contents/Library/LoginItems/`, and signs both ad hoc.
 
 Run the app through the `.app` bundle. `swift run` does not work, because both products need their `Info.plist`.
 
@@ -61,7 +59,7 @@ Useful options:
 - `VERSION=1.2.3 BUILD_NUMBER=45 ./build.sh` stamps a version into both bundles.
 - `swift test` runs the Core and SceneFormat tests after the renderer has been built.
 
-The build checks that Settings never links the old scene engine and that the service never links SwiftUI or the old in-repo scene engine. The service does link Metal and `RenderBridge` for scenes.
+The build checks that Settings never links the old scene engine and that the service never links SwiftUI or the old in-repo scene engine. The service does link Metal and `SceneBridge` for scenes.
 
 `scripts/make-dmg.sh build/LiveWallpaper.app 1.2.3` packs the app into `dist/LiveWallpaper-1.2.3.dmg` with an Applications shortcut and a SHA-256 file. Pushing a tag such as `v1.2.3` runs the `release` workflow on a macOS 26 runner and attaches the DMG to a GitHub Release.
 
@@ -69,6 +67,6 @@ The build checks that Settings never links the old scene engine and that the ser
 
 ## Architecture
 
-Live Wallpaper has two processes: the SwiftUI Settings app and the nested background service. The service owns playback, the lock screen, `state.json` and the Unix socket. Settings talks to it over that socket and never imports `RenderBridge`. The Rust/C++ scene renderer is statically linked into the service, not a separate process.
+Live Wallpaper has two processes: the SwiftUI Settings app and the nested background service. The service owns playback, the lock screen, `state.json` and the Unix socket. Settings talks to it over that socket and never imports `SceneBridge`. The Rust scene renderer is statically linked into the service, not a separate process.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the combined process, class, IPC and Rust bridge diagram, state ownership, scene-option mapping and build details.

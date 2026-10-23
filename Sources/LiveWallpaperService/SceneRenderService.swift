@@ -1,220 +1,312 @@
 import AppKit
 import Core
-import RenderBridge
+import IOKit.ps
+import SceneBridge
 
-/// One Rust renderer for this process (WallpaperMachine's core, see docs/render-bridge-notes.md).
-/// Created on first use, after the environment it reads is set.
-@MainActor enum SceneBridge {
-    private static var bridge: WallpaperBridge?
-    private static var bootstrapped = false
+// Scenes on the desktop. Our own renderer (SceneRenderer/, a Rust library) draws them with Metal
+// into the CAMetalLayers of SceneWindowManager's windows.
 
-    static func shared() throws -> WallpaperBridge {
-        if let bridge { return bridge }
-        configureEnvironment()
-        let made = try WallpaperBridge()
-        bridge = made
-        return made
-    }
-
-    /// Runs `bootstrap` once. It also re-opens whatever the renderer had assigned last time.
-    static func bootstrapIfNeeded(_ bridge: WallpaperBridge) async throws {
-        guard !bootstrapped else { return }
-        _ = try await bridge.bootstrap()
-        bootstrapped = true
-    }
-
-    private static func configureEnvironment() {
-        let support = AppPaths.supportDirectory.appendingPathComponent("RenderService", isDirectory: true)
-        setenv("WALLPAPER_MACHINE_SUPPORT_ROOT", support.path, 1)
-        setenv("WALLPAPER_MACHINE_USER_ASSETS_ROOT", support.appendingPathComponent("UserAssets").path, 1)
-        setenv("WALLPAPER_MACHINE_LIBRARY_ROOT", AppPaths.libraryDirectory.path, 1)
-        setenv("WALLPAPER_MACHINE_ASSETS_ROOT", AppPaths.sharedAssetsDirectory.path, 1)
-        // MoltenVK for the Vulkan scene path: the copy shipped inside the bundle (build.sh) when there is one,
-        // else Homebrew's for a dev build.
-        let candidates = [
-            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/MoltenVK_icd.json").path,
-            "/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json",
-        ]
-        if getenv("VK_ICD_FILENAMES") == nil, let icd = candidates.first(where: FileManager.default.fileExists(atPath:)) {
-            setenv("VK_ICD_FILENAMES", icd, 1)
-        }
-    }
+/// One Rust renderer, on its way from the loading thread to the main actor.
+final class RendererBox: @unchecked Sendable {
+    let renderer: Renderer
+    init(_ renderer: Renderer) { self.renderer = renderer }
 }
 
-/// Scenes on the desktop, drawn by the Rust renderer. One scene at a time; all displays show it.
 @MainActor final class SceneRenderService: WallpaperService {
-    static let notConnected = "Scene renderer not connected yet."
-
-    /// Library folder name of the scene (`Library/<id>/project.json`).
-    private var wallpaperID: String?
-    private var displayIDs: [String] = []
+    private var renderer: Renderer?
+    private let windows = SceneWindowManager()
+    private let power = PowerSource()
+    private var audio: AnyObject?   // SystemAudioTap on macOS 14.2+
+    private var pointerMonitor: Any?
     private var muted = true
     private var generation = 0
     private var state = LibraryState()
     // What the renderer has been given so far; nil = nothing yet, so everything is pushed.
     private var appliedScene: SceneOptions?
-    private var appliedPower: PowerOptions?
     private var appliedFPS: Int?
-    private var pushChain: Task<Void, Never>?
+    private var appliedScale: Double?
+    private var appliedPaused: Bool?
+    private var paused = false
+    /// The displays the renderer draws on.
+    private var attached: [String] = []
 
-    /// The Orchestrator's state changed (or a scene is about to start): push only what differs to the running scene.
-    func update(_ state: LibraryState) {
-        self.state = state
-        guard let id = wallpaperID, !displayIDs.isEmpty, item != nil else { return }
-        push(id)
-    }
-
-    private var sceneOptions: SceneOptions { item.flatMap { state.sceneOptions[$0.id.uuidString] } ?? .standard }
-
-    /// Sends the settings that changed since the last push. Calls are chained so two quick edits keep their order,
-    /// and every bridge call is `try?`: a refused setting must not stop the others or the scene.
-    private func push(_ id: String) {
-        let new = sceneOptions, power = state.power, fps = new.fps ?? state.sceneFPS
-        let oldScene = appliedScene, oldPower = appliedPower, oldFPS = appliedFPS
-        appliedScene = new; appliedPower = power; appliedFPS = fps
-        let displays = displayIDs
-        let previous = pushChain
-        pushChain = Task { @MainActor in
-            await previous?.value
-            guard let bridge = try? SceneBridge.shared() else { return }
-            // Global (all scenes, all displays). Battery rule: the renderer watches the power source itself.
-            if power != oldPower {
-                _ = try? await bridge.setFrameRateCap(cap: power.frameRateCap.map { UInt32(max($0, 1)) })
-                _ = try? await bridge.setSceneOptimizationEnabled(enabled: power.skipRepeatedFrames)
-                _ = try? await bridge.setSceneOnDemandEnabled(enabled: power.renderOnlyOnChange)
-                _ = try? await bridge.setBatteryQualityProfile(renderScale: Float(power.batteryRenderScale), targetFps: UInt32(power.batteryFPS))
-                _ = try? await bridge.setBatteryMode(mode: power.batteryMode.bridge)
-            }
-            // shortcut: the bridge has one render scale for all scenes; only one scene runs at a time, so this is the scene's.
-            if new.renderScale != oldScene?.renderScale { _ = try? await bridge.setRenderScale(scale: Float(new.renderScale)) }
-            for display in displays {
-                if new.fitMode != oldScene?.fitMode {
-                    _ = try? await bridge.setScalingMode(wallpaperId: id, displayId: display, mode: new.fitMode.bridge)
-                }
-                if new.panX != oldScene?.panX || new.panY != oldScene?.panY {
-                    _ = try? await bridge.setDisplayPosition(wallpaperId: id, displayId: display, panX: new.panX, panY: new.panY)
-                }
-                if new.zoom != oldScene?.zoom { _ = try? await bridge.editScalingFactor(wallpaperId: id, displayId: display, factor: new.zoom) }
-                if fps != oldFPS { _ = try? await bridge.setTargetFps(wallpaperId: id, displayId: display, fps: UInt32(fps)) }
-            }
-            if new.volume != oldScene?.volume { _ = try? await bridge.setVolume(wallpaperId: id, volume: Float(new.volume)) }
-            if new.audioResponse != oldScene?.audioResponse {
-                _ = try? await bridge.setAudioResponseEnabled(wallpaperId: id, enabled: new.audioResponse)
-            }
-            var draft = new.zoom != oldScene?.zoom
-            for (key, value) in new.properties where oldScene?.properties[key] != value {
-                _ = try? await bridge.editProperty(wallpaperId: id, propertyId: key, value: value.bridge)
-                draft = true
-            }
-            if draft { _ = try? await bridge.applyWallpaperOptions(wallpaperId: id, userInitiated: false) }
+    override init() {
+        super.init()
+        power.onChange = { [weak self] in
+            guard let self, let item = self.item, self.renderer != nil else { return }
+            self.push(item)
         }
     }
 
+    /// The Orchestrator's state changed (or a scene is about to start): push only what differs.
+    func update(_ state: LibraryState) {
+        self.state = state
+        guard renderer != nil, let item else { return }
+        push(item)
+    }
+
     override func start(_ item: VideoItem) {
+        stopRenderer()
         super.start(item)
         generation += 1
         let mine = generation
-        appliedScene = nil; appliedPower = nil; appliedFPS = nil
-        let id = item.url.deletingLastPathComponent().lastPathComponent
-        wallpaperID = id
-        Task { @MainActor [weak self] in
-            guard let self else { return }
+        // Loading a scene takes a moment, so it happens off the main actor.
+        let path = item.url.path
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let box: Result<RendererBox, Swift.Error>
             do {
-                let bridge = try SceneBridge.shared()
-                try await SceneBridge.bootstrapIfNeeded(bridge)
-                let selection = try await bridge.selectWallpaper(id: id)
-                guard let options = selection.wallpaperOptions, options.supported else {
-                    return self.failed(mine, item, "This scene isn’t supported yet.")
-                }
-                let displays = options.displayConfigurations.map(\.displayId)
-                for display in displays {
-                    _ = try await bridge.setDisplayConfigEnabled(wallpaperId: id, displayId: display, enabled: true)
-                }
-                _ = try await bridge.applyWallpaperOptions(wallpaperId: id, userInitiated: true)
-                guard mine == self.generation else { return }   // another item was chosen meanwhile
-                self.displayIDs = displays
-                let muted = self.muted
-                _ = try await bridge.setMuted(wallpaperId: id, muted: muted)
-                self.push(id)
-                self.onReady?(item)
+                box = .success(RendererBox(try Renderer(pkgPath: path)))
             } catch {
-                self.failed(mine, item, "Couldn’t play “\(item.name)”. \(error.localizedDescription)")
+                box = .failure(error)
             }
+            await MainActor.run { [weak self] in
+                self?.loaded(box, item: item, mine: mine)
+            }
+        }
+    }
+
+    private func loaded(_ result: Result<RendererBox, Swift.Error>, item: VideoItem, mine: Int) {
+        guard mine == generation else { return }
+        switch result {
+        case .failure(let error):
+            super.stop()
+            onFailure?(item, "Couldn’t play “\(item.name)”. \(error.localizedDescription)")
+        case .success(let box):
+            let renderer = box.renderer
+            self.renderer = renderer
+            for message in renderer.loadErrors() {
+                NSLog("LiveWallpaper: \(item.name): \(message)")
+            }
+            for display in windows.displays() {
+                let pointer = UInt64(UInt(bitPattern: Unmanaged.passUnretained(display.layer).toOpaque()))
+                renderer.attachLayer(displayId: display.id, layerPtr: pointer,
+                                     width: UInt32(display.pixelWidth), height: UInt32(display.pixelHeight))
+                attached.append(display.id)
+            }
+            renderer.setMuted(muted: muted)
+            startPointer()
+            push(item)
+            onReady?(item)
         }
     }
 
     override func stop() {
-        generation += 1
-        let id = wallpaperID
-        let displays = displayIDs
-        wallpaperID = nil
-        displayIDs = []
-        appliedScene = nil; appliedPower = nil; appliedFPS = nil
         super.stop()
-        guard let id else { return }
-        Task { @MainActor in
-            guard let bridge = try? SceneBridge.shared() else { return }
-            for display in displays {
-                _ = try? await bridge.ejectWallpaperFromDisplay(displayId: display, wallpaperId: id)
-            }
+        generation += 1
+        stopRenderer()
+        windows.close()
+    }
+
+    private func stopRenderer() {
+        stopPointer()
+        for id in attached {
+            renderer?.detachLayer(displayId: id)
+        }
+        attached = []
+        renderer?.stop()
+        renderer = nil
+        setAudioCapture(false)
+        appliedScene = nil
+        appliedFPS = nil
+        appliedScale = nil
+        appliedPaused = nil
+    }
+
+    /// The cursor drives parallax: its position on the main screen goes to the renderer, 0...1 with
+    /// the origin at the top-left. A left press on the bare desktop goes to the scene's scripts, so a
+    /// clock can be dragged.
+    private func startPointer() {
+        guard pointerMonitor == nil else { return }
+        pointerMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .leftMouseDown, .leftMouseUp]
+        ) { [weak self] event in
+            // Global monitors run on the main thread.
+            MainActor.assumeIsolated { self?.pointerEvent(event.type) }
         }
     }
 
-    override func setPaused(_ paused: Bool) {
-        // The renderer pauses every display at once; the Orchestrator's pause is global too.
-        Task { @MainActor in
-            guard let bridge = try? SceneBridge.shared() else { return }
-            if paused { _ = try? await bridge.pauseAll() } else { _ = try? await bridge.playAll() }
+    private var pressedOnDesktop = false
+
+    private func pointerEvent(_ type: NSEvent.EventType) {
+        sendPointer()
+        switch type {
+        case .leftMouseDown where Self.isDesktop(at: NSEvent.mouseLocation):
+            pressedOnDesktop = true
+            renderer?.setPointerDown(down: true)
+        case .leftMouseUp where pressedOnDesktop:
+            pressedOnDesktop = false
+            renderer?.setPointerDown(down: false)
+        default:
+            break
         }
+    }
+
+    /// Whether a click at `point` lands on the desktop rather than on some app's window.
+    private static func isDesktop(at point: NSPoint) -> Bool {
+        let number = NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: 0)
+        guard number > 0,
+              let info = CGWindowListCopyWindowInfo(.optionIncludingWindow, CGWindowID(number)) as? [[String: Any]],
+              let level = info.first?[kCGWindowLayer as String] as? Int
+        else { return true }
+        return level <= Int(CGWindowLevelForKey(.desktopIconWindow))
+    }
+
+    private func stopPointer() {
+        if let pointerMonitor { NSEvent.removeMonitor(pointerMonitor) }
+        pointerMonitor = nil
+        pressedOnDesktop = false
+    }
+
+    private func sendPointer() {
+        guard let renderer, let screen = NSScreen.main else { return }
+        let frame = screen.frame
+        let mouse = NSEvent.mouseLocation
+        renderer.setPointer(x: Float((mouse.x - frame.minX) / frame.width),
+                            y: Float(1 - (mouse.y - frame.minY) / frame.height))
+    }
+
+    override func setPaused(_ paused: Bool) {
+        self.paused = paused
+        if let item, renderer != nil { push(item) }
     }
 
     override func setMuted(_ muted: Bool) {
         self.muted = muted
-        guard let id = wallpaperID else { return }
-        Task { @MainActor in
-            guard let bridge = try? SceneBridge.shared() else { return }
-            _ = try? await bridge.setMuted(wallpaperId: id, muted: muted)
+        renderer?.setMuted(muted: muted)
+    }
+
+    /// The lock screen covers the desktop: nothing is drawn and nothing is heard.
+    override func setScreenLocked(_ locked: Bool) {
+        renderer?.setVisible(visible: !locked)
+    }
+
+    /// Sends the settings that changed since the last push. Battery rules apply here: on battery
+    /// (or in Low Power Mode) the scene pauses or runs slower and smaller, as the user chose.
+    private func push(_ item: VideoItem) {
+        guard let renderer else { return }
+        let new = state.sceneOptions[item.id.uuidString] ?? .standard
+        let old = appliedScene
+        let rules = state.power
+        let saving = power.isSaving
+        var fps = new.fps ?? state.sceneFPS
+        var scale = new.renderScale
+        if let cap = rules.frameRateCap { fps = min(fps, max(cap, 1)) }
+        if saving && rules.batteryMode == .reducedQuality {
+            fps = min(fps, rules.batteryFPS)
+            scale = min(scale, rules.batteryRenderScale)
+        }
+        let pause = paused || (saving && rules.batteryMode == .pause)
+
+        if new.fitMode != old?.fitMode {
+            renderer.setFitMode(mode: new.fitMode.renderer)
+        }
+        if new.panX != old?.panX || new.panY != old?.panY || new.zoom != old?.zoom {
+            // The sliders are 0...1 with 0.5 in the middle; the renderer wants the offset.
+            renderer.setPanZoom(panX: Float(new.panX - 0.5), panY: Float(new.panY - 0.5), zoom: Float(new.zoom))
+        }
+        if scale != appliedScale {
+            renderer.setRenderScale(scale: Float(scale))
+        }
+        if new.volume != old?.volume {
+            renderer.setVolume(volume: Float(new.volume))
+        }
+        if new.audioResponse != old?.audioResponse {
+            renderer.setAudioResponse(enabled: new.audioResponse)
+        }
+        for (key, value) in new.properties where old?.properties[key] != value {
+            renderer.applyProperty(name: key, valueJson: value.json)
+        }
+        if fps != appliedFPS {
+            renderer.setFpsCap(fps: Float(fps))
+        }
+        if pause != appliedPaused {
+            if pause { renderer.pause() } else { renderer.play() }
+        }
+        setAudioCapture(new.audioResponse && !pause)
+        appliedScene = new
+        appliedFPS = fps
+        appliedScale = scale
+        appliedPaused = pause
+    }
+
+    /// System audio is captured only while a playing scene asks for audio response.
+    private func setAudioCapture(_ on: Bool) {
+        guard #available(macOS 14.2, *) else { return }
+        if on, audio == nil, let renderer {
+            let tap = SystemAudioTap()
+            tap.onSpectrum = { left, right in renderer.setAudioSpectrum(left: left, right: right) }
+            do {
+                try tap.start()
+                audio = tap
+            } catch {
+                NSLog("LiveWallpaper: audio response unavailable: \(error)")
+            }
+        } else if !on, let tap = audio as? SystemAudioTap {
+            tap.stop()
+            audio = nil
+        }
+    }
+}
+
+/// Whether the Mac runs on battery or in Low Power Mode, with a callback when that changes.
+@MainActor private final class PowerSource {
+    var onChange: (() -> Void)?
+    private(set) var isSaving = PowerSource.current()
+    private var source: CFRunLoopSource?
+    private var token: NSObjectProtocol?
+
+    init() {
+        let context = Unmanaged.passUnretained(self).toOpaque()
+        source = IOPSNotificationCreateRunLoopSource({ context in
+            guard let context else { return }
+            let me = Unmanaged<PowerSource>.fromOpaque(context).takeUnretainedValue()
+            MainActor.assumeIsolated { me.refresh() }
+        }, context)?.takeRetainedValue()
+        if let source { CFRunLoopAddSource(CFRunLoopGetMain(), source, .defaultMode) }
+        token = NotificationCenter.default.addObserver(
+            forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
         }
     }
 
-    private func failed(_ generation: Int, _ item: VideoItem, _ message: String) {
-        guard generation == self.generation else { return }
-        super.stop()
-        wallpaperID = nil
-        displayIDs = []
-        onFailure?(item, message)
+    private func refresh() {
+        let now = Self.current()
+        guard now != isSaving else { return }
+        isSaving = now
+        onChange?()
+    }
+
+    private static func current() -> Bool {
+        if ProcessInfo.processInfo.isLowPowerModeEnabled { return true }
+        guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let type = IOPSGetProvidingPowerSourceType(info)?.takeUnretainedValue() else { return false }
+        return (type as String) == kIOPMBatteryPowerKey
     }
 }
 
 private extension SceneFitMode {
-    var bridge: BridgeScalingMode {
+    var renderer: FitMode {
         switch self {
         case .fill: return .fill
-        case .fit: return .match
+        case .fit: return .fit
         case .stretch: return .stretch
-        case .none: return .none
+        case .none: return .unscaled
         case .matchBlurred: return .matchBlurred
         }
     }
 }
 
-private extension BatteryMode {
-    var bridge: BridgeBatteryMode {
+extension ScenePropertyValue {
+    /// The renderer takes JSON: a number, a string or "r g b" for a colour.
+    var json: String {
         switch self {
-        case .keepRunning: return .keepRunning
-        case .reducedQuality: return .reducedQuality
-        case .pause: return .pause
-        }
-    }
-}
-
-private extension ScenePropertyValue {
-    var bridge: BridgePropertyValue {
-        switch self {
-        case .bool(let v): return .bool(value: v)
-        case .number(let v): return .number(value: v)
-        case .string(let v): return .string(value: v)
-        case .color(let r, let g, let b): return .colorRgb(red: r, green: g, blue: b)
+        case .bool(let v): return v ? "true" : "false"
+        case .number(let v): return String(v)
+        case .string(let v):
+            let data = try? JSONSerialization.data(withJSONObject: v, options: .fragmentsAllowed)
+            return data.flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
+        case .color(let r, let g, let b): return "\"\(r) \(g) \(b)\""
         }
     }
 }

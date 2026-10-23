@@ -258,8 +258,6 @@ public struct LibraryState: Codable, Equatable, Sendable {
             guard sameForBoth else { return lock }
             var shared = desktop
             shared.enabled = lock.enabled
-            // Scenes never go on the lock screen: while the desktop shows one, the lock screen keeps its own video.
-            if isScene(desktop.selectedID) { shared.selectedID = lock.selectedID }
             return shared
         }
     }
@@ -271,15 +269,10 @@ public struct LibraryState: Codable, Equatable, Sendable {
     }
 
     /// The items `target` rotates through: the playlist (ids that no longer exist are skipped) or the library.
-    /// The lock screen only takes videos: a scene is rendered live and cannot be turned into a lock screen.
+    /// A scene on the lock screen is rendered into a video loop by the service first.
     public func items(for target: WallpaperTarget) -> [VideoItem] {
-        let all: [VideoItem]
-        if let ids = config(for: target).playlist {
-            all = ids.compactMap { id in videos.first { $0.id == id } }
-        } else {
-            all = videos
-        }
-        return target == .lock ? all.filter { !$0.isScene } : all
+        guard let ids = config(for: target).playlist else { return videos }
+        return ids.compactMap { id in videos.first { $0.id == id } }
     }
 
     public func selectedItem(for target: WallpaperTarget) -> VideoItem? {
@@ -300,7 +293,7 @@ public struct LibraryState: Codable, Equatable, Sendable {
     /// The targets for which `id` is the selected item and the target is enabled (drives the role badges).
     public func targets(of id: UUID) -> Set<WallpaperTarget> {
         Set(WallpaperTarget.allCases.filter {
-            isEnabled($0) && config(for: $0).selectedID == id && !($0 == .lock && isScene(id))
+            isEnabled($0) && config(for: $0).selectedID == id
         })
     }
 
@@ -317,18 +310,15 @@ public struct LibraryState: Codable, Equatable, Sendable {
     public mutating func normalize() {
         guard sameForBoth else { return }
         let enabled = lock.enabled
-        let ownLockSelection = lock.selectedID
         lock = desktop
         lock.enabled = enabled
-        if isScene(desktop.selectedID) { lock.selectedID = ownLockSelection }   // scenes stay off the lock screen
     }
 
     /// "Set as Desktop / Lock Screen / Both". Selecting the item for one target only turns "same for both" off
     /// (the other target keeps what it had); selecting it for both turns it on. The chosen
     /// targets are enabled. An id that is not in the library is ignored.
     public mutating func assign(_ id: UUID, to requested: Set<WallpaperTarget>) {
-        var targets = requested
-        if isScene(id) { targets.remove(.lock) }   // scenes cannot be a lock screen; use a video for that
+        let targets = requested
         guard !targets.isEmpty, videos.contains(where: { $0.id == id }) else { return }
         if targets.count == 1, sameForBoth {
             normalize()
@@ -351,7 +341,7 @@ public struct LibraryState: Codable, Equatable, Sendable {
 
     public var selectedID: UUID? {
         get { desktop.selectedID }
-        set { desktop.selectedID = newValue; if sameForBoth, !isScene(newValue) { lock.selectedID = newValue } }
+        set { desktop.selectedID = newValue; if sameForBoth { lock.selectedID = newValue } }
     }
     public var rotateEnabled: Bool {
         get { desktop.rotateEnabled }

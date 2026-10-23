@@ -39,14 +39,16 @@ public struct ServiceStatus: Codable, Equatable, Sendable {
     public var stateRevision: Int         // revision of state.json the service last wrote or loaded
     public var muted: Bool
     public var message: String?           // latest user-facing message (e.g. "Couldn't play …")
+    public var lockBusy: Bool?            // a lock screen video is being rendered or installed (nil from older services)
 
     public init(playback: Playback = .stopped, slots: [Slot] = [], stateRevision: Int = 0, muted: Bool = true,
-                message: String? = nil) {
+                message: String? = nil, lockBusy: Bool? = nil) {
         self.playback = playback
         self.slots = slots
         self.stateRevision = stateRevision
         self.muted = muted
         self.message = message
+        self.lockBusy = lockBusy
     }
 
     public func slot(_ target: WallpaperTarget) -> Slot? { slots.first { $0.target == target } }

@@ -70,8 +70,8 @@ import SceneFormat
     }
     /// The item the lock screen channel currently shows (the desktop one is `currentID`).
     var lockID: VideoItem.ID? { serviceStatus?.slot(.lock)?.itemID }
-    // shortcut: ServiceStatus carries no scene->lock render progress yet; the UI shows none until it does.
-    var lockBusy: Bool { false }
+    // shortcut: ServiceStatus says only that a lock video is being made, not how far along; add progress if renders get slow.
+    var lockBusy: Bool { serviceStatus?.lockBusy ?? false }
     var lockRender: LockRenderStatus? { nil }
     var statusMessage: String? {
         localMessage ?? serviceStatus?.message ?? serviceStatus?.slots.compactMap(\.error).first
@@ -241,11 +241,10 @@ import SceneFormat
     func stop() { send(.stop) }
 
     /// Starts only `id`, on the targets it is assigned to (desktop, lock screen or both). A wallpaper that is not
-    /// assigned anywhere starts on the desktop. Scenes never go to the lock screen.
+    /// assigned anywhere starts on the desktop.
     func startOnly(_ id: VideoItem.ID) {
-        guard let item = videos.first(where: { $0.id == id }) else { return }
+        guard videos.contains(where: { $0.id == id }) else { return }
         var targets = roles(of: id)
-        if item.isScene { targets.remove(.lock) }
         if targets.isEmpty { targets = [.desktop] }
         play(id, target: targets.count == WallpaperTarget.allCases.count ? nil : targets.first)
     }

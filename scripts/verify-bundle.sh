@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Checks the layout of an assembled LiveWallpaper.app: the settings app and its background service, executables,
-# ids, matching versions, ad-hoc signatures that verify, bundled renderer libraries and no Homebrew load paths.
+# ids, matching versions, ad-hoc signatures that verify, the linked scene renderer and no Homebrew load paths.
 # Used by build.yml and release.yml.
 #   scripts/verify-bundle.sh [path/to/LiveWallpaper.app] [expected-version]
 set -euo pipefail
@@ -34,16 +34,22 @@ fi
 codesign --verify --strict --deep "$APP" || fail "codesign verify (app)"
 codesign --verify --strict "$SERVICE" || fail "codesign verify (service)"
 
-# The renderer's Homebrew dylibs and MoltenVK must be inside the bundle, or the app only runs on a Mac that
-# happens to have Homebrew.
-FRAMEWORKS="$SERVICE/Contents/Frameworks"
-test -f "$FRAMEWORKS/libMoltenVK.dylib" || fail "missing bundled libMoltenVK.dylib"
-test -f "$SERVICE/Contents/Resources/MoltenVK_icd.json" || fail "missing bundled MoltenVK_icd.json"
-test -n "$(ls "$FRAMEWORKS"/lib*.dylib 2>/dev/null)" || fail "no bundled renderer libraries"
+# Anything loaded from Homebrew would only run on a Mac that happens to have it.
 if otool -L "$SERVICE/Contents/MacOS/LiveWallpaperService" | grep -Eq '/opt/homebrew|/usr/local/(opt|Cellar)'; then
   otool -L "$SERVICE/Contents/MacOS/LiveWallpaperService" | grep -E '/opt/homebrew|/usr/local/(opt|Cellar)' >&2
   fail "the service still loads dylibs from Homebrew (not distributable)"
 fi
+
+# The scene renderer (SceneRenderer/) is a static library, so it leaves no dylib to check. Its UniFFI
+# entry points are prefixed; release builds may strip the symbol table, so fall back to strings.
+SERVICE_BIN="$SERVICE/Contents/MacOS/LiveWallpaperService"
+# grep -c reads to the end: with pipefail, grep -q would stop early and fail the pipe with SIGPIPE.
+if ! nm "$SERVICE_BIN" 2>/dev/null | grep -c 'uniffi_scene_renderer' >/dev/null; then
+  if ! strings -a "$SERVICE_BIN" | grep -c 'uniffi_scene_renderer' >/dev/null; then
+    fail "the service does not contain SceneRenderer (no uniffi_scene_renderer symbols)"
+  fi
+fi
+echo "--- SceneRenderer linked into the service ---"
 
 echo "--- version $V_APP ---"
 for bin in "$APP/Contents/MacOS/LiveWallpaper" "$SERVICE/Contents/MacOS/LiveWallpaperService"; do
