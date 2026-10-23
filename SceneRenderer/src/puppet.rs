@@ -19,6 +19,7 @@
 //!       ..  28 zero bytes
 //!       ..  u32 vertex_flags (0x0180_000f observed), u32 vertex_bytes
 //!       ..  vertex_bytes / 80 vertices, 80 bytes each:
+//!             (the layout below is the 80-byte one; the flags word is an attribute mask, see `Attributes`)
 //!             +0  position xyz (3 f32)
 //!             +12 normal xyz (3 f32)
 //!             +24 tangent xyzw (4 f32)
@@ -96,10 +97,11 @@
 //! has `duration_frames + 1` keyframes per track, and only the Z rotation was non-zero. The
 //! rotation order is unconfirmed; the values are exposed as-is.
 //!
-//! Animations after the first are preceded by a 39-byte block: 28 zero bytes, an unexplained f32
-//! (0.5, 8, 128 or -0.5 in the observed files), a u32 0 and 3 zero bytes. The parser skips it.
-//! Animation ids are `first_animation_id + 2 * index`; this matches the `animationlayers` entries
-//! in both scenes (61/63/65/67, 87, 189/191 and 346).
+//! Every animation record starts with its id (u32) and a zero word, then the name. The id is what
+//! a scene's `animationlayers[].animation` refers to; it is stored, not computed (`61, 63, 65, 67`
+//! in one file, `107, 122, 391, 704, 131` in another). What lies between two records differs
+//! between files (39 bytes in some, extra curve data in others), so the parser finds the next
+//! record by checking that a whole one parses there.
 //!
 //! After the last track there are 31 bytes before the next-chunk offset (32 bytes at the end of a
 //! file without an `MDLE` chunk). `MDLE0002` is an end marker; files without it store `len - 1`
@@ -108,17 +110,78 @@
 use crate::vfs::Reader;
 use crate::Error;
 
-const MESH_TAG: &[u8] = b"MDLV0023";
-const SKELETON_TAG: &[u8] = b"MDLS0004\0";
-const ATTACHMENT_TAG: &[u8] = b"MDAT0001\0";
-const ANIMATION_TAG: &[u8] = b"MDLA0006\0";
-/// Older chunk versions with the same field layout as the tags above, checked against the
-/// `MDLV0019` models of a local scene (Red Warbler: katana, crane, ornaments).
-const OLDER_TAGS: &[&[u8]] = &[b"MDLV0019", b"MDLS0002\0", b"MDLA0005\0"];
+/// Chunks are matched by kind and version: `MDLV` mesh, `MDLS` skeleton, `MDAT` attachments and
+/// `MDLA` animations. Every version seen in local scenes (`MDLV0017`/`0019`/`0021`/`0023`,
+/// `MDLS0002`/`0004`, `MDLA0005`/`0006`) shares the field layout below, so a new version number
+/// needs no code. The vertex layout comes from the attribute mask, see `Attributes`.
+const MESH_KIND: &[u8; 4] = b"MDLV";
+const SKELETON_KIND: &[u8; 4] = b"MDLS";
+const ATTACHMENT_KIND: &[u8; 4] = b"MDAT";
+const ANIMATION_KIND: &[u8; 4] = b"MDLA";
 
-const VERTEX_STRIDE: usize = 80;
+/// The vertex flags word of the mesh chunk is an attribute mask. A vertex stores the attributes
+/// whose bit is set, in this order: position, normal, tangent, bone indices, bone weights, uv.
+/// Sizes in bytes: position 12 (bit 0) or 16 (bit 16, a fourth float we drop), normal 12 (bit 1),
+/// tangent 16 (bit 2), uv 8 (bit 3), bone indices 16 (bit 23), bone weights 16 (bit 24).
+/// Checked against all 30 local meshes (flags `0xf` = 48 bytes, `0x0180000f` = 80,
+/// `0x0181000e` = 84); the format is not documented anywhere we could find.
+const ATTR_POSITION: u32 = 1 << 0;
+const ATTR_NORMAL: u32 = 1 << 1;
+const ATTR_TANGENT: u32 = 1 << 2;
+const ATTR_UV: u32 = 1 << 3;
+const ATTR_POSITION4: u32 = 1 << 16;
+const ATTR_BONES: u32 = 1 << 23;
+const ATTR_WEIGHTS: u32 = 1 << 24;
+const ATTR_KNOWN: u32 = ATTR_POSITION
+    | ATTR_NORMAL
+    | ATTR_TANGENT
+    | ATTR_UV
+    | ATTR_POSITION4
+    | ATTR_BONES
+    | ATTR_WEIGHTS;
+
+#[derive(Clone, Copy)]
+struct Attributes(u32);
+
+impl Attributes {
+    fn from_flags(flags: u32) -> Result<Self, Error> {
+        let skin = flags & (ATTR_BONES | ATTR_WEIGHTS);
+        if flags & !ATTR_KNOWN != 0
+            || flags & (ATTR_POSITION | ATTR_POSITION4) == 0
+            || (skin != 0 && skin != ATTR_BONES | ATTR_WEIGHTS)
+        {
+            return Err(Error::Unsupported(format!(
+                "puppet: vertex attribute flags 0x{flags:x} are not understood"
+            )));
+        }
+        Ok(Self(flags))
+    }
+
+    fn has(self, bit: u32) -> bool {
+        self.0 & bit != 0
+    }
+
+    fn skinned(self) -> bool {
+        self.has(ATTR_BONES)
+    }
+
+    fn stride(self) -> usize {
+        [
+            (ATTR_POSITION, 12),
+            (ATTR_POSITION4, 16),
+            (ATTR_NORMAL, 12),
+            (ATTR_TANGENT, 16),
+            (ATTR_UV, 8),
+            (ATTR_BONES, 16),
+            (ATTR_WEIGHTS, 16),
+        ]
+        .iter()
+        .filter(|(bit, _)| self.has(*bit))
+        .map(|(_, size)| size)
+        .sum()
+    }
+}
 const KEYFRAME_SIZE: usize = 9 * 4;
-const ANIMATION_SEPARATOR: usize = 39;
 
 const MAX_STRING: usize = 4096;
 const MAX_VERTICES: usize = 4_000_000;
@@ -272,9 +335,12 @@ impl Puppet {
     /// optional attachments and animations are followed through their next-chunk offsets.
     pub fn parse(data: &[u8]) -> Result<Self, Error> {
         let mesh = parse_mesh(data)?;
-        let skeleton_off = find_tag(data, mesh.end, SKELETON_TAG).ok_or_else(|| {
+        if !mesh.skinned {
+            return Ok(Self::unskinned(mesh));
+        }
+        let skeleton_off = find_chunk(data, mesh.end, SKELETON_KIND).ok_or_else(|| {
             bad(format!(
-                "no skeleton chunk (MDLS0004) after the mesh at 0x{:x}",
+                "no skeleton chunk (MDLS) after the mesh at 0x{:x}",
                 mesh.end
             ))
         })?;
@@ -300,7 +366,7 @@ impl Puppet {
         );
 
         let mut attachments = Vec::new();
-        if tag_at(data, next, ATTACHMENT_TAG) {
+        if chunk_at(data, next, ATTACHMENT_KIND) {
             let (parsed, after) = parse_attachments(data, next)?;
             attachments = parsed;
             next = after;
@@ -308,7 +374,7 @@ impl Puppet {
 
         let mut animations = Vec::new();
         let mut first_animation_id = 0;
-        if tag_at(data, next, ANIMATION_TAG) {
+        if chunk_at(data, next, ANIMATION_KIND) {
             let (parsed, first, _) = parse_animations(data, next, bones.len())?;
             animations = parsed;
             first_animation_id = first;
@@ -327,16 +393,45 @@ impl Puppet {
     }
 }
 
+impl Puppet {
+    /// A mesh without a skeleton: one identity bone that every vertex follows fully.
+    fn unskinned(mesh: Mesh) -> Self {
+        let identity = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
+        let segments = vec![Segment {
+            first_index: 0,
+            index_count: mesh.indices.len() as u32,
+            bone: 0,
+        }];
+        Self {
+            material: mesh.material,
+            vertices: mesh.vertices,
+            indices: mesh.indices,
+            segments,
+            bones: vec![Bone { local: identity, ..Bone::default() }],
+            attachments: Vec::new(),
+            animations: Vec::new(),
+            first_animation_id: 0,
+        }
+    }
+}
+
 struct Mesh {
     material: String,
     vertices: Vec<Vertex>,
     indices: Vec<u16>,
     end: usize,
+    skinned: bool,
 }
 
 fn parse_mesh(data: &[u8]) -> Result<Mesh, Error> {
     let mut r = Reader::new(data);
-    read_tag(&mut r, MESH_TAG)?;
+    // The mesh chunk has no NUL after its tag; the format word that follows starts with 0x00.
+    read_chunk(&mut r, MESH_KIND, false)?;
 
     let _format = r.u32()?;
     let _format2 = r.u32()?;
@@ -350,16 +445,18 @@ fn parse_mesh(data: &[u8]) -> Result<Mesh, Error> {
 
     let material =
         String::from_utf8_lossy(cstring(&mut r, MAX_STRING, "material path")?).into_owned();
-    read_zeros(&mut r, 28, "after the material path")?;
+    // 28 bytes, zero in most files; one file family stores a value in them, which is not read.
+    let _ = r.bytes(28)?;
 
-    let _vertex_flags = r.u32()?;
+    let attributes = Attributes::from_flags(r.u32()?)?;
+    let stride = attributes.stride();
     let vertex_bytes = r.u32()? as usize;
-    if !vertex_bytes.is_multiple_of(VERTEX_STRIDE) {
+    if !vertex_bytes.is_multiple_of(stride) {
         return Err(bad(format!(
-            "vertex byte count {vertex_bytes} is not a multiple of {VERTEX_STRIDE}"
+            "vertex byte count {vertex_bytes} is not a multiple of {stride}"
         )));
     }
-    let vertex_count = vertex_bytes / VERTEX_STRIDE;
+    let vertex_count = vertex_bytes / stride;
     if vertex_count > MAX_VERTICES {
         return Err(bad(format!("vertex count {vertex_count} is too large")));
     }
@@ -367,31 +464,47 @@ fn parse_mesh(data: &[u8]) -> Result<Mesh, Error> {
     let mut vertices = Vec::with_capacity(vertex_count);
     for _ in 0..vertex_count {
         let position = read_vec3(&mut r, "vertex position")?;
-        let normal = read_vec3(&mut r, "vertex normal")?;
-        let tangent = read_vec4(&mut r, "vertex tangent")?;
+        if attributes.has(ATTR_POSITION4) {
+            let _ = finite_f32(&mut r, "vertex position w")?;
+        }
+        let normal = if attributes.has(ATTR_NORMAL) {
+            read_vec3(&mut r, "vertex normal")?
+        } else {
+            [0.0, 0.0, 1.0]
+        };
+        let tangent = if attributes.has(ATTR_TANGENT) {
+            read_vec4(&mut r, "vertex tangent")?
+        } else {
+            [1.0, 0.0, 0.0, 1.0]
+        };
 
         let mut bone_indices = [0u16; 4];
-        for bone in &mut bone_indices {
-            let at = r.pos;
-            let value = r.u32()?;
-            *bone = u16::try_from(value).map_err(|_| {
-                bad(format!(
-                    "bone index {value} at 0x{at:x} does not fit in u16"
-                ))
-            })?;
-        }
-
-        let mut bone_weights = [0.0f32; 4];
-        for weight in &mut bone_weights {
-            let at = r.pos;
-            let value = finite_f32(&mut r, "bone weight")?;
-            if value < 0.0 {
-                return Err(bad(format!("negative bone weight {value} at 0x{at:x}")));
+        let mut bone_weights = [1.0, 0.0, 0.0, 0.0];
+        if attributes.skinned() {
+            for bone in &mut bone_indices {
+                let at = r.pos;
+                let value = r.u32()?;
+                *bone = u16::try_from(value).map_err(|_| {
+                    bad(format!(
+                        "bone index {value} at 0x{at:x} does not fit in u16"
+                    ))
+                })?;
             }
-            *weight = value;
+            for weight in &mut bone_weights {
+                let at = r.pos;
+                let value = finite_f32(&mut r, "bone weight")?;
+                if value < 0.0 {
+                    return Err(bad(format!("negative bone weight {value} at 0x{at:x}")));
+                }
+                *weight = value;
+            }
         }
 
-        let uv = read_vec2(&mut r, "vertex uv")?;
+        let uv = if attributes.has(ATTR_UV) {
+            read_vec2(&mut r, "vertex uv")?
+        } else {
+            [0.0, 0.0]
+        };
         vertices.push(Vertex {
             position,
             normal,
@@ -430,13 +543,14 @@ fn parse_mesh(data: &[u8]) -> Result<Mesh, Error> {
         vertices,
         indices,
         end: r.pos,
+        skinned: attributes.skinned(),
     })
 }
 
 fn parse_skeleton(data: &[u8], off: usize) -> Result<(Vec<Bone>, usize), Error> {
     let mut r = Reader::new(data);
     r.pos = off;
-    read_tag(&mut r, SKELETON_TAG)?;
+    read_chunk(&mut r, SKELETON_KIND, true)?;
 
     let next = r.u32()? as usize;
     if next <= off || next > data.len() {
@@ -509,7 +623,7 @@ fn parse_skeleton(data: &[u8], off: usize) -> Result<(Vec<Bone>, usize), Error> 
 fn parse_attachments(data: &[u8], off: usize) -> Result<(Vec<Attachment>, usize), Error> {
     let mut r = Reader::new(data);
     r.pos = off;
-    read_tag(&mut r, ATTACHMENT_TAG)?;
+    read_chunk(&mut r, ATTACHMENT_KIND, true)?;
 
     let next = r.u32()? as usize;
     if next <= off || next > data.len() {
@@ -563,7 +677,7 @@ fn parse_animations(
 ) -> Result<(Vec<Animation>, u32, usize), Error> {
     let mut r = Reader::new(data);
     r.pos = off;
-    read_tag(&mut r, ANIMATION_TAG)?;
+    read_chunk(&mut r, ANIMATION_KIND, true)?;
 
     let next = r.u32()? as usize;
     if next <= off || next > data.len() {
@@ -587,118 +701,139 @@ fn parse_animations(
     let mut animations = Vec::with_capacity(count);
     let mut cursor = r.pos;
     for index in 0..count {
-        if index != 0 {
-            let separator_at = cursor;
-            let separator_end = separator_at
-                .checked_add(ANIMATION_SEPARATOR)
-                .ok_or_else(|| bad("animation separator offset overflow"))?;
-            let separator = data.get(separator_at..separator_end).ok_or_else(|| {
-                bad(format!(
-                    "truncated animation separator at 0x{separator_at:x}"
-                ))
-            })?;
-            // Only the leading padding is checked: some files set a flag byte in the tail (seen as
-            // 0x01 at byte 32 in Wallpaper Engine's own puppets), and the next name still starts at 39.
-            if separator[..28].iter().any(|&b| b != 0) {
-                return Err(bad(format!(
-                    "unexpected animation separator at 0x{separator_at:x}"
-                )));
-            }
-            cursor = separator_end;
-        }
+        // What lies between two animation records differs between files (a fixed 39-byte block in
+        // some, extra curve data in others), so the next record is the first position after the
+        // previous one at which a whole animation parses.
+        let raw = if index == 0 {
+            parse_animation_at(data, cursor, bone_count)?
+        } else {
+            let stop = next.min(data.len());
+            (cursor..stop)
+                .find_map(|at| parse_animation_at(data, at, bone_count).ok())
+                .ok_or_else(|| {
+                    bad(format!(
+                        "no animation {index} record after 0x{cursor:x} in the chunk ending at 0x{next:x}"
+                    ))
+                })?
+        };
 
-        r.pos = cursor;
-        let name =
-            String::from_utf8_lossy(cstring(&mut r, MAX_STRING, "animation name")?).into_owned();
-        let flag =
-            String::from_utf8_lossy(cstring(&mut r, MAX_STRING, "animation flag")?).into_owned();
-
-        let fps = finite_f32(&mut r, "animation fps")?;
-        if !(0.0..=1000.0).contains(&fps) || fps == 0.0 {
-            return Err(bad(format!("animation {index} has invalid fps {fps}")));
-        }
-
-        let duration_frames = r.u32()?;
-        let reserved1_at = r.pos;
-        if r.u32()? != 0 {
-            return Err(bad(format!(
-                "animation {index} padding at 0x{reserved1_at:x} is not 0"
-            )));
-        }
-
-        let track_count = r.u32()? as usize;
-        if track_count != bone_count {
-            return Err(bad(format!(
-                "animation {index} has {track_count} tracks, but the skeleton has {bone_count} bones"
-            )));
-        }
-
-        let reserved2_at = r.pos;
-        if r.u32()? != 0 {
-            return Err(bad(format!(
-                "animation {index} padding at 0x{reserved2_at:x} is not 0"
-            )));
-        }
-
-        let first_track_bytes = r.u32()? as usize;
-        let mut tracks = Vec::with_capacity(track_count);
-        for track_index in 0..track_count {
-            let size = if track_index == 0 {
-                first_track_bytes
-            } else {
-                let at = r.pos;
-                let size = r.u32()? as usize;
-                if size == 0 {
-                    return Err(bad(format!(
-                        "animation {index} track {track_index} at 0x{at:x} has size 0"
-                    )));
-                }
-                size
-            };
-            let frame_count = keyframe_count(size, "track")?;
-
-            let mut keyframes = Vec::with_capacity(frame_count);
-            for _ in 0..frame_count {
-                keyframes.push(read_transform(&mut r)?);
-            }
-
-            let pad_at = r.pos;
-            if r.u32()? != 0 {
-                return Err(bad(format!(
-                    "animation {index} track {track_index} padding at 0x{pad_at:x} is not 0"
-                )));
-            }
-            tracks.push(Track {
-                bone: track_index,
-                keyframes,
-            });
-        }
-
-        let step = u32::try_from(index)
-            .ok()
-            .and_then(|value| value.checked_mul(2))
-            .ok_or_else(|| bad("animation id overflow"))?;
-        let id = first_id
-            .checked_add(step)
-            .ok_or_else(|| bad("animation id overflow"))?;
-        animations.push(Animation {
-            id,
-            name,
-            flag,
-            fps,
-            duration_frames,
-            tracks,
-        });
-
-        cursor = r.pos;
+        let id = raw.id;
+        cursor = raw.end;
         if cursor > next {
             return Err(bad(format!(
                 "animation {index} ends at 0x{cursor:x}, past the animation chunk end at 0x{next:x}"
             )));
         }
+        animations.push(Animation {
+            id,
+            name: raw.name,
+            flag: raw.flag,
+            fps: raw.fps,
+            duration_frames: raw.duration_frames,
+            tracks: raw.tracks,
+        });
     }
 
     Ok((animations, first_id, next))
+}
+
+struct RawAnimation {
+    /// The id the scene's animation layers refer to, stored just before the name.
+    id: u32,
+    name: String,
+    flag: String,
+    fps: f32,
+    duration_frames: u32,
+    tracks: Vec<Track>,
+    end: usize,
+}
+
+/// Parses one animation record starting at `at`: name, play mode, fps, frame count and one track
+/// per bone. The header is checked tightly (a readable name, a known play mode, a sane fps and one
+/// track per bone) so a wrong position is rejected at once.
+fn parse_animation_at(data: &[u8], at: usize, bone_count: usize) -> Result<RawAnimation, Error> {
+    // Each record starts with its id and a zero word, then the name. The ids are not a simple
+    // sequence (`122, 391, 704` in one file), so the stored one is what the scene refers to.
+    let id = at
+        .checked_sub(8)
+        .and_then(|p| u32_at(data, p))
+        .filter(|_| at.checked_sub(4).and_then(|p| u32_at(data, p)) == Some(0))
+        .ok_or_else(|| bad(format!("no animation id before 0x{at:x}")))?;
+    let mut r = Reader::new(data);
+    r.pos = at;
+    let name_bytes = cstring(&mut r, 256, "animation name")?;
+    let flag_bytes = cstring(&mut r, 16, "animation flag")?;
+    if name_bytes.is_empty()
+        || name_bytes.iter().any(|b| b.is_ascii_control())
+        || !matches!(flag_bytes, b"loop" | b"mirror" | b"single")
+    {
+        return Err(bad(format!("no animation header at 0x{at:x}")));
+    }
+    let name = String::from_utf8_lossy(name_bytes).into_owned();
+    let flag = String::from_utf8_lossy(flag_bytes).into_owned();
+
+    let fps = finite_f32(&mut r, "animation fps")?;
+    if !(0.0..=1000.0).contains(&fps) || fps == 0.0 {
+        return Err(bad(format!("animation at 0x{at:x} has invalid fps {fps}")));
+    }
+
+    let duration_frames = r.u32()?;
+    if r.u32()? != 0 {
+        return Err(bad(format!("animation at 0x{at:x}: padding is not 0")));
+    }
+    let track_count = r.u32()? as usize;
+    if track_count != bone_count {
+        return Err(bad(format!(
+            "animation at 0x{at:x} has {track_count} tracks, but the skeleton has {bone_count} bones"
+        )));
+    }
+    if r.u32()? != 0 {
+        return Err(bad(format!("animation at 0x{at:x}: padding is not 0")));
+    }
+
+    let first_track_bytes = r.u32()? as usize;
+    let mut tracks = Vec::with_capacity(track_count);
+    for track_index in 0..track_count {
+        let size = if track_index == 0 {
+            first_track_bytes
+        } else {
+            let at = r.pos;
+            let size = r.u32()? as usize;
+            if size == 0 {
+                return Err(bad(format!(
+                    "animation track {track_index} at 0x{at:x} has size 0"
+                )));
+            }
+            size
+        };
+        let frame_count = keyframe_count(size, "track")?;
+
+        let mut keyframes = Vec::with_capacity(frame_count);
+        for _ in 0..frame_count {
+            keyframes.push(read_transform(&mut r)?);
+        }
+
+        let pad_at = r.pos;
+        if r.u32()? != 0 {
+            return Err(bad(format!(
+                "animation track {track_index} padding at 0x{pad_at:x} is not 0"
+            )));
+        }
+        tracks.push(Track {
+            bone: track_index,
+            keyframes,
+        });
+    }
+
+    Ok(RawAnimation {
+        id,
+        name,
+        flag,
+        fps,
+        duration_frames,
+        tracks,
+        end: r.pos,
+    })
 }
 
 fn find_segments(
@@ -895,34 +1030,32 @@ fn read_zeros(r: &mut Reader<'_>, count: usize, what: &str) -> Result<(), Error>
     Ok(())
 }
 
-fn read_tag(r: &mut Reader<'_>, tag: &[u8]) -> Result<(), Error> {
+/// Whether `data[off..]` starts a chunk of this kind: four letters and a four-digit version.
+fn chunk_at(data: &[u8], off: usize, kind: &[u8; 4]) -> bool {
+    data.get(off..off + 8).is_some_and(|tag| {
+        tag.starts_with(kind) && tag[4..].iter().all(u8::is_ascii_digit)
+    })
+}
+
+/// Reads a chunk tag of any version of `kind`. `nul` says the tag is followed by a 0 byte.
+fn read_chunk(r: &mut Reader<'_>, kind: &[u8; 4], nul: bool) -> Result<(), Error> {
     let at = r.pos;
-    let actual = r.bytes(tag.len())?;
-    if !same_chunk(actual, tag) {
+    let tag = r.bytes(8)?;
+    if !(tag.starts_with(kind) && tag[4..].iter().all(u8::is_ascii_digit)) {
         return Err(Error::Unsupported(format!(
-            "puppet: expected {} at 0x{at:x}, found {}",
-            String::from_utf8_lossy(tag),
-            String::from_utf8_lossy(actual)
+            "puppet: expected a {} chunk at 0x{at:x}, found {}",
+            String::from_utf8_lossy(kind),
+            String::from_utf8_lossy(tag)
         )));
+    }
+    if nul && r.bytes(1)?[0] != 0 {
+        return Err(bad(format!("chunk tag at 0x{at:x} is not followed by NUL")));
     }
     Ok(())
 }
 
-/// `actual` is `tag` or an older version of the same chunk.
-fn same_chunk(actual: &[u8], tag: &[u8]) -> bool {
-    actual == tag || (actual[..4] == tag[..4] && OLDER_TAGS.contains(&actual))
-}
-
-fn tag_at(data: &[u8], off: usize, tag: &[u8]) -> bool {
-    data.get(off..off.saturating_add(tag.len()))
-        .is_some_and(|actual| actual.len() == tag.len() && same_chunk(actual, tag))
-}
-
-fn find_tag(data: &[u8], from: usize, tag: &[u8]) -> Option<usize> {
-    data.get(from..)?
-        .windows(tag.len())
-        .position(|window| same_chunk(window, tag))
-        .map(|position| from + position)
+fn find_chunk(data: &[u8], from: usize, kind: &[u8; 4]) -> Option<usize> {
+    (from..data.len()).find(|&off| chunk_at(data, off, kind))
 }
 
 fn u32_at(data: &[u8], pos: usize) -> Option<u32> {
@@ -977,7 +1110,7 @@ mod tests {
     /// put an out-of-range value in the index buffer.
     fn build_minimal(third_index: u16) -> Vec<u8> {
         let mut buf = Vec::new();
-        buf.extend_from_slice(MESH_TAG);
+        buf.extend_from_slice(b"MDLV0023");
         push_u32(&mut buf, 0x8000_0900);
         push_u32(&mut buf, 0x0000_0101);
         push_u32(&mut buf, 0x0000_0100);
@@ -985,7 +1118,7 @@ mod tests {
         buf.extend_from_slice(b"materials/test.json\0");
         buf.extend_from_slice(&[0u8; 28]);
         push_u32(&mut buf, 0x0180_000f);
-        push_u32(&mut buf, (3 * VERTEX_STRIDE) as u32);
+        push_u32(&mut buf, (3 * 80) as u32);
 
         for _ in 0..3 {
             for value in [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0] {
@@ -1010,7 +1143,7 @@ mod tests {
         push_u32(&mut buf, 0);
 
         let skeleton_at = buf.len();
-        buf.extend_from_slice(SKELETON_TAG);
+        buf.extend_from_slice(b"MDLS0004\0");
         push_u32(&mut buf, 0);
         push_u32(&mut buf, 1);
         buf.push(0);
@@ -1021,7 +1154,7 @@ mod tests {
         buf.extend_from_slice(&[0u8; 2]);
 
         let animation_at = buf.len();
-        buf.extend_from_slice(ANIMATION_TAG);
+        buf.extend_from_slice(b"MDLA0006\0");
         push_u32(&mut buf, 0);
         push_u32(&mut buf, 1);
         push_u32(&mut buf, 100);
@@ -1282,5 +1415,96 @@ mod tests {
         assert_eq!(model.animations[0].frame_count(), 901);
         let data = package.get("models/朱鹤_puppet.mdl").expect("crane model");
         assert_eq!(Puppet::parse(&data).expect("parse MDLV0019 crane").bones.len(), 9);
+    }
+
+    #[test]
+    fn an_unskinned_mesh_gets_one_identity_bone() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"MDLV0021");
+        for word in [0x900u32, 0x100, 0x100] {
+            push_u32(&mut data, word);
+        }
+        data.push(0);
+        data.extend_from_slice(b"materials/m.json\0");
+        data.extend_from_slice(&[0; 28]);
+        push_u32(&mut data, 0xf);
+        push_u32(&mut data, (3 * 48) as u32);
+        for i in 0..3 {
+            for value in [i as f32, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.5, 0.5] {
+                push_f32(&mut data, value);
+            }
+        }
+        push_u32(&mut data, 6);
+        for index in [0u16, 1, 2] {
+            push_u16(&mut data, index);
+        }
+        let model = Puppet::parse(&data).expect("parse static mesh");
+        assert_eq!(model.vertices.len(), 3);
+        assert_eq!(model.bones.len(), 1);
+        assert_eq!(model.vertices[2].bone_weights, [1.0, 0.0, 0.0, 0.0]);
+        assert!(model.animations.is_empty());
+    }
+
+    #[test]
+    fn an_unseen_mesh_version_uses_the_matching_layout() {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"MDLV0099");
+        for word in [0x900u32, 0x100, 0x100] {
+            push_u32(&mut data, word);
+        }
+        data.push(0);
+        data.extend_from_slice(b"materials/m.json\0");
+        data.extend_from_slice(&[0; 28]);
+        push_u32(&mut data, 0xf);
+        push_u32(&mut data, (3 * 48) as u32);
+        for i in 0..3 {
+            for value in [i as f32, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.5, 0.5] {
+                push_f32(&mut data, value);
+            }
+        }
+        push_u32(&mut data, 6);
+        for index in [0u16, 1, 2] {
+            push_u16(&mut data, index);
+        }
+        let model = Puppet::parse(&data).expect("parse static mesh");
+        assert_eq!(model.vertices.len(), 3);
+        assert_eq!(model.bones.len(), 1);
+        assert_eq!(model.vertices[2].bone_weights, [1.0, 0.0, 0.0, 0.0]);
+        assert!(model.animations.is_empty());
+    }
+
+    fn mesh_with_flags(flags: u32, stride: usize, vertices: usize) -> Vec<u8> {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"MDLV0023");
+        for word in [0x900u32, 0x100, 0x100] {
+            push_u32(&mut data, word);
+        }
+        data.push(0);
+        data.extend_from_slice(b"materials/m.json\0");
+        data.extend_from_slice(&[0; 28]);
+        push_u32(&mut data, flags);
+        push_u32(&mut data, (vertices * stride) as u32);
+        data.extend(std::iter::repeat_n(0u8, vertices * stride));
+        push_u32(&mut data, 6);
+        for index in [0u16, 1, 2] {
+            push_u16(&mut data, index);
+        }
+        data
+    }
+
+    #[test]
+    fn the_attribute_mask_decides_the_vertex_stride() {
+        // Unskinned, 4-float position (84 - 32 skin bytes = 52 here: no bones or weights).
+        let data = mesh_with_flags(ATTR_POSITION4 | ATTR_NORMAL | ATTR_TANGENT | ATTR_UV, 52, 3);
+        let model = Puppet::parse(&data).expect("parse mask-described mesh");
+        assert_eq!(model.vertices.len(), 3);
+        assert!(model.animations.is_empty());
+    }
+
+    #[test]
+    fn unknown_attribute_bits_are_reported() {
+        let data = mesh_with_flags(0x0000_000f | 1 << 5, 48, 3);
+        let err = Puppet::parse(&data).expect_err("unknown flags");
+        assert!(err.to_string().contains("not understood"), "{err}");
     }
 }

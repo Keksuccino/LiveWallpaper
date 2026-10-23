@@ -512,10 +512,15 @@ impl Engine {
             }
             match self.puppet_mesh(index, &layer) {
                 Ok(mesh) => puppets.push(mesh),
-                Err(e) => self.warnings.push(format!(
-                    "layer {}: {e}; puppet skipped",
-                    self.scene.layers[index].name
-                )),
+                Err(e) => {
+                    // A model we cannot read still has its picture: draw that, unwarped, rather
+                    // than leaving a hole in the scene.
+                    self.layers[index].puppet = false;
+                    self.warnings.push(format!(
+                        "layer {}: {e}; drawn as a plain image",
+                        self.scene.layers[index].name
+                    ));
+                }
             }
         }
         self.puppets = puppets;

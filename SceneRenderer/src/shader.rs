@@ -17,7 +17,7 @@ use serde_json::Value;
 use crate::vfs::Vfs;
 use crate::Error;
 
-const TRANSLATOR_REVISION: u32 = 10;
+const TRANSLATOR_REVISION: u32 = 12;
 
 /// Vertex buffer slot; uniform blocks use slot 0 in both stages.
 pub const VERTEX_BUFFER_SLOT: u8 = 16;
@@ -238,8 +238,8 @@ impl Source {
         // The combo values go into the text instead of staying macros: naga's preprocessor gives
         // an expanded token the span of its definition, which would move the spans of the
         // expressions that use a combo out of their own text.
-        let vert = expand_combos(&preprocess(&self.vert, &defines), &defines);
-        let frag = expand_combos(&preprocess(&self.frag, &defines), &defines);
+        let vert = narrow_call_args(&expand_combos(&preprocess(&self.vert, &defines), &defines));
+        let frag = narrow_call_args(&expand_combos(&preprocess(&self.frag, &defines), &defines));
         let (vert_glsl, attributes, varyings) = rewrite(&vert, Stage::Vertex, &[]);
         let (frag_glsl, _, _) = rewrite(&frag, Stage::Fragment, &varyings);
         let vertex = cached(&key, "vs", || to_msl(&vert_glsl, Stage::Vertex))?;
@@ -252,6 +252,117 @@ impl Source {
             texture_meta: self.texture_meta.clone(),
         })
     }
+}
+
+/// HLSL narrows a vector passed to a smaller vector parameter; GLSL has no such conversion, and
+/// naga's parser then reports the call as an unknown function. For calls of functions the shader
+/// declares itself, a bare global vector argument wider than its parameter gets the swizzle
+/// (`rotateVec2(v_TexCoord, a)` with `varying vec4 v_TexCoord` becomes `v_TexCoord.xy`).
+fn narrow_call_args(text: &str) -> String {
+    const QUALIFIERS: [&str; 9] =
+        ["varying", "uniform", "attribute", "in", "out", "const", "highp", "mediump", "lowp"];
+    let vec_size = |t: &str| match t {
+        "vec2" => 2,
+        "vec3" => 3,
+        "vec4" => 4,
+        _ => 0,
+    };
+    let mut globals: HashMap<&str, usize> = HashMap::new();
+    let mut functions: HashMap<&str, Vec<usize>> = HashMap::new();
+    let mut depth = 0i32;
+    for line in text.lines() {
+        let code = line.split("//").next().unwrap_or("");
+        if depth == 0 {
+            if let Some(open) = code.find('(') {
+                // `type name(params) {`
+                let head: Vec<&str> = code[..open].split_whitespace().collect();
+                if let (Some(name), true) = (head.last(), head.len() >= 2) {
+                    let params = code[open + 1..].split(')').next().unwrap_or("");
+                    let sizes = params
+                        .split(',')
+                        .filter(|p| !p.trim().is_empty())
+                        .map(|p| {
+                            let toks: Vec<&str> = p
+                                .split_whitespace()
+                                .filter(|t| !QUALIFIERS.contains(t))
+                                .collect();
+                            toks.first().map_or(0, |t| vec_size(t))
+                        })
+                        .collect();
+                    let _ = functions.insert(name, sizes);
+                }
+            } else {
+                let toks: Vec<&str> =
+                    code.split_whitespace().filter(|t| !QUALIFIERS.contains(t)).collect();
+                if let [ty, name, ..] = toks[..] {
+                    let name = name.split(['[', ';', '=']).next().unwrap_or(name);
+                    if vec_size(ty) > 0 && !name.is_empty() {
+                        let _ = globals.insert(name, vec_size(ty));
+                    }
+                }
+            }
+        }
+        depth += code.matches('{').count() as i32 - code.matches('}').count() as i32;
+    }
+    if functions.is_empty() || globals.is_empty() {
+        return text.to_string();
+    }
+    let ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    let mut edits: Vec<(usize, &str)> = Vec::new();
+    for (name, sizes) in &functions {
+        for (at, _) in text.match_indices(&format!("{name}(")) {
+            let before = text[..at].trim_end();
+            let prev_word = before
+                .rsplit(|c: char| !ident(c))
+                .next()
+                .unwrap_or("");
+            if text[..at].chars().next_back().is_some_and(ident)
+                || matches!(prev_word, "void" | "float" | "int" | "vec2" | "vec3" | "vec4" | "mat3" | "mat4" | "bool")
+            {
+                continue; // part of a longer name, or the declaration itself
+            }
+            let (mut index, mut start, mut nest) = (0, at + name.len() + 1, 0);
+            let from = start;
+            for (i, c) in text[from..].char_indices().map(|(i, c)| (from + i, c)) {
+                let end = match c {
+                    '(' | '[' => {
+                        nest += 1;
+                        None
+                    }
+                    ')' | ']' if nest > 0 => {
+                        nest -= 1;
+                        None
+                    }
+                    ',' if nest == 0 => Some(i),
+                    ')' => Some(i),
+                    _ => None,
+                };
+                let Some(end) = end else { continue };
+                let arg = text[start..end].trim();
+                if let (Some(&have), Some(&want)) = (globals.get(arg), sizes.get(index)) {
+                    if want >= 2 && have > want {
+                        edits.push((start + text[start..end].trim_end().len(), &".xyzw"[..want + 1]));
+                    }
+                }
+                if c == ')' {
+                    break;
+                }
+                index += 1;
+                start = end + 1;
+            }
+        }
+    }
+    edits.sort_by_key(|e| e.0);
+    edits.dedup_by_key(|e| e.0);
+    let mut out = String::with_capacity(text.len() + edits.len() * 4);
+    let mut last = 0;
+    for (at, swizzle) in edits {
+        out.push_str(&text[last..at]);
+        out.push_str(swizzle);
+        last = at;
+    }
+    out.push_str(&text[last..]);
+    out
 }
 
 pub fn texture_index(name: &str) -> Option<usize> {
@@ -1199,7 +1310,9 @@ fn fix_store(
     // statement, so the text is taken from there.
     if let Some(span) = function.expressions.get_span(value).to_range() {
         let text = src.get(span.clone())?.to_string();
-        if let Some((left, op, right)) = compound_assignment(&text) {
+        // A span that reaches back into a macro definition is not one statement.
+        let compound = if text.contains('#') { None } else { compound_assignment(&text) };
+        if let Some((left, op, right)) = compound {
             let naga::TypeInner::Scalar(want) = &target else {
                 return None;
             };
@@ -1212,8 +1325,19 @@ fn fix_store(
     // the statement the variable is declared in.
     let statement = function.expressions.get_span(pointer).to_range()?;
     let text = src.get(statement.clone())?;
-    let range = value_range(text)?;
-    let value_text = text.get(range.clone())?.to_string();
+    // With a macro in the initializer naga's span for the variable is its name alone; the
+    // initializer is then read from the source that follows the name.
+    // The span can also stretch back over unrelated lines (macro definition to variable); such
+    // text is no statement either.
+    let clean = !text.contains(['\n', ';']);
+    let range = match value_range(text).filter(|_| clean) {
+        Some(range) => range,
+        None => {
+            let range = initializer_after(src, statement.end)?;
+            range.start - statement.start..range.end - statement.start
+        }
+    };
+    let value_text = src.get(statement.start + range.start..statement.start + range.end)?.to_string();
     let new_text = match (&target, &value_type) {
         // HLSL converts between the numeric types on the fly, GLSL wants the cast spelled out.
         (naga::TypeInner::Scalar(want), naga::TypeInner::Scalar(got)) if want.kind != got.kind => {
@@ -1225,11 +1349,45 @@ fn fix_store(
         (naga::TypeInner::Vector { size, .. }, naga::TypeInner::Scalar(_)) => {
             format!("vec{}({value_text})", *size as u8)
         }
+        // A wider vector written into a narrower one keeps its leading components.
+        (
+            naga::TypeInner::Vector { size: want, scalar: want_scalar },
+            naga::TypeInner::Vector { size: got, scalar: got_scalar },
+        ) if (*got as u8) > (*want as u8) && want_scalar == got_scalar => {
+            format!("({value_text}).{}", &"xyzw"[..*want as usize])
+        }
         _ => return None,
     };
     let start = statement.start + range.start;
     let end = statement.start + range.end;
     patch(src, start..end, &new_text)
+}
+
+/// The range of `= <expr>` after a variable name at `from`: the expression up to the `;` that ends
+/// the statement. `None` when no plain assignment follows.
+fn initializer_after(src: &str, from: usize) -> Option<std::ops::Range<usize>> {
+    let rest = src.get(from..)?;
+    let trimmed = rest.trim_start();
+    let eq = from + (rest.len() - trimmed.len());
+    let after = trimmed.strip_prefix('=')?;
+    if after.starts_with('=') {
+        return None;
+    }
+    let start = eq + 1;
+    let mut depth = 0i32;
+    for (i, c) in after.char_indices() {
+        match c {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth -= 1,
+            ';' if depth == 0 => {
+                let text = &after[..i];
+                let lead = text.len() - text.trim_start().len();
+                return Some(start + lead..start + text.trim_end().len());
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// True for text that is an expression on its own.
@@ -1557,6 +1715,11 @@ fn expr_type(
             module.types[result.ty].inner.clone()
         }
         E::ArrayLength(_) => T::Scalar(scalar(naga::ScalarKind::Sint)),
+        // Colour textures only: scene shaders sample RGBA images, never depth ones.
+        E::ImageSample { .. } | E::ImageLoad { .. } => T::Vector {
+            size: naga::VectorSize::Quad,
+            scalar: scalar(naga::ScalarKind::Float),
+        },
         _ => return None,
     })
 }
@@ -1793,6 +1956,21 @@ fn parse_cached(text: &str) -> Option<StageCode> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_vec4_sample_is_narrowed_into_a_vec3() {
+        let src = "uniform sampler2D g_Texture0;\nvarying vec2 v_TexCoord;\nvoid main() {\n vec3 c = texSample2D(g_Texture0, v_TexCoord);\n gl_FragColor = vec4(c, 1.0);\n}\n";
+        let (frag, _, _) = rewrite(src, Stage::Fragment, &[]);
+        to_msl(&frag, Stage::Fragment).expect("translates");
+    }
+
+    #[test]
+    fn wide_global_arguments_are_narrowed_for_shader_functions() {
+        let src = "varying vec4 v_TexCoord;\nvec2 rot(vec2 v, float r) {\n return v;\n}\nvoid main() {\n vec2 a = rot(v_TexCoord, 1.0) * 2.0;\n}\n";
+        let out = narrow_call_args(src);
+        assert!(out.contains("rot(v_TexCoord.xy, 1.0)"), "{out}");
+        assert!(out.contains("vec2 rot(vec2 v, float r)"), "{out}");
+    }
+
     use super::*;
 
     fn defs(pairs: &[(&str, i64)]) -> BTreeMap<String, i64> {
