@@ -610,6 +610,12 @@ public protocol RendererProtocol : AnyObject {
      */
     func setFpsCap(fps: Float) 
     
+    /**
+     * Hides text layers that scripts compute (clocks and the like). The lock screen loop uses
+     * this: a frame recorded once cannot follow the time.
+     */
+    func setHideScriptedText(hide: Bool) 
+    
     func setMuted(muted: Bool) 
     
     /**
@@ -847,6 +853,17 @@ open func setFitMode(mode: FitMode) {try! rustCall() {
 open func setFpsCap(fps: Float) {try! rustCall() {
     uniffi_scene_renderer_fn_method_renderer_set_fps_cap(self.uniffiClonePointer(),
         FfiConverterFloat.lower(fps),$0
+    )
+}
+}
+    
+    /**
+     * Hides text layers that scripts compute (clocks and the like). The lock screen loop uses
+     * this: a frame recorded once cannot follow the time.
+     */
+open func setHideScriptedText(hide: Bool) {try! rustCall() {
+    uniffi_scene_renderer_fn_method_renderer_set_hide_scripted_text(self.uniffiClonePointer(),
+        FfiConverterBool.lower(hide),$0
     )
 }
 }
@@ -1485,6 +1502,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_scene_renderer_checksum_method_renderer_set_fps_cap() != 60966) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_scene_renderer_checksum_method_renderer_set_hide_scripted_text() != 59373) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_scene_renderer_checksum_method_renderer_set_muted() != 42835) {

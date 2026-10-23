@@ -8,6 +8,16 @@ fn main() {
     let assets = format!("{home}/Library/Application Support/LiveWallpaper/WallpaperEngineAssets");
     let vfs = scene_renderer::vfs::Vfs::open(Path::new(&a[1]), Some(Path::new(&assets))).unwrap();
     let data = vfs.read(&a[2]).expect("no such file");
+    if let Ok(range) = std::env::var("LW_HEX") {
+        // LW_HEX=offset,len dumps raw bytes, e.g. when a parser error names an offset.
+        let (off, len) = range.split_once(',').unwrap();
+        let (off, len): (usize, usize) = (off.parse().unwrap(), len.parse().unwrap());
+        for (i, chunk) in data[off..off + len].chunks(16).enumerate() {
+            let hex: Vec<String> = chunk.iter().map(|b| format!("{b:02x}")).collect();
+            println!("{:08x}  {}", off + i * 16, hex.join(" "));
+        }
+        return;
+    }
     if a[2].ends_with(".mdl") {
         let p = scene_renderer::puppet::Puppet::parse(&data).unwrap();
         for anim in &p.animations {

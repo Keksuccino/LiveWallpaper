@@ -18,7 +18,7 @@ use crate::gpu::{self, Gpu, Pool, Texture, TARGET_FORMAT};
 use crate::mat;
 use crate::particles;
 use crate::puppet;
-use crate::scene::{floats, Blend, Layer, Material, ParticleLayer, PuppetLayer, Scene};
+use crate::scene::{self, floats, Blend, Layer, Material, ParticleLayer, PuppetLayer, Scene};
 use crate::shader::{self, Program, Uniform};
 use crate::tex::Frame;
 use crate::text::{self, TextRenderer, TextSpec};
@@ -378,6 +378,9 @@ pub struct Engine {
     text_scale: f32,
     /// A text bitmap is too small or too sharp for the current zoom; rebuild after this frame.
     text_dirty: bool,
+    /// Hides text layers whose string a script computes, e.g. clocks, when a frame is recorded
+    /// for a place that cannot update (the lock screen plays a fixed loop).
+    pub hide_scripted_text: bool,
     /// Particle systems, one per visible particle layer.
     particles: Vec<ParticleGpu>,
     /// Skinned meshes, one per visible puppet layer.
@@ -432,6 +435,7 @@ impl Engine {
             fonts: HashMap::new(),
             text_scale: 0.0,
             text_dirty: false,
+            hide_scripted_text: false,
             particles: Vec::new(),
             puppets: Vec::new(),
             pose_time: 0.0,
@@ -921,7 +925,8 @@ impl Engine {
         let seed = 0x9E37_79B9_7F4A_7C15u64.wrapping_mul(index as u64 + 1);
         let mut sim = particles::Simulation::new(&system, seed);
         if let Some(overrides) = &layer.instance_override {
-            if let Some(o) = particles::InstanceOverride::from_json(overrides) {
+            let overrides = scene::resolve_user_values(overrides, &self.props);
+            if let Some(o) = particles::InstanceOverride::from_json(&overrides) {
                 sim.apply_override(&o);
             }
         }
@@ -1387,7 +1392,17 @@ impl Engine {
         }
     }
 
+    /// Whether the layer is text whose string a script sets, so it changes between frames.
+    fn has_scripted_text(&self, index: usize) -> bool {
+        let Some(layer) = self.scene.layers.get(index) else { return false };
+        layer.text.is_some()
+            && self.scene.scripts.iter().any(|s| s.layer_id == layer.id && s.field.starts_with("text"))
+    }
+
     fn visible(&self, index: usize) -> bool {
+        if self.hide_scripted_text && self.has_scripted_text(index) {
+            return false;
+        }
         let mut layer: Option<&Layer> = self.scene.layers.get(index);
         let mut depth = 0;
         while let Some(l) = layer {
@@ -1688,11 +1703,6 @@ impl Engine {
             }
             if let Some(t) = frame_copy.remove("_rt_FullFrameBuffer") {
                 self.pool.give(t);
-            }
-            if std::env::var("LW_WORK").is_ok() {
-                let passes: usize = visible_effects.iter().map(|&ei| self.layers[li].effects[ei].passes.len()).sum();
-                let area = fw as f32 * fh as f32 * clip[2] * clip[3];
-                eprintln!("WORK layer {} {}x{} clip {:.2}x{:.2} passes {} mpx {:.1}", li, fw, fh, clip[2], clip[3], passes + 1, area * (passes + 1) as f32 / 1e6);
             }
             for &ei in &visible_effects {
                 let effect = &self.layers[li].effects[ei];

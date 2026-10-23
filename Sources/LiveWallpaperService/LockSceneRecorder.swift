@@ -30,6 +30,8 @@ enum LockSceneRecorder {
         let renderer = try Renderer(pkgPath: item.url.path)
         renderer.resize(width: UInt32(width), height: UInt32(height))
         renderer.setMuted(muted: true)
+        // The loop is recorded once, so a clock or date the scene computes would freeze at this time.
+        renderer.setHideScriptedText(hide: true)
         defer { renderer.stop() }
 
         let writer = try AVAssetWriter(outputURL: partial, fileType: .mov)

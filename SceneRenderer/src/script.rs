@@ -21,7 +21,7 @@ const MODULES: [(&str, &str, &[&str]); 3] = [
         "__WEMath",
         &["PI", "deg2rad", "rad2deg", "clamp", "mix", "lerp", "smoothStep", "fract"],
     ),
-    ("WEVector", "__WEVector", &["Vec2", "Vec3", "Vec4"]),
+    ("WEVector", "__WEVector", &["Vec2", "Vec3", "Vec4", "angleVector2", "vectorAngle2"]),
     ("WEColor", "__WEColor", &["rgb2hsv", "hsv2rgb", "normalizeColor", "expandColor"]),
 ];
 
@@ -41,6 +41,8 @@ pub struct Events {
     pub values: Vec<(usize, Value)>,
     /// Layer fields set through `thisLayer` / `thisScene` objects, by layer id.
     pub dirty: Vec<(i64, Map<String, Value>)>,
+    /// Scene settings (`thisScene.bloom` and the like) written by scripts, by documented name.
+    pub scene: Map<String, Value>,
     pub created: Vec<Created>,
     /// Draw-order moves: layer id, new index.
     pub moves: Vec<(i64, usize)>,
@@ -61,6 +63,7 @@ impl Events {
             .flatten()
             .filter_map(|(k, v)| Some((k.parse().ok()?, v.as_object()?.clone())))
             .collect();
+        let scene = v["scene"].as_object().cloned().unwrap_or_default();
         let created = v["created"]
             .as_array()
             .into_iter()
@@ -79,11 +82,11 @@ impl Events {
             .flatten()
             .filter_map(|m| Some((m["id"].as_i64()?, m["index"].as_u64()? as usize)))
             .collect();
-        Self { values, dirty, created, moves }
+        Self { values, dirty, scene, created, moves }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.values.is_empty() && self.dirty.is_empty() && self.created.is_empty() && self.moves.is_empty()
+        self.values.is_empty() && self.dirty.is_empty() && self.scene.is_empty() && self.created.is_empty() && self.moves.is_empty()
     }
 }
 
@@ -278,6 +281,15 @@ mod tests {
         assert_eq!(e.values, vec![(0, json!("x"))]);
         let e = frame(&mut h, 1.0);
         assert_eq!(e.values, vec![(0, json!("a-b"))]);
+    }
+
+    #[test]
+    fn scene_settings_written_by_scripts_are_reported() {
+        let mut h = host_with_layer();
+        let src = "export function init() { thisScene.bloomstrength = 3; thisScene.clearcolor = '0.1 0.2 0.3'; }";
+        let e = h.add(0, 7, "alpha", src, &Value::Null, &json!(1)).expect("add");
+        assert_eq!(e.scene.get("bloomstrength"), Some(&json!(3)));
+        assert_eq!(e.scene.get("clearcolor"), Some(&json!("0.1 0.2 0.3")));
     }
 
     #[test]

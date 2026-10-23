@@ -336,6 +336,11 @@ void uniffi_scene_renderer_fn_method_renderer_set_fit_mode(void*_Nonnull ptr, Ru
 void uniffi_scene_renderer_fn_method_renderer_set_fps_cap(void*_Nonnull ptr, float fps, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_HIDE_SCRIPTED_TEXT
+#define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_HIDE_SCRIPTED_TEXT
+void uniffi_scene_renderer_fn_method_renderer_set_hide_scripted_text(void*_Nonnull ptr, int8_t hide, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_MUTED
 #define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_MUTED
 void uniffi_scene_renderer_fn_method_renderer_set_muted(void*_Nonnull ptr, int8_t muted, RustCallStatus *_Nonnull out_status
@@ -742,6 +747,12 @@ uint16_t uniffi_scene_renderer_checksum_method_renderer_set_fit_mode(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_FPS_CAP
 #define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_FPS_CAP
 uint16_t uniffi_scene_renderer_checksum_method_renderer_set_fps_cap(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_HIDE_SCRIPTED_TEXT
+#define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_HIDE_SCRIPTED_TEXT
+uint16_t uniffi_scene_renderer_checksum_method_renderer_set_hide_scripted_text(void
     
 );
 #endif

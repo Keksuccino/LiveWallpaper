@@ -27,6 +27,8 @@ fn main() {
         };
         r.set_fit_mode(mode);
     }
+    // `LW_HIDE_TEXT=1` hides script-computed text, as the lock screen recording does.
+    r.set_hide_scripted_text(std::env::var("LW_HIDE_TEXT").is_ok());
     for pair in std::env::var("LW_PROPS").unwrap_or_default().split(',').filter(|p| !p.is_empty()) {
         if let Some((name, value)) = pair.split_once('=') {
             r.apply_property(name.to_string(), value.to_string());

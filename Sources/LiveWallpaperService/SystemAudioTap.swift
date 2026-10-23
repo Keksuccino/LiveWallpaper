@@ -133,7 +133,7 @@ final class SystemAudioTap: @unchecked Sendable {
 
 /// One channel's spectrum for audio response. Each block of 1600 samples (about 33 ms at 48 kHz) is
 /// Hann-windowed, zero-padded to a 2048-point FFT, and summed into 64 log-spaced bands. A band's
-/// level is its mean amplitude in dB, mapped from -60 dB to 0 dB onto 0...1. Silence reads as zero.
+/// level is its mean amplitude in dB, mapped from -80 dB to 0 dB onto 0...1. Silence reads as zero.
 struct SpectrumAnalyzer {
     static let window = 1600
     private static let fftSize = 2048
@@ -193,9 +193,10 @@ struct SpectrumAnalyzer {
         }
     }
 
-    /// Amplitude to a 0...1 level over a 60 dB range.
+    /// Amplitude to a 0...1 level over an 80 dB range. Music sits well under full scale, so a wider
+    /// range keeps audio-driven scene parts from pinning at their maximum.
     private static func level(_ amplitude: Float) -> Float {
         let decibels = 20 * log10(max(amplitude, 1e-6))
-        return min(max((decibels + 60) / 60, 0), 1)
+        return min(max((decibels + 80) / 80, 0), 1)
     }
 }

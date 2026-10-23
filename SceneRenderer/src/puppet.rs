@@ -594,7 +594,9 @@ fn parse_animations(
                     "truncated animation separator at 0x{separator_at:x}"
                 ))
             })?;
-            if separator[..28].iter().any(|&b| b != 0) || separator[32..].iter().any(|&b| b != 0) {
+            // Only the leading padding is checked: some files set a flag byte in the tail (seen as
+            // 0x01 at byte 32 in Wallpaper Engine's own puppets), and the next name still starts at 39.
+            if separator[..28].iter().any(|&b| b != 0) {
                 return Err(bad(format!(
                     "unexpected animation separator at 0x{separator_at:x}"
                 )));

@@ -16,6 +16,27 @@ pub struct Bound {
     pub condition: Option<String>,
 }
 
+/// A JSON object whose fields may be user bindings (`{"user": .., "value": ..}`), with each one
+/// replaced by what the user set, or its default. Used for overrides, which are read as plain values.
+pub fn resolve_user_values(value: &Value, props: &HashMap<String, Value>) -> Value {
+    let Some(map) = value.as_object() else {
+        return value.clone();
+    };
+    let resolved = map
+        .iter()
+        .map(|(key, field)| {
+            let field = match field.as_object() {
+                Some(inner) if inner.contains_key("value") || inner.contains_key("user") => {
+                    Bound::parse(Some(field), Value::Null).get(props)
+                }
+                _ => field.clone(),
+            };
+            (key.clone(), field)
+        })
+        .collect();
+    Value::Object(resolved)
+}
+
 impl Bound {
     fn parse(v: Option<&Value>, default: Value) -> Self {
         let Some(v) = v else {

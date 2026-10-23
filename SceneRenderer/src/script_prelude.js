@@ -137,6 +137,15 @@ function __mark(layer, field, value) {
 	d[field] = __fromScript(value);
 }
 
+// Stands in for an animation or texture-sheet handle the renderer does not drive yet.
+function __noopAnimation() {
+	let frame = 0;
+	return {
+		play() {}, pause() {}, stop() {}, isPlaying() { return false; },
+		getFrame() { return frame; }, setFrame(f) { frame = Math.trunc(__num(f, 0)); },
+	};
+}
+
 class Layer {
 	constructor(s) { this._s = s; }
 	get id() { return this._s.id; }
@@ -162,15 +171,56 @@ class Layer {
 	// Kept for scripts that set it; this renderer centres layers on their origin.
 	get alignment() { return this._s.alignment || 'center'; }
 	set alignment(v) { this._s.alignment = String(v); }
+	getEffectCount() { return (this._s.effects || []).length; }
+	getEffect(key) {
+		const list = this._s.effects || [];
+		const index = typeof key === 'number' ? key : list.findIndex((e) => e.name === key);
+		return index >= 0 && index < list.length ? new Effect(this, index, list[index]) : null;
+	}
 	getParent() { return this._s.parent === undefined || this._s.parent === null ? null : (__layers.get(this._s.parent) || null); }
-	getAnimation() { return null; }
-	getTextureAnimation() { return null; }
+	// Playback is not driven from scripts yet; the stubs keep scripts that call them from throwing.
+	getAnimation() { return __noopAnimation(); }
+	getTextureAnimation() { return __noopAnimation(); }
 	getVideoTexture() { return null; }
 	play() {}
 	pause() {}
 	stop() {}
 	isPlaying() { return true; }
 }
+
+// IEffect: one material effect on a layer. `visible` is applied by the renderer each frame.
+class Effect {
+	constructor(layer, index, s) { this._layer = layer; this._index = index; this._s = s; }
+	get name() { return this._s.name || ''; }
+	get visible() { return this._s.visible !== false; }
+	set visible(v) { this._s.visible = !!v; __mark(this._layer, `effect:${this._index}:visible`, this._s.visible); }
+}
+
+// ITextLayer and IImageLayer fields from the WE docs. Each write is sent to the renderer, which
+// applies the ones it supports; the rest are stored so scripts that set them keep running.
+const __layerFields = {
+	pointsize: 0, font: '', padding: 0, horizontalalign: 'center', verticalalign: 'center',
+	opaquebackground: false, backgroundcolor: '0 0 0', limitwidth: false, maxwidth: 0,
+	limitrows: false, maxrows: 0, anchor: 'none', perspective: false, solid: false,
+};
+for (const [field, fallback] of Object.entries(__layerFields)) {
+	Object.defineProperty(Layer.prototype, field, {
+		get() { return this._s[field] === undefined ? fallback : this._s[field]; },
+		set(v) { this._s[field] = v; __mark(this, field, v); },
+	});
+}
+
+// IScene properties from the WE docs. The renderer does not read these yet; they are kept on the
+// scene so scripts that set them keep running.
+const __sceneFields = {
+	bloom: false, bloomstrength: 2, bloomthreshold: 0.65, clearenabled: true, clearcolor: '0 0 0',
+	ambientcolor: '0.3 0.3 0.3', skylightcolor: '0.3 0.3 0.3', fov: 50, nearz: 0.01, farz: 10000,
+	camerafade: true, camerashake: false, camerashakespeed: 3, camerashakeamplitude: 0.5,
+	camerashakeroughness: 1, cameraparallax: false, cameraparallaxamount: 0.5,
+	cameraparallaxdelay: 0.1, cameraparallaxmouseinfluence: 0.5,
+};
+const __sceneValues = { ...__sceneFields };
+const __sceneDirty = {};       // scene fields written since the last flush
 
 const thisScene = {
 	getLayer(key) {
@@ -212,6 +262,12 @@ const thisScene = {
 	clearColor: new Vec3(0, 0, 0),
 	bloom: false,
 };
+for (const field of Object.keys(__sceneFields)) {
+	Object.defineProperty(thisScene, field, {
+		get() { return __sceneValues[field]; },
+		set(v) { __sceneValues[field] = v; __sceneDirty[field] = __fromScript(v); },
+	});
+}
 globalThis.thisScene = thisScene;
 globalThis.thisLayer = null;
 
@@ -285,7 +341,13 @@ globalThis.__WEMath = {
 	smoothStep: (a, b, v) => { const t = Math.min(Math.max((v - a) / (b - a), 0), 1); return t * t * (3 - 2 * t); },
 	fract: (v) => v - Math.floor(v),
 };
-globalThis.__WEVector = { Vec2, Vec3, Vec4 };
+globalThis.__WEVector = {
+	Vec2, Vec3, Vec4,
+	// Direction for an angle in degrees: x = cos, y = sin.
+	angleVector2: (angle) => { const r = __num(angle, 0) * Math.PI / 180; return new Vec2(Math.cos(r), Math.sin(r)); },
+	// Angle in degrees of a direction, counter-clockwise from +x.
+	vectorAngle2: (direction) => { const d = __vec2(direction); return Math.atan2(d.y, d.x) * 180 / Math.PI; },
+};
 globalThis.__WEColor = {
 	rgb2hsv(c) {
 		c = __vec3(c);
@@ -356,6 +418,8 @@ function __takeEvents(out) {
 	out.dirty = {};
 	for (const [id, d] of __dirty) out.dirty[id] = d;
 	__dirty.clear();
+	out.scene = { ...__sceneDirty };
+	for (const k of Object.keys(__sceneDirty)) delete __sceneDirty[k];
 	out.created = __created.splice(0);
 	out.moves = __moves.splice(0);
 	return JSON.stringify(out);

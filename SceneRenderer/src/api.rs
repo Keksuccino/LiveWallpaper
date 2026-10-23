@@ -54,6 +54,7 @@ enum Command {
     Property(String, Value),
     Antialiasing(u32),
     FpsCap(f32),
+    HideScriptedText(bool),
     Resize(u32, u32),
     Visible(bool),
     Attach(String, usize, u32, u32),
@@ -192,6 +193,12 @@ impl Renderer {
     /// How the scene is mapped onto the target: fill, fit, stretch, unscaled or blurred fit.
     pub fn set_fit_mode(&self, mode: FitMode) {
         self.send(Command::Fit(mode));
+    }
+
+    /// Hides text layers that scripts compute (clocks and the like). The lock screen loop uses
+    /// this: a frame recorded once cannot follow the time.
+    pub fn set_hide_scripted_text(&self, hide: bool) {
+        self.send(Command::HideScriptedText(hide));
     }
 
     /// Moves the picture on screen (in screen widths and heights) and magnifies it.
@@ -491,6 +498,10 @@ impl Loop {
             }
             Command::Fit(mode) => {
                 self.engine.fit = mode;
+            }
+            Command::HideScriptedText(hide) => {
+                self.engine.hide_scripted_text = hide;
+                self.engine.rebuild();
             }
             Command::PanZoom(x, y, zoom) => {
                 self.engine.pan = [x, y];

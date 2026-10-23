@@ -127,6 +127,10 @@ impl Engine {
                     "text": l.text.as_ref().map(|t| t.value.clone()).unwrap_or_default(),
                     "size": format!("{} {}", l.size[0], l.size[1]),
                     "parallaxDepth": format!("{} {}", l.parallax_depth[0], l.parallax_depth[1]),
+                    "effects": l.effects.iter().map(|e| json!({
+                        "name": e.name,
+                        "visible": e.visible.truthy(&self.props),
+                    })).collect::<Vec<_>>(),
                 })
             })
             .collect();
@@ -163,6 +167,9 @@ impl Engine {
             let (layer_id, field) = (spec.layer_id, spec.field.clone());
             self.set_field(layer_id, &field, value, &mut changes);
         }
+        for (field, value) in events.scene {
+            self.set_scene_field(&field, value);
+        }
         for (layer_id, fields) in events.dirty {
             for (field, value) in fields {
                 self.set_field(layer_id, &field, value, &mut changes);
@@ -184,8 +191,36 @@ impl Engine {
         }
     }
 
+    /// Applies a scene setting a script wrote. Fields the renderer does not read yet are ignored.
+    fn set_scene_field(&mut self, field: &str, value: Value) {
+        let fixed = |value: Value| Bound { value, user: None, condition: None };
+        match field {
+            "bloom" => self.scene.bloom.enabled = fixed(value),
+            "bloomstrength" => self.scene.bloom.strength = fixed(value),
+            "bloomthreshold" => self.scene.bloom.threshold = fixed(value),
+            "clearcolor" => {
+                let rgb = floats(&value);
+                if rgb.len() == 3 {
+                    self.scene.clear_color = [rgb[0], rgb[1], rgb[2]];
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn set_field(&mut self, layer_id: i64, field: &str, value: Value, changes: &mut Changes) {
         let Some(index) = self.layer_index(layer_id) else { return };
+        // `effect:<n>:visible` comes from an IEffect; the renderer checks it every frame.
+        if let Some(rest) = field.strip_prefix("effect:") {
+            if let Some((n, "visible")) = rest.split_once(':') {
+                if let Ok(n) = n.parse::<usize>() {
+                    if let Some(effect) = self.scene.layers[index].effects.get_mut(n) {
+                        effect.visible = Bound { value, user: None, condition: None };
+                    }
+                }
+            }
+            return;
+        }
         let props = &self.props;
         let layer = &mut self.scene.layers[index];
         match field {

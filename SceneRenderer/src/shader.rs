@@ -17,7 +17,7 @@ use serde_json::Value;
 use crate::vfs::Vfs;
 use crate::Error;
 
-const TRANSLATOR_REVISION: u32 = 6;
+const TRANSLATOR_REVISION: u32 = 10;
 
 /// Vertex buffer slot; uniform blocks use slot 0 in both stages.
 pub const VERTEX_BUFFER_SLOT: u8 = 16;
@@ -46,6 +46,9 @@ const PRELUDE: &str = "\
 #define fmod(x, y) ((x) - (y) * trunc((x) / (y)))
 #define rsqrt inversesqrt
 #define clip(x) if ((x) < 0.0) discard
+// WE's compiler promotes mixed vector sizes in mix(); GLSL does not. Overloads for those pairs.
+vec4 mix(vec3 a, vec4 b, float t) { return mix(vec4(a, 1.0), b, t); }
+vec4 mix(vec4 a, vec3 b, float t) { return mix(a, vec4(b, 1.0), t); }
 mat2 lw_inverse(mat2 m) { return mat2(m[1][1], -m[0][1], -m[1][0], m[0][0]) / determinant(m); }
 mat3 lw_inverse(mat3 m) {
     vec3 a = m[0], b = m[1], c = m[2];
@@ -176,7 +179,7 @@ impl Source {
         let read = |ext: &str| -> Result<String, Error> {
             let path = format!("shaders/{name}.{ext}");
             let text = vfs.read_string(&path).ok_or(Error::Missing(path))?;
-            Ok(inline_includes(vfs, &text, 0))
+            Ok(rewrite_spectrum_grid(&inline_includes(vfs, &text, 0)))
         };
         let (vert, frag) = (read("vert")?, read("frag")?);
         let mut combo_defaults = BTreeMap::new();
@@ -324,6 +327,51 @@ fn inline_includes(vfs: &Vfs, text: &str, depth: u32) -> String {
         out.push('\n');
     }
     out
+}
+
+/// Audio spectrum arrays are flat `float[N]`, but scripts-era shaders index them as a 4-wide grid,
+/// `g_AudioSpectrum64Left[i / 4][i % 4]`. GLSL rejects the two-index form, so rewrite it to
+/// `[(i / 4) * 4 + (i % 4)]`, which is the same element.
+fn rewrite_spectrum_grid(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find("g_AudioSpectrum") {
+        let (head, tail) = rest.split_at(at);
+        out.push_str(head);
+        let name_len = tail.find('[').unwrap_or(tail.len());
+        let (name, after) = tail.split_at(name_len);
+        out.push_str(name);
+        rest = after;
+        let Some((row, after_row)) = bracket(rest) else { continue };
+        let Some((col, after_col)) = bracket(after_row) else {
+            out.push_str(&format!("[{row}]"));
+            rest = after_row;
+            continue;
+        };
+        out.push_str(&format!("[(({row}) / 4) * 4 + (({col}) % 4)]"));
+        rest = after_col;
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Splits a leading `[...]` (brackets may nest) off `s`; returns the inside and what follows.
+fn bracket(s: &str) -> Option<(&str, &str)> {
+    let inner = s.strip_prefix('[')?;
+    let mut depth = 1;
+    for (i, c) in inner.char_indices() {
+        match c {
+            '[' => depth += 1,
+            ']' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some((&inner[..i], &inner[i + 1..]));
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -981,6 +1029,11 @@ fn fix_implicit_conversion(
         naga::valid::FunctionError::InvalidStoreTypes { pointer, value } => {
             fix_store(src, module, function, *pointer, *value)
         }
+        // `return v4;` from a function declared `vec3`: WE's compiler narrows it, GLSL does not.
+        naga::valid::FunctionError::InvalidReturnType {
+            expression: Some(value),
+            expected_ty: Some(want),
+        } => fix_return(src, module, function, *value, *want),
         // A local variable whose initializer does not have its type.
         naga::valid::FunctionError::LocalVariable {
             handle,
@@ -991,6 +1044,37 @@ fn fix_implicit_conversion(
             let init = local.init?;
             let pointer = local_variable_expression(function, *handle)?;
             fix_store(src, module, function, pointer, init)
+        }
+        _ => None,
+    }
+}
+
+/// Wraps a returned value in a constructor of the declared return type (`vec4` -> `vec3(v)`).
+fn fix_return(
+    src: &str,
+    module: &naga::Module,
+    function: &naga::Function,
+    value: naga::Handle<naga::Expression>,
+    want: naga::Handle<naga::Type>,
+) -> Option<String> {
+    let name = glsl_type_name(&module.types[want].inner)?;
+    let span = function.expressions.get_span(value).to_range()?;
+    let text = src.get(span.clone())?.to_string();
+    patch(src, span, &format!("{name}({text})"))
+}
+
+/// The GLSL spelling of a scalar or vector type.
+fn glsl_type_name(inner: &naga::TypeInner) -> Option<String> {
+    match *inner {
+        naga::TypeInner::Scalar(scalar) => Some(glsl_type(scalar.kind).to_string()),
+        naga::TypeInner::Vector { size, scalar } => {
+            let prefix = match scalar.kind {
+                naga::ScalarKind::Sint => "i",
+                naga::ScalarKind::Uint => "u",
+                naga::ScalarKind::Bool => "b",
+                _ => "",
+            };
+            Some(format!("{prefix}vec{}", size as u8))
         }
         _ => None,
     }
