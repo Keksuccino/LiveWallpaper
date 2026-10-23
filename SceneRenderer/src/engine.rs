@@ -112,6 +112,7 @@ enum Dyn {
     ModelInverse,
     ViewProjection,
     MvpInverse,
+    TexProjectionInverse,
     Identity,
     Time,
     FrameTime,
@@ -158,9 +159,8 @@ fn engine_uniform(name: &str) -> Option<Dyn> {
         "g_ModelViewProjectionMatrixInverse" | "g_EffectModelViewProjectionMatrixInverse" => {
             Dyn::MvpInverse
         }
-        "g_EffectTextureProjectionMatrix"
-        | "g_EffectTextureProjectionMatrixInverse"
-        | "g_NormalModelMatrix" => Dyn::Identity,
+        "g_EffectTextureProjectionMatrixInverse" => Dyn::TexProjectionInverse,
+        "g_EffectTextureProjectionMatrix" | "g_NormalModelMatrix" => Dyn::Identity,
         "g_Time" => Dyn::Time,
         "g_Frametime" => Dyn::FrameTime,
         "g_Daytime" | "g_DayTime" => Dyn::DayTime,
@@ -268,6 +268,8 @@ struct LayerGpu {
     /// rendered once and kept.
     still: bool,
     cached: Option<Retained<Texture>>,
+    /// Drawn to the screen; a hidden layer is still built when another layer samples its output.
+    shown: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -331,6 +333,10 @@ struct DrawCtx {
     /// Intermediate buffers are rendered at this fraction of the layer's native size;
     /// resolution uniforms still report native sizes, so texel-based kernels keep their look.
     buffer_scale: [f32; 2],
+    /// The layer's own unit quad (y down) to the screen, and its size in design units. Effect
+    /// passes draw a buffer-filling quad, but pointer effects unproject the cursor through these.
+    screen_mvp: Mat4,
+    size: [f32; 2],
 }
 
 /// How the scene is mapped onto the target.
@@ -358,6 +364,9 @@ pub struct Engine {
     programs: HashMap<(String, BTreeMap<String, i64>), Rc<Program>>,
     pipelines: HashMap<(usize, Blend, usize), Retained<gpu::Pipeline>>,
     layers: Vec<LayerGpu>,
+    /// Layers whose effect output another layer samples as `_rt_imageLayerComposite_<id>_a`,
+    /// with that name. X-ray scenes hide the revealed picture and sample it this way.
+    composite_refs: Vec<(usize, String)>,
     pool: Pool,
     pub warnings: Vec<String>,
     samples: usize,
@@ -426,6 +435,7 @@ impl Engine {
             programs: HashMap::new(),
             pipelines: HashMap::new(),
             layers: Vec::new(),
+            composite_refs: Vec::new(),
             pool: Pool::default(),
             warnings,
             samples: 1,
@@ -458,6 +468,7 @@ impl Engine {
     /// Re-resolves materials after a property or antialiasing change. Textures, shader sources,
     /// programs and pipelines are cached, so only changed combos compile anything.
     pub fn rebuild(&mut self) {
+        self.composite_refs = self.find_composite_refs();
         let layers = (0..self.scene.layers.len()).map(|i| self.build_layer(i)).collect();
         self.layers = layers;
         // Running simulations and loaded meshes survive a rebuild; only new layers load.
@@ -523,11 +534,59 @@ impl Engine {
         }
     }
 
+    /// Layers that visible layers' materials or effects sample as `_rt_imageLayerComposite_<id>_a`,
+    /// directly or through another sampled layer, ordered so each comes before its readers. A
+    /// layer in a cycle samples nothing prepared this frame.
+    fn find_composite_refs(&self) -> Vec<(usize, String)> {
+        // (layer index, buffer name) for every composite a layer samples.
+        let sources = |i: usize| -> Vec<(usize, String)> {
+            let layer = &self.scene.layers[i];
+            let passes = layer.effects.iter().flat_map(|e| e.passes.iter().map(|p| &p.material));
+            layer
+                .material
+                .iter()
+                .chain(passes)
+                .flat_map(|m| m.textures.iter().flatten())
+                .filter_map(|name| {
+                    let (id, _) = name.strip_prefix("_rt_imageLayerComposite_")?.rsplit_once('_')?;
+                    let id = id.parse::<i64>().ok()?;
+                    let target = self.scene.layers.iter().position(|l| l.id == id)?;
+                    (target != i).then(|| (target, name.clone()))
+                })
+                .collect()
+        };
+        fn visit(
+            node: (usize, String),
+            sources: &dyn Fn(usize) -> Vec<(usize, String)>,
+            visiting: &mut Vec<usize>,
+            out: &mut Vec<(usize, String)>,
+        ) {
+            if visiting.contains(&node.0) || out.iter().any(|(_, n)| *n == node.1) {
+                return;
+            }
+            visiting.push(node.0);
+            for s in sources(node.0) {
+                visit(s, sources, visiting, out);
+            }
+            let _ = visiting.pop();
+            out.push(node);
+        }
+        let mut out = Vec::new();
+        for i in (0..self.scene.layers.len()).filter(|&i| self.visible(i)) {
+            for s in sources(i) {
+                visit(s, &sources, &mut vec![i], &mut out);
+            }
+        }
+        out
+    }
+
     /// GPU state of one layer: its draw items, effect chain and placement.
     fn build_layer(&mut self, index: usize) -> LayerGpu {
         let layer = self.scene.layers[index].clone();
-        // Hidden layers load nothing; a property change that shows them rebuilds.
-        let visible = self.visible(index);
+        let shown = self.visible(index);
+        // Hidden layers load nothing unless another layer samples them; a property change that
+        // shows them rebuilds.
+        let visible = shown || self.composite_refs.iter().any(|(i, _)| *i == index);
         let text = if visible && layer.text.is_some() {
             self.text_material(&layer)
         } else {
@@ -550,6 +609,7 @@ impl Engine {
                 puppet: false,
                 still: false,
                 cached: None,
+                shown,
             };
         };
         let material = &material;
@@ -586,6 +646,26 @@ impl Engine {
                 .ok()
         } else {
             None
+        };
+        // A colour blend mode on a layer whose own shader cannot blend (a solid layer's `flat`)
+        // still applies: the finished effect result meets the screen through the stock image
+        // shader, which does. Without this the blend is dropped and a black effect result shows.
+        let base = if base_fx.is_some()
+            && material.combos.get("BLENDMODE").is_some_and(|&m| m != 0)
+            && base.as_ref().is_some_and(|b| !b.reads_frame)
+        {
+            let wrap = Material {
+                shader: "genericimage2".into(),
+                blend: material.blend,
+                textures: vec![None],
+                combos: material.combos.clone(),
+                constants: HashMap::new(),
+            };
+            self.draw_item(&wrap, wrap.blend, TARGET_FORMAT, self.samples, &[], false)
+                .ok()
+                .or(base)
+        } else {
+            base
         };
         let mut effects = Vec::new();
         for effect in &layer.effects {
@@ -652,6 +732,7 @@ impl Engine {
             puppet: layer.puppet.is_some(),
             still,
             cached: None,
+            shown,
         }
     }
 
@@ -980,11 +1061,18 @@ impl Engine {
         index: usize,
         view_projection: &Mat4,
         input: FrameInput,
+        pointer: [f32; 2],
     ) -> Result<(), Error> {
         let (blend, texture, verts) = {
             let Some(p) = self.particles.get_mut(index) else {
                 return Ok(());
             };
+            // `pointer` is in design units (y down); control points live in the system's own
+            // space (y up), which `world` maps to design units with the y flip.
+            let inv = invert_affine_2d(&p.world);
+            let lx = inv[0] * pointer[0] + inv[4] * pointer[1] + inv[12];
+            let ly = inv[1] * pointer[0] + inv[5] * pointer[1] + inv[13];
+            p.sim.set_pointer(lx, -ly);
             p.sim.seek_to(input.time);
             let world = p.world;
             let (cr, cg, cb) = (p.color[0], p.color[1], p.color[2]);
@@ -1573,10 +1661,25 @@ impl Engine {
         let screen = [tw, th];
         // Screen copy for `_rt_FullFrameBuffer` readers, refreshed before each such draw.
         let mut frame_copy: HashMap<String, Retained<Texture>> = HashMap::new();
+        // Effect outputs other layers sample, by `_rt_imageLayerComposite_<id>_a` name. Those
+        // layers run their chain first, off screen; hidden ones never reach the screen.
+        let mut composites: HashMap<String, Retained<Texture>> = HashMap::new();
+        let order: Vec<(usize, Option<String>)> = self
+            .composite_refs
+            .iter()
+            .map(|(i, name)| (*i, Some(name.clone())))
+            .chain((0..self.layers.len()).map(|i| (i, None)))
+            .collect();
 
-        for li in 0..self.layers.len() {
+        for (li, composite) in order {
+            if composite.is_none() && !self.layers[li].shown {
+                continue;
+            }
             // Particle layers have no image draw of their own; draw their systems in layer order.
             for pi in 0..self.particles.len() {
+                if composite.is_some() {
+                    break;
+                }
                 if self.particles[pi].layer != li {
                     continue;
                 }
@@ -1584,7 +1687,11 @@ impl Engine {
                     .as_ref()
                     .ok_or_else(|| Error::Metal("main pass".into()))?;
                 let vp = view_projection;
-                self.draw_particles(enc, pi, &vp, input)?;
+                let pointer = [
+                    l + input.pointer[0] * (r - l),
+                    t + input.pointer[1] * (b - t),
+                ];
+                self.draw_particles(enc, pi, &vp, input, pointer)?;
             }
             let Some(Placed {
                 world,
@@ -1630,6 +1737,8 @@ impl Engine {
                 color,
                 alpha,
                 buffer_scale: [1.0, 1.0],
+                screen_mvp: mul(&view_projection, &model),
+                size,
             };
             // Nothing of the layer reaches the target: its effects and draw would be wasted.
             if !is_puppet && off_target(&ctx.mvp) {
@@ -1641,8 +1750,28 @@ impl Engine {
             let visible_effects: Vec<usize> = (0..self.layers[li].effects.len()).collect();
 
             if visible_effects.is_empty() || self.layers[li].base_fx.is_none() {
+                // A sampled layer without effects offers its plain image.
+                if let (Some(name), Some(t)) = (composite.as_ref(), image.as_ref()) {
+                    let k = axis_scale(&world).map(|s| (fit * s).clamp(0.05, 1.0));
+                    let (fw, fh) = (
+                        (size[0] * k[0]).round().max(1.0) as usize,
+                        (size[1] * k[1]).round().max(1.0) as usize,
+                    );
+                    if let Some(enc) = main.take() {
+                        enc.endEncoding();
+                    }
+                    let out = self.pool.take(&self.gpu, fw, fh)?;
+                    let enc = gpu::begin(cb, &out, None, Some([0.0; 4]))?;
+                    let rect = [0.0, 0.0, uv[0], uv[1]];
+                    self.composite_rect(&enc, &t.images[0], t.sampler, Blend::Disabled, 1, FBO_MVP, rect, [1.0; 3], 1.0)?;
+                    enc.endEncoding();
+                    let _ = frame_copy.insert(name.clone(), out.clone());
+                    let _ = composites.insert(name.clone(), out);
+                    main = Some(gpu::begin(cb, scene_target, msaa.as_deref(), None)?);
+                    continue;
+                }
                 // A compose layer without effects would redraw what is already behind it.
-                if compose {
+                if compose || composite.is_some() {
                     continue;
                 }
                 if self.layers[li].base.as_ref().is_some_and(|b| b.reads_frame) {
@@ -1697,7 +1826,7 @@ impl Engine {
             if let Some(cached) = self.layers[li]
                 .cached
                 .clone()
-                .filter(|c| c.width() == fw && c.height() == fh)
+                .filter(|c| composite.is_none() && c.width() == fw && c.height() == fh)
             {
                 let enc = main
                     .as_ref()
@@ -1739,6 +1868,7 @@ impl Engine {
                 color,
                 alpha: 1.0,
                 buffer_scale: k,
+                ..ctx
             };
             {
                 let enc = gpu::begin(cb, &prev, None, Some([0.0; 4]))?;
@@ -1824,6 +1954,13 @@ impl Engine {
                 blit.endEncoding();
                 self.layers[li].cached = Some(keep);
             }
+            if let Some(name) = composite {
+                // Materials and effects of later layers find it among the frame's named buffers.
+                let _ = frame_copy.insert(name.clone(), prev.clone());
+                let _ = composites.insert(name, prev);
+                main = Some(gpu::begin(cb, scene_target, msaa.as_deref(), None)?);
+                continue;
+            }
             // With a colour blend mode, the layer's own material blends the result with the screen.
             // A compose layer's own shader covers the whole target, so its result is composited
             // into the layer's box instead.
@@ -1857,6 +1994,9 @@ impl Engine {
         }
         if let Some(enc) = main {
             enc.endEncoding();
+        }
+        for (_, t) in composites {
+            self.pool.give(t);
         }
         if let Some(scene_tex) = scene_tex.as_ref().filter(|_| bloom) {
             let glow = self.bloom(cb, scene_tex)?;
@@ -2183,7 +2323,18 @@ impl Engine {
         // the position as clip space, so the quad is given in clip space with an identity matrix.
         let full_target = ctx.mvp == FBO_MVP;
         let mvp = if full_target { IDENTITY } else { ctx.mvp };
-        let mvp_inv = invert_affine_2d(&mvp);
+        // In an effect pass the pointer is unprojected into the layer: its pixels (y up, centred)
+        // for the model-view-projection inverse, its [-1, 1] square (y up) for the texture
+        // projection inverse. Both are the identity for a layer that exactly fills the view.
+        let [w, h] = ctx.size.map(|s| s.max(0.001));
+        let (mvp_inv, tex_proj_inv) = if full_target {
+            (
+                invert_affine_2d(&mul(&ctx.screen_mvp, &scale(1.0 / w, -1.0 / h, 1.0))),
+                invert_affine_2d(&mul(&ctx.screen_mvp, &scale(0.5, -0.5, 1.0))),
+            )
+        } else {
+            (invert_affine_2d(&mvp), IDENTITY)
+        };
         for (vertex, u, d) in &item.dynamic {
             let v: Vec<f32> = match d {
                 Dyn::Mvp => mvp.to_vec(),
@@ -2191,6 +2342,7 @@ impl Engine {
                 Dyn::ModelInverse => invert_affine_2d(&ctx.model).to_vec(),
                 Dyn::ViewProjection => ctx.view_projection.to_vec(),
                 Dyn::MvpInverse => mvp_inv.to_vec(),
+                Dyn::TexProjectionInverse => tex_proj_inv.to_vec(),
                 Dyn::Identity => IDENTITY.to_vec(),
                 Dyn::Time => vec![input.time],
                 Dyn::FrameTime => vec![input.frame_time],

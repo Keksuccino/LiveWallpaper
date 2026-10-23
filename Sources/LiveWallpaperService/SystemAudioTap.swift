@@ -193,10 +193,12 @@ struct SpectrumAnalyzer {
         }
     }
 
-    /// Amplitude to a 0...1 level over an 80 dB range. Music sits well under full scale, so a wider
-    /// range keeps audio-driven scene parts from pinning at their maximum.
+    /// Amplitude to a 0...1 level: -60 dB to -10 dB, squared. Scenes expect a peaked spectrum (loud
+    /// bands high, quiet bands near 0); a plain wide dB range lifted every band of ordinary music to
+    /// about half, which drew audio waveforms as solid flat bands.
     private static func level(_ amplitude: Float) -> Float {
         let decibels = 20 * log10(max(amplitude, 1e-6))
-        return min(max((decibels + 80) / 80, 0), 1)
+        let x = min(max((decibels + 60) / 50, 0), 1)
+        return x * x
     }
 }

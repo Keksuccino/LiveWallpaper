@@ -1084,7 +1084,9 @@ fn parse_emitter(map: &Map<String, Value>, index: usize, unknown: &mut Vec<Strin
         max_to_emit_per_period: as_f32(field(map, "maxtoemitperperiod")),
         cone: as_f32(field(map, "cone")),
         sign: as_f32(field(map, "sign")),
-        control_point: as_usize(field(map, "controlpoint")),
+        // An emitter without the key follows control point 0, which is how a cursor trail
+        // (control point 0 locked to the pointer) gets emitted under the pointer.
+        control_point: as_usize(field(map, "controlpoint")).or(Some(0)),
     }
 }
 

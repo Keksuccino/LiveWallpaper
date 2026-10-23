@@ -112,6 +112,9 @@ const MESH_TAG: &[u8] = b"MDLV0023";
 const SKELETON_TAG: &[u8] = b"MDLS0004\0";
 const ATTACHMENT_TAG: &[u8] = b"MDAT0001\0";
 const ANIMATION_TAG: &[u8] = b"MDLA0006\0";
+/// Older chunk versions with the same field layout as the tags above, checked against the
+/// `MDLV0019` models of a local scene (Red Warbler: katana, crane, ornaments).
+const OLDER_TAGS: &[&[u8]] = &[b"MDLV0019", b"MDLS0002\0", b"MDLA0005\0"];
 
 const VERTEX_STRIDE: usize = 80;
 const KEYFRAME_SIZE: usize = 9 * 4;
@@ -895,7 +898,7 @@ fn read_zeros(r: &mut Reader<'_>, count: usize, what: &str) -> Result<(), Error>
 fn read_tag(r: &mut Reader<'_>, tag: &[u8]) -> Result<(), Error> {
     let at = r.pos;
     let actual = r.bytes(tag.len())?;
-    if actual != tag {
+    if !same_chunk(actual, tag) {
         return Err(Error::Unsupported(format!(
             "puppet: expected {} at 0x{at:x}, found {}",
             String::from_utf8_lossy(tag),
@@ -905,14 +908,20 @@ fn read_tag(r: &mut Reader<'_>, tag: &[u8]) -> Result<(), Error> {
     Ok(())
 }
 
+/// `actual` is `tag` or an older version of the same chunk.
+fn same_chunk(actual: &[u8], tag: &[u8]) -> bool {
+    actual == tag || (actual[..4] == tag[..4] && OLDER_TAGS.contains(&actual))
+}
+
 fn tag_at(data: &[u8], off: usize, tag: &[u8]) -> bool {
-    data.get(off..).is_some_and(|rest| rest.starts_with(tag))
+    data.get(off..off.saturating_add(tag.len()))
+        .is_some_and(|actual| actual.len() == tag.len() && same_chunk(actual, tag))
 }
 
 fn find_tag(data: &[u8], from: usize, tag: &[u8]) -> Option<usize> {
     data.get(from..)?
         .windows(tag.len())
-        .position(|window| window == tag)
+        .position(|window| same_chunk(window, tag))
         .map(|position| from + position)
 }
 
@@ -1252,5 +1261,26 @@ mod tests {
         assert_eq!(model.animations.len(), 1);
         assert_eq!(model.animations[0].id, 346);
         assert_eq!(model.animations[0].frame_count(), 61);
+    }
+
+    #[test]
+    #[ignore = "needs the local scene library"]
+    fn parses_the_local_v19_puppets() {
+        let Some(library) = library() else {
+            return;
+        };
+        let package = library.join("3233141951/scene.pkg");
+        if !package.exists() {
+            eprintln!("skipping: {} does not exist", package.display());
+            return;
+        }
+        let package = crate::vfs::Pkg::open(&package).expect("open Red Warbler package");
+        let data = package.get("models/刀_puppet.mdl").expect("katana model");
+        let model = Puppet::parse(&data).expect("parse MDLV0019 katana");
+        assert_eq!(model.bones.len(), 1);
+        assert_eq!(model.animations[0].id, 673);
+        assert_eq!(model.animations[0].frame_count(), 901);
+        let data = package.get("models/朱鹤_puppet.mdl").expect("crane model");
+        assert_eq!(Puppet::parse(&data).expect("parse MDLV0019 crane").bones.len(), 9);
     }
 }

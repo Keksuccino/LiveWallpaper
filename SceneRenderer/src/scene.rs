@@ -111,8 +111,9 @@ pub fn floats(v: &Value) -> Vec<f32> {
     match v {
         Value::Number(n) => vec![n.as_f64().unwrap_or(0.0) as f32],
         Value::Bool(b) => vec![f32::from(u8::from(*b))],
+        // Shader defaults and some scene values separate components with commas: "0.0, 1.0".
         Value::String(s) => s
-            .split_whitespace()
+            .split(|c: char| c.is_whitespace() || c == ',')
             .filter_map(|x| x.parse().ok())
             .collect(),
         Value::Array(a) => a.iter().flat_map(floats).collect(),
@@ -673,5 +674,11 @@ mod tests {
         assert!(!plain.truthy(&props));
         let fixed = Bound::parse(Some(&json!("1 2 3")), Value::Null);
         assert_eq!(floats(&fixed.get(&props)), vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn comma_separated_values_keep_every_component() {
+        assert_eq!(floats(&json!("0.0, 1.0")), vec![0.0, 1.0]);
+        assert_eq!(floats(&json!("0.05,0.00")), vec![0.05, 0.0]);
     }
 }

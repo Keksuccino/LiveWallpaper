@@ -152,6 +152,16 @@ impl Engine {
             "alpha" => l.alpha.get(&self.props),
             "visible" => Value::Bool(l.visible.truthy(&self.props)),
             "text" => Value::String(l.text.as_ref()?.value.clone()),
+            _ if field.starts_with("effects[") => {
+                let (n, constant) = effect_field(field)?;
+                let effect = l.effects.get(n)?;
+                match constant {
+                    None => Value::Bool(effect.visible.truthy(&self.props)),
+                    Some((pass, key)) => {
+                        effect.passes.get(pass)?.material.constants.get(key)?.get(&self.props)
+                    }
+                }
+            }
             _ => {
                 let key = field.strip_prefix("instanceoverride.")?;
                 let v = l.particles.as_ref()?.instance_override.as_ref()?.get(key)?;
@@ -216,6 +226,30 @@ impl Engine {
                 if let Ok(n) = n.parse::<usize>() {
                     if let Some(effect) = self.scene.layers[index].effects.get_mut(n) {
                         effect.visible = Bound { value, user: None, condition: None };
+                    }
+                }
+            }
+            return;
+        }
+        if let Some((n, constant)) = effect_field(field) {
+            let props = &self.props;
+            let Some(effect) = self.scene.layers[index].effects.get_mut(n) else { return };
+            match constant {
+                None => effect.visible = fixed(value),
+                Some((pass, key)) => {
+                    let Some(slot) =
+                        effect.passes.get_mut(pass).and_then(|p| p.material.constants.get_mut(key))
+                    else {
+                        return;
+                    };
+                    // Constants are baked into the draw list, so only a visible change rebuilds;
+                    // fade scripts creep towards their target by ever smaller steps.
+                    let (old, new) = (floats(&slot.get(props)), floats(&value));
+                    let moved = old.len() != new.len()
+                        || old.iter().zip(&new).any(|(a, b)| (a - b).abs() > 1e-3);
+                    if moved {
+                        *slot = fixed(value);
+                        changes.rebuild = true;
                     }
                 }
             }
@@ -365,6 +399,18 @@ impl Engine {
 }
 
 /// A scene vector value as the "x y z" text scripts parse.
+/// Splits `effects[n].visible` into `(n, None)` and
+/// `effects[n].passes[m].constantshadervalues.<key>` into `(n, Some((m, key)))`.
+fn effect_field(field: &str) -> Option<(usize, Option<(usize, &str)>)> {
+    let (n, rest) = field.strip_prefix("effects[")?.split_once("].")?;
+    let n = n.parse().ok()?;
+    if rest == "visible" {
+        return Some((n, None));
+    }
+    let (m, key) = rest.strip_prefix("passes[")?.split_once("].constantshadervalues.")?;
+    Some((n, Some((m.parse().ok()?, key))))
+}
+
 fn text3(v: &Value) -> String {
     let f = floats(v);
     match f.len() {
@@ -372,5 +418,21 @@ fn text3(v: &Value) -> String {
         1 => format!("{0} {0} {0}", f[0]),
         2 => format!("{} {} 0", f[0], f[1]),
         _ => format!("{} {} {}", f[0], f[1], f[2]),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::effect_field;
+
+    #[test]
+    fn effect_script_paths_are_split() {
+        assert_eq!(effect_field("effects[0].visible"), Some((0, None)));
+        assert_eq!(
+            effect_field("effects[1].passes[0].constantshadervalues.alpha"),
+            Some((1, Some((0, "alpha"))))
+        );
+        assert_eq!(effect_field("effects[1].passes[0].combos.X"), None);
+        assert_eq!(effect_field("origin"), None);
     }
 }
