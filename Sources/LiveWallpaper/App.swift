@@ -78,7 +78,7 @@ struct LiveWallpaperApp: App {
 // MARK: - Navigation
 
 enum SidebarSelection: Hashable {
-    case all, desktop, lockScreen, scenes, workshop, downloads, steamSetup
+    case all, desktop, lockScreen, scenes, playlists, workshop, downloads, steamSetup
 
     var isLibrary: Bool {
         switch self {
@@ -102,19 +102,20 @@ enum SidebarSelection: Hashable {
         case .desktop: return "Desktop"
         case .lockScreen: return "Lock Screen"
         case .scenes: return "Scenes"
+        case .playlists: return "Playlists"
         case .workshop: return "Workshop"
         case .downloads: return "Downloads"
         case .steamSetup: return "Steam Setup"
         }
     }
 
-    /// Icon and colours of the sidebar tile.
     var symbol: String {
         switch self {
         case .all: return "rectangle.on.rectangle"
         case .desktop: return "display"
         case .lockScreen: return "lock.display"
         case .scenes: return "sparkles.rectangle.stack"
+        case .playlists: return "list.bullet.rectangle"
         case .workshop: return "square.grid.2x2"
         case .downloads: return "arrow.down.circle"
         case .steamSetup: return "key.horizontal"
@@ -150,6 +151,7 @@ struct RootView: View {
                 sidebarRow(.desktop, count: count(for: .desktop))
                 sidebarRow(.lockScreen, count: count(for: .lock))
                 sidebarRow(.scenes, count: model.videos.filter(\.isScene).count)
+                sidebarRow(.playlists, count: nil)
             }
             Section("Discover") {
                 sidebarRow(.workshop, count: workshop.results.isEmpty ? nil : workshop.results.count)
@@ -264,6 +266,8 @@ struct RootView: View {
                                          openSteamSetup: { selection = .steamSetup },
                                          remove: removeFocused)
                 }
+        case .playlists:
+            PlaylistView(model: model)
         case .workshop:
             WorkshopView(model: model, workshop: workshop,
                          openSteamSetup: { selection = .steamSetup },

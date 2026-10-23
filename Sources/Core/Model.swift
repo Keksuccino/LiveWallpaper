@@ -136,7 +136,7 @@ public struct TargetConfig: Codable, Equatable, Sendable {
     public var intervalValue: Int
     public var intervalUnit: IntervalUnit
 
-    public init(enabled: Bool = true, selectedID: UUID? = nil, playlist: [UUID]? = nil, rotateEnabled: Bool = true,
+    public init(enabled: Bool = true, selectedID: UUID? = nil, playlist: [UUID]? = nil, rotateEnabled: Bool = false,
                 intervalValue: Int = 5, intervalUnit: IntervalUnit = .minutes) {
         self.enabled = enabled
         self.selectedID = selectedID
@@ -284,9 +284,10 @@ public struct LibraryState: Codable, Equatable, Sendable {
     /// The target is enabled and has something to play.
     public func canPlay(_ target: WallpaperTarget) -> Bool { isEnabled(target) && !items(for: target).isEmpty }
     public func hasMultipleItems(_ target: WallpaperTarget) -> Bool { items(for: target).count > 1 }
-    /// Rotation is switched on and there is more than one item to rotate through.
+    /// Rotation only ever cycles a playlist the user curated. Without one, the selected wallpaper stays.
     public func rotates(_ target: WallpaperTarget) -> Bool {
-        config(for: target).rotateEnabled && hasMultipleItems(target)
+        let config = config(for: target)
+        return config.playlist != nil && config.rotateEnabled && hasMultipleItems(target)
     }
     public func interval(for target: WallpaperTarget) -> TimeInterval { config(for: target).intervalSeconds }
 

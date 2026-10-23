@@ -1011,7 +1011,7 @@ struct LibrarySettingsCard: View {
 
             Divider()
 
-            InspectorSection(title: "Rotation", subtitle: "Cycles through your wallpapers in list order.") {
+            InspectorSection(title: "Rotation", subtitle: "Runs on a playlist you curate in Playlists.") {
                 VStack(alignment: .leading, spacing: 12) {
                     Toggle("Same wallpaper for both", isOn: Binding(
                         get: { model.sameForBoth },
@@ -1062,7 +1062,7 @@ struct LibrarySettingsCard: View {
 }
 
 @MainActor
-fileprivate struct RotationBlock: View {
+struct RotationBlock: View {
     @ObservedObject var model: SettingsModel
     let target: WallpaperTarget
     let title: String?
@@ -1077,7 +1077,8 @@ fileprivate struct RotationBlock: View {
     }
 
     private var config: TargetConfig { model.snapshot.config(for: target) }
-    private var canRotate: Bool { model.snapshot.hasMultipleItems(target) }
+    private var hasPlaylist: Bool { config.playlist != nil }
+    private var canRotate: Bool { hasPlaylist && model.snapshot.hasMultipleItems(target) }
     private var itemCount: Int { model.snapshot.items(for: target).count }
     private var enteredValue: Int? { Int(intervalText).flatMap { $0 > 0 ? min($0, 999) : nil } }
 
@@ -1126,11 +1127,16 @@ fileprivate struct RotationBlock: View {
     }
 
     private var helper: (text: String, warning: Bool)? {
-        guard canRotate else { return ("Add at least two wallpapers to rotate.", false) }
+        guard canRotate else {
+            if !hasPlaylist {
+                return ("Rotation cycles a playlist you choose. Set one up in Playlists.", false)
+            }
+            return ("Add at least two wallpapers to the playlist to rotate.", false)
+        }
         guard config.rotateEnabled else { return nil }
         if enteredValue == nil { return ("Enter a number from 1 to 999.", true) }
         if config.intervalIsClamped { return ("Minimum is 5 seconds.", true) }
-        return ("Cycles through \(itemCount) wallpapers in list order.", false)
+        return ("Cycles through \(itemCount) wallpapers in playlist order.", false)
     }
 
     private var playingName: String? {
