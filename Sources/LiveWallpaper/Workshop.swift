@@ -199,6 +199,84 @@ enum WorkshopSort: String, CaseIterable, Identifiable {
     }
 }
 
+/// Curated browse topics. A topic is just Steam's ranked text search on the topic name, so it rides the
+/// existing search path (no extra endpoint, no API change). Chips are text-only on purpose.
+enum WorkshopTopic: String, CaseIterable, Identifiable {
+    case anime = "Anime"
+    case nature = "Nature"
+    case cyberpunk = "Cyberpunk"
+    case space = "Space"
+    case abstract = "Abstract"
+    case game = "Game"
+    case music = "Music"
+    case aesthetic = "Aesthetic"
+    case fantasy = "Fantasy"
+    case landscape = "Landscape"
+    case city = "City"
+    case animal = "Animal"
+
+    var id: String { rawValue }
+}
+
+/// What the browse grid offers: everything, or one kind of wallpaper.
+enum WorkshopKindFilter: String, CaseIterable, Identifiable {
+    case all, video, scene
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .all: return "All"
+        case .video: return "Videos"
+        case .scene: return "Scenes"
+        }
+    }
+
+    /// Steam's own tag for this kind, when the list should be narrowed.
+    var requiredTag: String? {
+        switch self {
+        case .all: return nil
+        case .video: return "Video"
+        case .scene: return "Scene"
+        }
+    }
+}
+
+/// One row of the Downloads section: the item and where its download stands.
+struct WorkshopDownloadEntry: Identifiable, Equatable {
+    let item: WorkshopItem
+    let state: WorkshopDownloadState
+
+    var id: String { item.id }
+    var phase: WorkshopDownloadPhase { WorkshopDownloadPhase(state) }
+}
+
+enum WorkshopDownloadPhase: Equatable {
+    case queued(position: Int)
+    case signingIn
+    case downloading(progress: Double?)
+    case importing
+    case done
+    case failed(WorkshopError)
+
+    init(_ state: WorkshopDownloadState) {
+        switch state {
+        case .queued: self = .queued(position: 0)
+        case .signingIn: self = .signingIn
+        case .downloading(let progress): self = .downloading(progress: progress)
+        case .importing: self = .importing
+        case .done: self = .done
+        case .failed(let error): self = .failed(error)
+        }
+    }
+
+    var isActive: Bool {
+        switch self {
+        case .queued, .signingIn, .downloading, .importing: return true
+        case .done, .failed: return false
+        }
+    }
+}
+
 enum WorkshopLookupState: Equatable {
     case idle
     case loading
@@ -259,13 +337,62 @@ enum WorkshopListState: Equatable {
     // Browse and search (needs apiKey).
     @Published var searchText: String = ""
     @Published var sort: WorkshopSort = .trending
+    @Published var kindFilter: WorkshopKindFilter = .all
     @Published var includeMature: Bool = false            // false = hide Questionable and Mature
     @Published private(set) var results: [WorkshopItem] = []
     @Published private(set) var listState: WorkshopListState = .idle
     @Published private(set) var canLoadMore: Bool = false
 
+    /// Every item the app has shown or queued, by id. The Downloads section renders from this even after the
+    /// results grid has moved on to another search.
+    @Published private(set) var knownItems: [String: WorkshopItem] = [:]
+
     // Downloads, keyed by WorkshopItem.id. Entries stay until dismissed, so finished and failed cards keep their state.
     @Published private(set) var downloads: [String: WorkshopDownloadState] = [:]
+
+    /// Insertion order of `downloads`, so the Downloads section can list entries stably.
+    private var downloadOrder: [String] = []
+
+    /// The Downloads section rows: active first (in queue order), then finished and failed.
+    var downloadEntries: [WorkshopDownloadEntry] {
+        let ordered = downloadOrder.compactMap { id -> WorkshopDownloadEntry? in
+            guard let state = downloads[id], let item = knownItems[id] else { return nil }
+            return WorkshopDownloadEntry(item: item, state: state)
+        }
+        let queue = queue
+        func rank(_ entry: WorkshopDownloadEntry) -> Int {
+            if entry.id == runningID { return 0 }
+            if let position = queue.firstIndex(where: { $0.id == entry.id }) { return 1 + position }
+            return entry.phase.isActive ? 1 + queue.count : Int.max
+        }
+        return ordered.sorted { lhs, rhs in
+            let (l, r) = (rank(lhs), rank(rhs))
+            return l != r ? l < r : (downloadOrder.firstIndex(of: lhs.id) ?? 0) < (downloadOrder.firstIndex(of: rhs.id) ?? 0)
+        }
+    }
+
+    var activeDownloadCount: Int { downloadEntries.filter(\.phase.isActive).count }
+
+    /// 1-based position in the waiting queue; 0 while running; nil when not waiting.
+    func queuePosition(of id: String) -> Int? {
+        if id == runningID { return 0 }
+        return queue.firstIndex(where: { $0.id == id }).map { $0 + 1 }
+    }
+
+    /// Mean progress of the downloads that report a fraction, for the toolbar pill.
+    var overallDownloadProgress: Double? {
+        let active = downloadEntries.filter(\.phase.isActive)
+        let fractions = active.compactMap { entry -> Double? in
+            guard case .downloading(let progress) = entry.phase, let progress else { return nil }
+            return min(max(progress, 0), 1)
+        }
+        guard !fractions.isEmpty else { return nil }
+        return fractions.reduce(0, +) / Double(fractions.count)
+    }
+
+    /// The search inputs as one value, so a view can restart a browse task exactly when one of them changes
+    /// (including the arrival of the API key, which switches browsing on).
+    var searchKey: String { "\(sort.rawValue)|\(searchText)|\(includeMature)|\(kindFilter.rawValue)|\(canBrowse)" }
 
     /// True while any download is queued, signing in, downloading or importing. The Settings app stays alive
     /// with its window closed until this is false again.
@@ -404,7 +531,9 @@ enum WorkshopListState: Equatable {
         lookupTask = Task { @MainActor [weak self] in
             let state: WorkshopLookupState
             do {
-                state = .found(try await WorkshopKit.API.details(id: id))
+                let item = try await WorkshopKit.API.details(id: id)
+                state = .found(item)
+                self?.register([item])
             } catch {
                 state = .failed(error as? WorkshopError ?? .network("unexpected error"))
             }
@@ -414,31 +543,36 @@ enum WorkshopListState: Equatable {
     }
 
     /// Resets `results` and loads the first page for the current sort/searchText/includeMature.
-    func search() {
+    /// `keepingResults` leaves the previous page up (dimmed) while the new one loads, so refining a search
+    /// never flashes an empty grid.
+    func search(keepingResults keep: Bool = false) {
         searchTask?.cancel()
         searchGeneration += 1
         nextCursor = "*"
-        results = []
+        if !keep { results = [] }
         canLoadMore = false
-        if canBrowse { loadPage() } else { listState = .idle }
+        if canBrowse { loadPage(replacing: true) } else { listState = .idle }
     }
 
     func loadMore() {
         guard canBrowse, canLoadMore, listState != .loading else { return }
-        loadPage()
+        loadPage(replacing: false)
     }
 
-    private func loadPage() {
+    private func loadPage(replacing: Bool) {
         listState = .loading
         let generation = searchGeneration
         let request = WorkshopKit.API.Browse(key: trimmedKey, sort: sort, text: searchText,
-                                             mature: includeMature, cursor: nextCursor ?? "*")
+                                             mature: includeMature, requiredTag: kindFilter.requiredTag,
+                                             cursor: nextCursor ?? "*")
         searchTask = Task { @MainActor [weak self] in
             do {
                 let page = try await WorkshopKit.API.browse(request)
                 guard let self, generation == self.searchGeneration, !Task.isCancelled else { return }
-                let known = Set(self.results.map(\.id))
-                self.results += page.items.filter { !known.contains($0.id) }
+                self.register(page.items)
+                let known = Set(replacing ? [] : self.results.map(\.id))
+                let fresh = page.items.filter { !known.contains($0.id) }
+                self.results = replacing ? fresh : self.results + fresh
                 self.nextCursor = page.next
                 self.canLoadMore = page.next != nil && page.next != request.cursor
                     && page.rawCount == WorkshopKit.API.pageSize
@@ -448,6 +582,11 @@ enum WorkshopListState: Equatable {
                 self.listState = .failed(error as? WorkshopError ?? .network("unexpected error"))
             }
         }
+    }
+
+    /// Remembers items so the Downloads section can render them later.
+    func register(_ items: [WorkshopItem]) {
+        for item in items where knownItems[item.id] == nil { knownItems[item.id] = item }
     }
 
     // MARK: Downloads
@@ -460,17 +599,28 @@ enum WorkshopListState: Equatable {
         case .done? where isInLibrary(item.id): return
         default: break
         }
+        register([item])
         guard item.isImportable else {
             downloads[item.id] = .failed(.unsupportedType(item.kind))
+            noteDownloadTracked(item.id)
             return
         }
         if case .failure(let error) = prerequisites() {
             downloads[item.id] = .failed(error)
+            noteDownloadTracked(item.id)
             return
         }
         downloads[item.id] = .queued
+        noteDownloadTracked(item.id)
         queue.append(item)
         pump()
+    }
+
+    /// Keeps `downloadOrder` (insertion order) and `downloads` in step.
+    private func noteDownloadTracked(_ id: String) {
+        downloadOrder.removeAll { $0 == id }
+        downloadOrder.append(id)
+        downloadOrder = downloadOrder.filter { downloads[$0] != nil }
     }
 
     func cancelDownload(_ id: String) {
@@ -836,6 +986,7 @@ extension WorkshopKit {
             let sort: WorkshopSort
             let text: String
             let mature: Bool
+            var requiredTag: String? = nil   // Steam tag the item must carry ("Video", "Scene")
             let cursor: String
         }
 
@@ -880,9 +1031,11 @@ extension WorkshopKit {
                 case .popular: pairs.append(("query_type", "9"))                // RankedByTotalUniqueSubscriptions
                 }
             }
-            // No required tag: Steam's required tags must all match, so "Video" alone hid every scene. Items the app
+            // No required tag by default: Steam's required tags must all match, so "Video" alone hid every scene.
+            // The kind filter sets exactly one ("Video" or "Scene") when the user narrows the grid. Items the app
             // cannot import (web, application) still show, with an "unsupported" chip and no download.
             pairs += [("cursor", browse.cursor), ("numperpage", String(pageSize))]
+            if let requiredTag = browse.requiredTag { pairs += [("requiredtags[0]", requiredTag)] }
             if !browse.mature { pairs += [("excludedtags[0]", "Questionable"), ("excludedtags[1]", "Mature")] }
             pairs += [("return_tags", "true"), ("return_short_description", "true"), ("return_previews", "false"),
                       ("return_vote_data", "false"), ("return_metadata", "false")]

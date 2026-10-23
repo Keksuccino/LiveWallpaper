@@ -17,7 +17,7 @@ struct LiveWallpaperApp: App {
         Window("Live Wallpaper", id: "main") {
             RootView(model: model, workshop: workshop)
         }
-        .defaultSize(width: 1180, height: 760)
+        .defaultSize(width: 1200, height: 780)
         .windowResizability(.contentMinSize) // the content's minimum frame is the window minimum
         .windowToolbarStyle(.unified(showsTitle: false))
         .commands { AppCommands(model: model) }
@@ -78,7 +78,7 @@ struct LiveWallpaperApp: App {
 // MARK: - Navigation
 
 enum SidebarSelection: Hashable {
-    case all, desktop, lockScreen, scenes, workshop, steamSetup
+    case all, desktop, lockScreen, scenes, workshop, downloads, steamSetup
 
     var isLibrary: Bool {
         switch self {
@@ -103,7 +103,21 @@ enum SidebarSelection: Hashable {
         case .lockScreen: return "Lock Screen"
         case .scenes: return "Scenes"
         case .workshop: return "Workshop"
+        case .downloads: return "Downloads"
         case .steamSetup: return "Steam Setup"
+        }
+    }
+
+    /// Icon and colours of the sidebar tile.
+    var symbol: String {
+        switch self {
+        case .all: return "rectangle.on.rectangle"
+        case .desktop: return "display"
+        case .lockScreen: return "lock.display"
+        case .scenes: return "sparkles.rectangle.stack"
+        case .workshop: return "square.grid.2x2"
+        case .downloads: return "arrow.down.circle"
+        case .steamSetup: return "key.horizontal"
         }
     }
 }
@@ -119,12 +133,12 @@ struct RootView: View {
     var body: some View {
         NavigationSplitView {
             sidebar
-                .navigationSplitViewColumnWidth(min: 196, ideal: LWTheme.sidebarWidth, max: 280)
+                .navigationSplitViewColumnWidth(min: 208, ideal: LWTheme.sidebarWidth, max: 300)
         } detail: {
             detail
         }
         .navigationSplitViewStyle(.balanced)
-        .frame(minWidth: 960, minHeight: 620)
+        .frame(minWidth: 980, minHeight: 640)
     }
 
     // MARK: Sidebar
@@ -132,14 +146,16 @@ struct RootView: View {
     private var sidebar: some View {
         List(selection: $selection) {
             Section("Library") {
-                sidebarRow(.all, icon: "rectangle.on.rectangle", count: model.videos.count)
-                sidebarRow(.desktop, icon: "display", count: count(for: .desktop))
-                sidebarRow(.lockScreen, icon: "lock.display", count: count(for: .lock))
-                sidebarRow(.scenes, icon: "sparkles.rectangle.stack", count: model.videos.filter(\.isScene).count)
+                sidebarRow(.all, count: model.videos.count)
+                sidebarRow(.desktop, count: count(for: .desktop))
+                sidebarRow(.lockScreen, count: count(for: .lock))
+                sidebarRow(.scenes, count: model.videos.filter(\.isScene).count)
             }
             Section("Discover") {
-                sidebarRow(.workshop, icon: "square.grid.2x2", count: workshop.results.isEmpty ? nil : workshop.results.count)
-                sidebarRow(.steamSetup, icon: "key.horizontal", count: nil)
+                sidebarRow(.workshop, count: workshop.results.isEmpty ? nil : workshop.results.count)
+                sidebarRow(.downloads, count: workshop.downloadEntries.isEmpty ? nil : workshop.downloadEntries.count,
+                           live: workshop.hasActiveDownloads)
+                sidebarRow(.steamSetup, count: nil)
             }
         }
         .listStyle(.sidebar)
@@ -149,16 +165,25 @@ struct RootView: View {
         }
     }
 
-    private func sidebarRow(_ item: SidebarSelection, icon: String, count: Int?) -> some View {
-        HStack(spacing: 8) {
-            Label(item.title, systemImage: icon)
-            Spacer(minLength: 6)
-            if let count, count > 0 {
+    private func sidebarRow(_ item: SidebarSelection, count: Int?, live: Bool = false) -> some View {
+        HStack(spacing: 0) {
+            Label(item.title, systemImage: item.symbol)
+                .font(.callout.weight(.medium))
+            Spacer(minLength: 4)
+            if live {
+                ProgressRing(progress: workshop.overallDownloadProgress ?? 0,
+                             size: 16, lineWidth: 2)
+                    .opacity(workshop.overallDownloadProgress == nil ? 0.4 : 1)
+            } else if let count, count > 0 {
                 Text("\(count)")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.tertiary)
+                    .font(.caption2.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.primary.opacity(0.08)))
             }
         }
+        .padding(.vertical, 1)
         .tag(item)
     }
 
@@ -178,6 +203,7 @@ struct RootView: View {
             content
                 .transition(.opacity)
         }
+        .background(LWBackground())
         .animation(LWMotion.content, value: selection)
         .animation(LWMotion.content, value: banner?.text)
         .toolbar {
@@ -191,6 +217,31 @@ struct RootView: View {
                     .help(showInspector ? "Hide Inspector" : "Show Inspector")
                     .accessibilityLabel(showInspector ? "Hide Inspector" : "Show Inspector")
                     .keyboardShortcut("i", modifiers: [.command, .option])
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                if workshop.hasActiveDownloads {
+                    Button {
+                        selection = .downloads
+                    } label: {
+                        HStack(spacing: 6) {
+                            ProgressRing(progress: workshop.overallDownloadProgress ?? 0,
+                                         size: 16, lineWidth: 2)
+                                .opacity(workshop.overallDownloadProgress == nil ? 0.4 : 1)
+                            Text("\(workshop.activeDownloadCount)")
+                                .font(.caption.weight(.semibold).monospacedDigit())
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background {
+                            Capsule()
+                                .fill(.regularMaterial)
+                                .overlay(Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 1))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .help("Downloads in progress")
+                    .accessibilityLabel("Downloads in progress")
                 }
             }
             ToolbarItem(placement: .primaryAction) {
@@ -216,7 +267,12 @@ struct RootView: View {
         case .workshop:
             WorkshopView(model: model, workshop: workshop,
                          openSteamSetup: { selection = .steamSetup },
-                         openLibrary: { selection = .all })
+                         openLibrary: { selection = .all },
+                         openDownloads: { selection = .downloads })
+        case .downloads:
+            DownloadsView(model: model, workshop: workshop,
+                          openLibrary: { selection = .all },
+                          openWorkshop: { selection = .workshop })
         case .steamSetup:
             SteamSetupView(workshop: workshop, setup: SteamSetupModel.shared)
         }
@@ -337,14 +393,7 @@ private struct ServiceFooter: View {
             }
         }
         .padding(10)
-        .background {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.65))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
-                }
-        }
+        .background { glassShape(radius: 12) }
     }
 
     private var dot: Color {
@@ -386,8 +435,9 @@ struct ServiceStatusPill: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background {
-                Capsule().fill(Color.primary.opacity(0.055))
-                    .overlay(Capsule().strokeBorder(Color.primary.opacity(0.07), lineWidth: 1))
+                Capsule()
+                    .fill(.regularMaterial)
+                    .overlay(Capsule().strokeBorder(Color.primary.opacity(0.09), lineWidth: 1))
             }
         }
         .buttonStyle(.plain)
@@ -461,9 +511,11 @@ private struct ServicePopover: View {
                 if model.client.state == .unavailable {
                     Button("Reconnect") { model.startService() }.buttonStyle(.link)
                 }
-                Button("Restart") { model.restartService() }.buttonStyle(.link)
+                Button("Restart") { model.restartService() }
+                    .buttonStyle(.link)
                     .disabled(model.client.state != .connected)
-                Button("Quit") { model.quitService() }.buttonStyle(.link)
+                Button("Quit") { model.quitService() }
+                    .buttonStyle(.link)
                     .disabled(model.client.state != .connected)
             }
             .font(.caption)
