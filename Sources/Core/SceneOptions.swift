@@ -38,7 +38,7 @@ public struct SceneOptions: Codable, Equatable, Sendable {
     public var antialiasing: Bool        // shortcut: scene FXAA not in the renderer yet; stored, applied later
     public var properties: [String: ScenePropertyValue]
 
-    public init(fps: Int? = nil, renderScale: Double = 1, zoom: Double = 1, fitMode: SceneFitMode = .fill,
+    public init(fps: Int? = nil, renderScale: Double = 1, zoom: Double = 1, fitMode: SceneFitMode = .matchBlurred,
                 panX: Double = 0.5, panY: Double = 0.5, volume: Double = 1, audioResponse: Bool = false,
                 antialiasing: Bool = false, properties: [String: ScenePropertyValue] = [:]) {
         self.fps = fps

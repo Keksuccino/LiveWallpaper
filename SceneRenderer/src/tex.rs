@@ -187,11 +187,15 @@ pub fn decode(data: &[u8]) -> Result<Tex, Error> {
     } else {
         Vec::new()
     };
+    // The header may name a padded size (4096x4096) while the stored mip is only the image
+    // (3840x2160); uvs are fractions of what the GPU actually holds, so trust the mip.
+    let (texture_width, texture_height) =
+        images.first().and_then(|m| m.first()).map_or((dims[0], dims[1]), |m| (m.width, m.height));
     Ok(Tex {
-        texture_width: dims[0],
-        texture_height: dims[1],
-        image_width: dims[2],
-        image_height: dims[3],
+        texture_width,
+        texture_height,
+        image_width: dims[2].min(texture_width),
+        image_height: dims[3].min(texture_height),
         format,
         clamp: flags & 2 != 0,
         nearest: flags & 1 != 0,
@@ -307,6 +311,24 @@ mod tests {
         // "ab" literal, then a match of offset 2, length 6 -> "abababab".
         let block = [0x22, b'a', b'b', 2, 0, 0x00];
         assert_eq!(lz4_block(&block[..5], 8).unwrap(), b"abababab");
+    }
+
+    #[test]
+    fn texture_size_is_the_stored_mip_not_the_padded_header() {
+        // Header says 8x8 holding a 4x2 image, but only a 4x2 mip is stored (Dressing Room
+        // is 4096x4096 over 3840x2160): uvs must be fractions of the 4x2 the GPU gets.
+        let mut f = b"TEXV0005\0TEXI0001\0".to_vec();
+        for v in [0i32, 0, 8, 8, 4, 2, 0] {
+            f.extend(v.to_le_bytes());
+        }
+        f.extend(b"TEXB0001\0");
+        for v in [1u32, 1, 4, 2, 32] {
+            f.extend(v.to_le_bytes());
+        }
+        f.extend([0u8; 32]);
+        let t = decode(&f).unwrap();
+        assert_eq!((t.texture_width, t.texture_height), (4, 2));
+        assert_eq!((t.image_width, t.image_height), (4, 2));
     }
 
     #[test]

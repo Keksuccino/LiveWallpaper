@@ -38,6 +38,11 @@ pub fn resolve_user_values(value: &Value, props: &HashMap<String, Value>) -> Val
 }
 
 impl Bound {
+    #[cfg(test)]
+    pub fn parse_for_test(v: Option<&Value>, default: Value) -> Self {
+        Self::parse(v, default)
+    }
+
     fn parse(v: Option<&Value>, default: Value) -> Self {
         let Some(v) = v else {
             return Self {
@@ -248,10 +253,11 @@ pub struct ParticleLayer {
 #[derive(Debug, Clone)]
 pub struct PuppetAnimation {
     pub id: i64,
-    pub rate: f32,
-    pub blend: f32,
+    /// `rate`, `blend` and `visible` may follow user properties like the rest of the scene.
+    pub rate: Bound,
+    pub blend: Bound,
     pub additive: bool,
-    pub visible: bool,
+    pub visible: Bound,
 }
 
 /// A puppet object: the model file and the animations that move it.
@@ -272,7 +278,7 @@ pub struct Layer {
     pub scale: Bound,
     pub angles: Bound,
     pub size: [f32; 2],
-    pub parallax_depth: [f32; 2],
+    pub parallax_depth: Bound,
     pub alpha: Bound,
     pub color: Bound,
     pub brightness: f32,
@@ -326,11 +332,56 @@ fn find_scripts(layer_id: i64, path: &str, v: &Value, out: &mut Vec<ScriptSpec>)
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+/// The scene's camera parallax settings, as authored (each may follow a user property).
+#[derive(Debug, Clone)]
 pub struct Parallax {
+    pub enabled: Bound,
+    pub amount: Bound,
+    pub delay: Bound,
+    pub mouse_influence: Bound,
+}
+
+/// Camera shake settings, as authored (each may follow a user property).
+#[derive(Debug, Clone)]
+pub struct CameraShake {
+    pub enabled: Bound,
+    pub amplitude: Bound,
+    pub roughness: Bound,
+    pub speed: Bound,
+}
+
+impl CameraShake {
+    /// (amplitude, roughness, speed) in effect, or `None` while the shake is off.
+    pub fn now(&self, props: &HashMap<String, Value>) -> Option<[f32; 3]> {
+        if !self.enabled.truthy(props) {
+            return None;
+        }
+        let num = |b: &Bound, d: f32| floats(&b.get(props)).first().copied().unwrap_or(d);
+        Some([num(&self.amplitude, 0.5), num(&self.roughness, 1.0), num(&self.speed, 3.0)])
+    }
+}
+
+/// Camera parallax with the user's property values applied.
+#[derive(Debug, Clone, Copy)]
+pub struct ParallaxNow {
     pub amount: f32,
     pub delay: f32,
     pub mouse_influence: f32,
+}
+
+impl Parallax {
+    /// The settings in effect, or `None` while camera parallax is off.
+    pub fn now(&self, props: &HashMap<String, Value>) -> Option<ParallaxNow> {
+        if !self.enabled.truthy(props) {
+            return None;
+        }
+        let num = |b: &Bound, d: f32| floats(&b.get(props)).first().copied().unwrap_or(d);
+        Some(ParallaxNow {
+            amount: num(&self.amount, 0.5),
+            delay: num(&self.delay, 0.1),
+            mouse_influence: num(&self.mouse_influence, 1.0),
+        })
+    }
 }
 
 /// Scene-wide glow around bright parts, from `general`.
@@ -350,8 +401,9 @@ pub struct Scene {
     pub bloom: Bloom,
     pub width: f32,
     pub height: f32,
-    pub clear_color: [f32; 3],
-    pub parallax: Option<Parallax>,
+    pub clear_color: Bound,
+    pub parallax: Parallax,
+    pub shake: CameraShake,
     pub layers: Vec<Layer>,
     /// Object kinds this renderer does not draw yet, with counts (reported as load warnings).
     pub skipped: BTreeMap<String, usize>,
@@ -364,21 +416,25 @@ impl Scene {
         let ortho = &general["orthogonalprojection"];
         let width = ortho["width"].as_f64().unwrap_or(1920.0) as f32;
         let height = ortho["height"].as_f64().unwrap_or(1080.0) as f32;
-        let parallax = general["cameraparallax"]
-            .as_bool()
-            .unwrap_or(false)
-            .then(|| Parallax {
-                amount: general["cameraparallaxamount"].as_f64().unwrap_or(0.5) as f32,
-                delay: general["cameraparallaxdelay"].as_f64().unwrap_or(0.1) as f32,
-                mouse_influence: general["cameraparallaxmouseinfluence"]
-                    .as_f64()
-                    .unwrap_or(0.0) as f32,
-            });
+        // Every one of these may be bound to a user property, like the scene's own sliders.
+        let parallax = Parallax {
+            enabled: Bound::parse(general.get("cameraparallax"), Value::Bool(false)),
+            amount: Bound::parse(general.get("cameraparallaxamount"), Value::from(0.5)),
+            delay: Bound::parse(general.get("cameraparallaxdelay"), Value::from(0.1)),
+            // Scenes that never touched the slider leave it out; full influence is the default.
+            mouse_influence: Bound::parse(general.get("cameraparallaxmouseinfluence"), Value::from(1.0)),
+        };
         let mut scene = Self {
             width,
             height,
-            clear_color: vec_n(general.get("clearcolor"), [0.0, 0.0, 0.0]),
+            clear_color: Bound::parse(general.get("clearcolor"), Value::from("0 0 0")),
             parallax,
+            shake: CameraShake {
+                enabled: Bound::parse(general.get("camerashake"), Value::Bool(false)),
+                amplitude: Bound::parse(general.get("camerashakeamplitude"), Value::from(0.5)),
+                roughness: Bound::parse(general.get("camerashakeroughness"), Value::from(1.0)),
+                speed: Bound::parse(general.get("camerashakespeed"), Value::from(3.0)),
+            },
             layers: Vec::new(),
             skipped: BTreeMap::new(),
             scripts: Vec::new(),
@@ -407,6 +463,14 @@ impl Scene {
                 }
                 Some("sound") => scene.sounds.extend(crate::sound::SoundSpec::parse(obj)),
                 Some(other) => *scene.skipped.entry(other.to_string()).or_default() += 1,
+            }
+        }
+        // An auto projection is as big as the largest image (the reference renderer's rule); the
+        // fixed 1920x1080 would crop or letterbox such a scene.
+        if ortho["auto"].as_bool() == Some(true) || width <= 0.0 || height <= 0.0 {
+            let area = |l: &&Layer| l.size[0] * l.size[1];
+            if let Some(l) = scene.layers.iter().max_by(|a, b| area(a).total_cmp(&area(b))).filter(|l| area(l) > 0.0) {
+                (scene.width, scene.height) = (l.size[0], l.size[1]);
             }
         }
         Ok(scene)
@@ -454,13 +518,12 @@ impl Scene {
                     .as_array()
                     .into_iter()
                     .flatten()
-                    .filter(|a| a["visible"].as_bool().unwrap_or(true))
                     .map(|a| PuppetAnimation {
                         id: a["animation"].as_i64().unwrap_or(-1),
-                        rate: a["rate"].as_f64().unwrap_or(1.0) as f32,
-                        blend: a["blend"].as_f64().unwrap_or(1.0) as f32,
+                        rate: Bound::parse(a.get("rate"), Value::from(1.0)),
+                        blend: Bound::parse(a.get("blend"), Value::from(1.0)),
                         additive: a["additive"].as_bool().unwrap_or(false),
-                        visible: true,
+                        visible: Bound::parse(a.get("visible"), Value::Bool(true)),
                     })
                     .collect();
                 puppet = Some(PuppetLayer {
@@ -496,7 +559,7 @@ impl Scene {
             scale: Bound::parse(obj.get("scale"), Value::String("1 1 1".into())),
             angles: Bound::parse(obj.get("angles"), Value::String("0 0 0".into())),
             size: vec_n(obj.get("size"), [0.0, 0.0]),
-            parallax_depth: vec_n(obj.get("parallaxDepth"), [0.0, 0.0]),
+            parallax_depth: Bound::parse(obj.get("parallaxDepth"), Value::from("0 0")),
             alpha: Bound::parse(obj.get("alpha"), Value::from(1.0)),
             color: Bound::parse(obj.get("color"), Value::String("1 1 1".into())),
             brightness: floats(obj.get("brightness").unwrap_or(&Value::from(1.0)))
