@@ -569,7 +569,7 @@ impl Loop {
         }
         let pointer = self.pointer.lock().map(|p| *p).unwrap_or_default();
         // Parallax follows the pointer with the scene's delay instead of jumping with it.
-        let delay = self.engine.scene.parallax.as_ref().map_or(0.1, |p| p.delay);
+        let delay = self.engine.parallax_now().map_or(0.1, |p| p.delay);
         let ease = if delay > 0.0 { (dt / delay).min(1.0) } else { 1.0 };
         for i in 0..2 {
             self.parallax[i] += (pointer.pos[i] - self.parallax[i]) * ease;

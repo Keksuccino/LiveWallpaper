@@ -126,7 +126,7 @@ impl Engine {
                     "visible": l.visible.truthy(&self.props),
                     "text": l.text.as_ref().map(|t| t.value.clone()).unwrap_or_default(),
                     "size": format!("{} {}", l.size[0], l.size[1]),
-                    "parallaxDepth": format!("{} {}", l.parallax_depth[0], l.parallax_depth[1]),
+                    "parallaxDepth": text3(&l.parallax_depth.get(&self.props)),
                     "effects": l.effects.iter().map(|e| json!({
                         "name": e.name,
                         "visible": e.visible.truthy(&self.props),
@@ -201,7 +201,7 @@ impl Engine {
             "clearcolor" => {
                 let rgb = floats(&value);
                 if rgb.len() == 3 {
-                    self.scene.clear_color = [rgb[0], rgb[1], rgb[2]];
+                    self.scene.clear_color = fixed(value);
                 }
             }
             _ => {}
@@ -254,8 +254,7 @@ impl Engine {
                 }
             }
             "parallaxDepth" => {
-                let f = floats(&value);
-                layer.parallax_depth = [f.first().copied().unwrap_or(0.0), f.get(1).copied().unwrap_or(0.0)];
+                layer.parallax_depth = fixed(value);
                 changes.place = true;
             }
             _ => {

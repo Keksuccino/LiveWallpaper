@@ -387,6 +387,10 @@ pub struct Engine {
     puppets: Vec<PuppetGpu>,
     /// Time the puppet poses are sampled at; attached layers read it through `world`.
     pose_time: f32,
+    /// Camera parallax this frame: how far a layer of depth 1 moves, in design units.
+    parallax_shift: [f32; 2],
+    /// Camera shake this frame: the view's offset, in design units.
+    shake_offset: [f32; 2],
     /// The scene's SceneScript runtime; `None` when the scene has no scripts.
     script_host: Option<crate::script::Host>,
     /// Latest audio spectrum, left and right, 0..1 per band.
@@ -428,7 +432,8 @@ impl Engine {
             msaa: None,
             white,
             black,
-            fit: FitMode::Fill,
+            // Shows the whole scene; callers that never set a fit mode (the lock screen recorder) get this.
+            fit: FitMode::MatchBlurred,
             pan: [0.0, 0.0],
             zoom: 1.0,
             text: TextRenderer::new(),
@@ -439,6 +444,8 @@ impl Engine {
             particles: Vec::new(),
             puppets: Vec::new(),
             pose_time: 0.0,
+            parallax_shift: [0.0; 2],
+            shake_offset: [0.0; 2],
             script_host: None,
             audio: [vec![0.0; 64], vec![0.0; 64]],
             sounds,
@@ -486,7 +493,10 @@ impl Engine {
                 continue;
             }
             if let Some(i) = old_puppets.iter().position(|p| p.layer == index) {
-                puppets.push(old_puppets.swap_remove(i));
+                let mut kept = old_puppets.swap_remove(i);
+                // A property may have toggled one of its animation layers.
+                kept.animations = self.puppet_animations(&kept.model, &layer);
+                puppets.push(kept);
                 continue;
             }
             match self.puppet_mesh(index, &layer) {
@@ -760,6 +770,20 @@ impl Engine {
     }
 
     /// Loads a puppet model, its index buffer and the bind-pose data skinning needs.
+    /// The puppet's enabled animation layers with the user's property values applied.
+    fn puppet_animations(&self, model: &puppet::Puppet, layer: &PuppetLayer) -> Vec<(usize, f32, f32, bool)> {
+        let num = |b: &scene::Bound, d: f32| floats(&b.get(&self.props)).first().copied().unwrap_or(d);
+        layer
+            .animations
+            .iter()
+            .filter(|a| a.visible.truthy(&self.props))
+            .filter_map(|a| {
+                let found = model.animations.iter().position(|anim| anim.id as i64 == a.id)?;
+                Some((found, num(&a.rate, 1.0), num(&a.blend, 1.0).clamp(0.0, 1.0), a.additive))
+            })
+            .collect()
+    }
+
     fn puppet_mesh(&mut self, index: usize, layer: &PuppetLayer) -> Result<PuppetGpu, Error> {
         let data = self
             .vfs
@@ -776,17 +800,7 @@ impl Engine {
             };
         }
         let bind_inverse = world.iter().map(mat::invert).collect();
-        let animations = layer
-            .animations
-            .iter()
-            .filter_map(|a| {
-                let found = model
-                    .animations
-                    .iter()
-                    .position(|anim| anim.id as i64 == a.id)?;
-                Some((found, a.rate, a.blend.clamp(0.0, 1.0), a.additive))
-            })
-            .collect();
+        let animations = self.puppet_animations(&model, layer);
         let (texture_name, blend) = self
             .scene
             .layers
@@ -1329,18 +1343,55 @@ impl Engine {
         })
     }
 
-    /// Layer world matrix including parents, in design pixels (y up).
-    /// Re-places layers that hang off a puppet attachment, since the bones move every frame.
-    fn follow_attachments(&mut self, time: f32) {
-        self.pose_time = time;
+    /// Re-places layers that move every frame: those hanging off a puppet attachment (the bones
+    /// move) and, with camera parallax, all of them (the pointer moves).
+    fn follow_motion(&mut self, input: FrameInput) {
+        self.pose_time = input.time;
+        let now = self.parallax_now();
+        self.parallax_shift = match now {
+            Some(p) => camera_shift(&p, input.parallax, self.scene.width),
+            None => [0.0; 2],
+        };
+        let all = now.is_some();
+        self.shake_offset = match self.scene.shake.now(&self.props) {
+            Some(shake) => camera_shake(shake, input.time, [self.scene.width, self.scene.height]),
+            None => [0.0; 2],
+        };
         for i in 0..self.layers.len().min(self.scene.layers.len()) {
-            if self.layers[i].placed.is_none() || !self.attached(i) {
+            if self.layers[i].placed.is_none() || !(all || self.attached(i)) {
                 continue;
             }
             let world = self.world(i, 0);
             if let Some(p) = &mut self.layers[i].placed {
                 p.world = world;
             }
+        }
+        for i in 0..self.particles.len() {
+            let layer = self.particles[i].layer;
+            if all || self.attached(layer) {
+                self.particles[i].world = self.world(layer, 0);
+            }
+        }
+    }
+
+    /// Camera parallax with the user's properties applied; `None` while it is off.
+    pub fn parallax_now(&self) -> Option<scene::ParallaxNow> {
+        self.scene.parallax.now(&self.props)
+    }
+
+    /// How far, in design units, a layer may move with the pointer: the band the parallax zoom
+    /// hides at each edge. Fill zooms in to hide it; the modes that show the whole scene do not
+    /// (a zoom would cut it), so a layer moved that far can show the clear colour at an edge.
+    fn parallax_margin(&self) -> [f32; 2] {
+        let hidden = (1.0 - 1.0 / PARALLAX_ZOOM) / 2.0;
+        [self.scene.width * hidden, self.scene.height * hidden]
+    }
+
+    fn parallax_zoom(&self) -> f32 {
+        if self.parallax_now().is_some() && self.fit == FitMode::Fill {
+            PARALLAX_ZOOM
+        } else {
+            1.0
         }
     }
 
@@ -1357,6 +1408,7 @@ impl Engine {
         false
     }
 
+    /// Layer world matrix including parents and camera parallax, in design pixels (y down).
     fn world(&self, index: usize, depth: u32) -> Mat4 {
         let layer = &self.scene.layers[index];
         let o = floats(&layer.origin.get(&self.props));
@@ -1386,10 +1438,19 @@ impl Engine {
             Some(a) => mul(&a, &local),
             None => local,
         };
-        match parent {
+        let world = match parent {
             Some(p) if depth < 32 => mul(&self.world(p, depth + 1), &local),
             _ => local,
+        };
+        // Applied after the parent, in design units: a child moves with its parent's shift plus
+        // its own, and a parent's scale does not stretch it.
+        let depth = floats(&layer.parallax_depth.get(&self.props));
+        let depth = [depth.first().copied().unwrap_or(0.0), depth.get(1).copied().unwrap_or(0.0)];
+        let [dx, dy] = parallax_offset(depth, self.parallax_shift, self.parallax_margin());
+        if dx == 0.0 && dy == 0.0 {
+            return world;
         }
+        mul(&translate(dx, dy, 0.0), &world)
     }
 
     /// Whether the layer is text whose string a script sets, so it changes between frames.
@@ -1438,10 +1499,10 @@ impl Engine {
             // One design pixel per target pixel.
             FitMode::Unscaled => (tw, th),
         };
-        let z = self.zoom.max(0.05);
+        let z = self.zoom.max(0.05) * self.parallax_zoom();
         let (vw, vh) = (vw / z, vh / z);
-        let cx = w / 2.0 - self.pan[0] * vw;
-        let cy = h / 2.0 - self.pan[1] * vh;
+        let cx = w / 2.0 - self.pan[0] * vw + self.shake_offset[0];
+        let cy = h / 2.0 - self.pan[1] * vh + self.shake_offset[1];
         (cx - vw / 2.0, cx + vw / 2.0, cy - vh / 2.0, cy + vh / 2.0)
     }
 
@@ -1450,7 +1511,7 @@ impl Engine {
     /// blurred copy of the same picture.
     fn content_rect(&self, tw: f32, th: f32) -> (f32, f32, f32, f32) {
         let (w, h) = (self.scene.width, self.scene.height);
-        let s = (tw / w).min(th / h) * self.zoom.max(0.05);
+        let s = (tw / w).min(th / h) * self.zoom.max(0.05) * self.parallax_zoom();
         let (cw, ch) = (w * s, h * s);
         let x = tw / 2.0 + self.pan[0] * tw - cw / 2.0;
         let y = th / 2.0 + self.pan[1] * th - ch / 2.0;
@@ -1466,7 +1527,7 @@ impl Engine {
     ) -> Result<(), Error> {
         let (tw, th) = (target.width() as f32, target.height() as f32);
         self.run_scripts(input, [tw, th]);
-        self.follow_attachments(input.time);
+        self.follow_motion(input);
         if self.samples > 1
             && self
                 .msaa
@@ -1489,10 +1550,13 @@ impl Engine {
         // Screen pixels per design pixel.
         let fit = tw / (r - l).max(0.001);
 
-        let c = self.scene.clear_color;
+        let mut c = [0.0f32; 3];
+        for (o, v) in c.iter_mut().zip(floats(&self.scene.clear_color.get(&self.props))) {
+            *o = v;
+        }
         // The blurred-fit mode draws the scene into a texture first: the empty part of the
         // target is then filled with a blurred copy of the same picture.
-        let blurred = self.fit == FitMode::MatchBlurred;
+        let blurred = self.fit == FitMode::MatchBlurred && leaves_gaps(self.content_rect(tw, th), tw, th);
         let bloom = self.scene.bloom.enabled.truthy(&self.props);
         let scene_tex = if blurred || bloom {
             Some(self.pool.take(&self.gpu, target.width(), target.height())?)
@@ -2209,7 +2273,7 @@ impl Engine {
             || !self.particles.is_empty()
             || self.puppets.iter().any(|p| !p.animations.is_empty())
             || self.scripts_animated()
-            || self.scene.parallax.is_some()
+            || self.parallax_now().is_some()
             || items
                 .into_iter()
                 .any(|i| i.dynamic.iter().any(|(_, _, d)| moving(d)))
@@ -2339,6 +2403,47 @@ fn sub_rect_mvp(x: f32, y: f32, w: f32, h: f32, tw: f32, th: f32) -> Mat4 {
     let tx = (nx0 + nx1) / 2.0;
     let ty = (ny0 + ny1) / 2.0;
     mul(&scale(sx, sy, 1.0), &mul(&translate(tx, ty, 0.0), &FBO_MVP))
+}
+
+/// Whether the design, placed at `rect` (x, y, width, height in target pixels), leaves part of the
+/// `tw`×`th` target empty. Half a pixel of slack keeps a rounded exact fit from counting as a gap.
+fn leaves_gaps(rect: (f32, f32, f32, f32), tw: f32, th: f32) -> bool {
+    let (x, y, w, h) = rect;
+    x > 0.5 || y > 0.5 || x + w < tw - 0.5 || y + h < th - 0.5
+}
+
+/// Magnification while camera parallax is on. It hides a band at each edge for moved layers to
+/// travel into; 1.06 leaves 3% of the scene per side.
+const PARALLAX_ZOOM: f32 = 1.06;
+
+/// How far a layer of depth 1 moves for this pointer, in design units: the pointer's offset from
+/// the centre times amount and influence times the scene width (the scale scene authors tune
+/// `amount` against; e.g. 0.1 x 0.1 is a few pixels, 0.5 x 1 is a hundred or more). Layers move
+/// against the pointer, as if the camera followed it; a negative influence reverses that.
+// shortcut: direction and scale follow the formula the format's authors use, not measured against
+// Wallpaper Engine; compare side by side with a parallax scene there and adjust if they differ.
+fn camera_shift(p: &scene::ParallaxNow, pointer: [f32; 2], reference: f32) -> [f32; 2] {
+    let k = p.amount * p.mouse_influence;
+    [0, 1].map(|i| -(pointer[i] - 0.5) * k * reference)
+}
+
+/// The camera's offset at `time` for a scene's shake settings (amplitude, roughness, speed): slow
+/// smooth noise, two incommensurate sines per axis, with roughness adding a faster octave.
+// shortcut: magnitude (amplitude x 1% of the scene) and the noise shape are a guess, not measured
+// against Wallpaper Engine; tune against a scene that enables the shake.
+fn camera_shake([amplitude, roughness, speed]: [f32; 3], time: f32, size: [f32; 2]) -> [f32; 2] {
+    let t = time * speed;
+    let axis = |phase: f32, extent: f32| {
+        let smooth = (t * 0.9 + phase).sin() + 0.6 * (t * 1.7 + phase * 2.3).sin();
+        let rough = roughness.clamp(0.0, 4.0) * 0.25 * (t * 4.1 + phase * 3.1).sin();
+        (smooth + rough) / 1.6 * amplitude * 0.01 * extent
+    };
+    [axis(0.0, size[0]), axis(1.7, size[0])]
+}
+
+/// One layer's own parallax offset: its depth times the camera shift, kept inside the margin.
+fn parallax_offset(depth: [f32; 2], shift: [f32; 2], margin: [f32; 2]) -> [f32; 2] {
+    [0, 1].map(|i| (depth[i] * shift[i]).clamp(-margin[i], margin[i]))
 }
 
 fn day_time() -> f32 {
@@ -2487,6 +2592,77 @@ impl PuppetGpu {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blurred_backdrop_only_when_the_design_leaves_gaps() {
+        // 16:9 design on a 16:9 target: no gap, no blur needed.
+        assert!(!leaves_gaps((0.0, 0.0, 1920.0, 1080.0), 1920.0, 1080.0));
+        // The same design fitted to a 16:10 target is letterboxed top and bottom.
+        assert!(leaves_gaps((0.0, 38.5, 1728.0, 972.0), 1728.0, 1117.0));
+        // ... and pillarboxed on a portrait target.
+        assert!(leaves_gaps((0.0, 656.25, 1080.0, 607.5), 1080.0, 1920.0));
+        // Zoomed in or panned past the edges: covered, unless the pan opens a gap.
+        assert!(!leaves_gaps((-100.0, -50.0, 2120.0, 1180.0), 1920.0, 1080.0));
+        assert!(leaves_gaps((100.0, -50.0, 2120.0, 1180.0), 1920.0, 1080.0));
+    }
+
+    #[test]
+    fn camera_shake_is_bounded_and_zero_without_amplitude() {
+        let size = [1920.0, 1080.0];
+        assert_eq!(camera_shake([0.0, 1.0, 3.0], 2.0, size), [0.0, 0.0]);
+        let mut moved = false;
+        for i in 0..200 {
+            let o = camera_shake([0.5, 1.0, 3.0], i as f32 * 0.1, size);
+            assert!(o[0].abs() <= 0.5 * 0.01 * 1920.0 * 1.2 && o[1].abs() <= 0.5 * 0.01 * 1920.0 * 1.2, "{o:?}");
+            moved |= o[0] != 0.0;
+        }
+        assert!(moved);
+    }
+
+    #[test]
+    fn parallax_and_shake_follow_user_properties() {
+        let json: Value = serde_json::json!({
+            "cameraparallax": {"user": "p", "value": true},
+            "cameraparallaxamount": {"user": "amt", "value": 0.2},
+            "camerashake": {"user": "s", "value": false},
+        });
+        let bound = |k: &str, d: Value| scene::Bound::parse_for_test(json.get(k), d);
+        let parallax = scene::Parallax {
+            enabled: bound("cameraparallax", Value::Bool(false)),
+            amount: bound("cameraparallaxamount", Value::from(0.5)),
+            delay: bound("cameraparallaxdelay", Value::from(0.1)),
+            mouse_influence: bound("cameraparallaxmouseinfluence", Value::from(1.0)),
+        };
+        let mut props = HashMap::new();
+        // Defaults from the file: on, amount 0.2, influence 1 when absent.
+        let on = parallax.now(&props).expect("default is on");
+        assert!((on.amount - 0.2).abs() < 1e-6 && (on.mouse_influence - 1.0).abs() < 1e-6);
+        // The user switches it off and moves the slider.
+        props.insert("p".into(), Value::Bool(false));
+        assert!(parallax.now(&props).is_none());
+        props.insert("p".into(), Value::Bool(true));
+        props.insert("amt".into(), Value::from(0.9));
+        assert!((parallax.now(&props).unwrap().amount - 0.9).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parallax_moves_layers_against_the_pointer_within_the_margin() {
+        let p = scene::ParallaxNow { amount: 0.5, delay: 0.1, mouse_influence: 1.0 };
+        let (w, margin) = (1920.0, [54.4, 30.6]);
+        // Centred pointer: nothing moves.
+        assert_eq!(camera_shift(&p, [0.5, 0.5], w), [0.0, 0.0]);
+        // Pointer at the right edge: against it, by 0.5 * amount * width.
+        let shift = camera_shift(&p, [1.0, 0.5], w);
+        assert!((shift[0] + 480.0).abs() < 1e-3 && shift[1] == 0.0, "{shift:?}");
+        // A layer's offset is depth times that, kept inside the margin; depth 0 stays fixed.
+        assert_eq!(parallax_offset([0.0, 0.0], shift, margin), [0.0, 0.0]);
+        assert!((parallax_offset([1.0, 1.0], shift, margin)[0] + 54.4).abs() < 1e-3);
+        // A weak scene (0.1 x -0.1, like a scene that barely moves) is small and reversed.
+        let weak = scene::ParallaxNow { amount: 0.1, delay: 1.1, mouse_influence: -0.1 };
+        let s = camera_shift(&weak, [1.0, 0.5], w);
+        assert!((s[0] - 9.6).abs() < 1e-3, "{s:?}");
+        assert!((parallax_offset([1.2, 1.2], s, margin)[0] - 11.52).abs() < 1e-3);
+    }
 
     #[test]
     fn visible_part_of_a_layer_hanging_off_the_right() {

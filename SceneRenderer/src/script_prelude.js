@@ -437,6 +437,8 @@ function __fill(buffer, src) {
 
 // The layer's box in scene units: its origin and scale carried through its parents (rotation
 // is ignored, which is enough to tell whether the pointer is over it).
+// shortcut: camera parallax offsets are not included, so a click on a moved layer can miss by up
+// to 3% of the scene; send each layer's offset in the frame input if a clickable scene needs it.
 function __contains(layer, p) {
 	let o = layer.origin, s = layer.scale;
 	for (let q = layer.getParent(); q; q = q.getParent()) {
