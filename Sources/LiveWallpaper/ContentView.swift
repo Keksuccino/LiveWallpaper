@@ -46,6 +46,8 @@ struct LibraryView: View {
     @State private var isTargeted = false
     @State private var skippedCount = 0
     @State private var showSkipped = false
+    @State private var importFailures: [String] = []
+    @State private var showFailures = false
     @State private var pendingRemoval: Set<VideoItem.ID> = []
     @State private var selectedIDs: Set<VideoItem.ID> = []
     @State private var anchorID: VideoItem.ID?
@@ -109,6 +111,11 @@ struct LibraryView: View {
             }
         }
         .alert(skippedTitle, isPresented: $showSkipped) { Button("OK", role: .cancel) {} }
+        .alert("Some wallpapers couldn’t be imported", isPresented: $showFailures) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(importFailures.joined(separator: "\n"))
+        }
         .alert(removalTitle, isPresented: confirmingRemoval) {
             Button("Remove", role: .destructive) { finishRemoval() }
             Button("Cancel", role: .cancel) {}
@@ -239,7 +246,7 @@ struct LibraryView: View {
         .animation(LWMotion.hero, value: focused?.id)
         .overlay(alignment: .top) {
             if isTargeted {
-                Text("Drop to add")
+                Text("Drop wallpapers to add them")
                     .font(.callout.weight(.semibold))
                     .padding(.horizontal, 14)
                     .padding(.vertical, 7)
@@ -254,7 +261,8 @@ struct LibraryView: View {
     private var heading: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(filter.title)
-                .font(.system(size: 30, weight: .semibold))
+                .font(.system(size: 30, weight: .bold))
+                .kerning(-0.4)
             Text(subtitle)
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -290,11 +298,21 @@ struct LibraryView: View {
                     .font(.callout.monospacedDigit())
                     .foregroundStyle(.tertiary)
                 Spacer()
-                Button(action: chooseVideos) {
+                Menu {
+                    Button { importWallpapers() } label: {
+                        Label("Import Wallpapers…", systemImage: "square.and.arrow.down.on.square")
+                    }
+                    Button { chooseVideos() } label: {
+                        Label("Add Videos…", systemImage: "film")
+                    }
+                } label: {
                     Label("Add", systemImage: "plus")
                 }
-                .buttonStyle(.borderless)
-                .help("Add videos (⌘O)")
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Import videos, Wallpaper Engine scene packages or scene folders (⌘O)")
+                .accessibilityLabel("Add wallpapers")
             }
 
             switch layout {
@@ -346,12 +364,12 @@ struct LibraryView: View {
     private var emptyState: some View {
         LWEmptyState(icon: "play.rectangle.on.rectangle",
                      title: "Your wallpaper library is empty",
-                     message: "Drop videos here, or choose files from your Mac. MP4, MOV and M4V work best.",
-                     actionTitle: "Choose Videos…", action: chooseVideos,
+                     message: "Drop videos, Wallpaper Engine scene packages (.pkg) or scene folders here — or choose files from your Mac.",
+                     actionTitle: "Import Wallpapers…", action: importWallpapers,
                      secondaryTitle: "Browse the Workshop", secondaryAction: openWorkshop,
                      targeted: isTargeted)
         .contentShape(Rectangle())
-        .onTapGesture(perform: chooseVideos)
+        .onTapGesture(perform: importWallpapers)
     }
 
     private var noResults: some View {
@@ -367,18 +385,29 @@ struct LibraryView: View {
     // MARK: Removing and adding
 
     private var skippedTitle: String {
-        skippedCount == 1 ? "Skipped 1 file that isn’t a video." : "Skipped \(skippedCount) files that aren’t videos."
+        skippedCount == 1 ? "Skipped 1 file that isn’t a wallpaper." : "Skipped \(skippedCount) files that aren’t wallpapers."
     }
 
+    /// Brings dropped or chosen files in: videos by reference, scene packages and folders through the
+    /// shared scene importer. Everything lands in the library and is committed to the service (state.json).
     private func add(_ urls: [URL]) {
-        skippedCount = urls.filter { !VideoItem.isVideo($0) }.count
-        showSkipped = skippedCount > 0
-        model.addVideos(urls: urls)
-        reconcileSelection()
+        Task { @MainActor in
+            let outcome = await WallpaperImporter.importURLs(urls, into: model)
+            skippedCount = outcome.skipped
+            importFailures = outcome.failed
+            showSkipped = outcome.skipped > 0
+            showFailures = !outcome.failed.isEmpty
+            reconcileSelection()
+        }
     }
 
     private func chooseVideos() {
         let urls = VideoPicker.choose()
+        if !urls.isEmpty { add(urls) }
+    }
+
+    private func importWallpapers() {
+        let urls = WallpaperPicker.choose()
         if !urls.isEmpty { add(urls) }
     }
 

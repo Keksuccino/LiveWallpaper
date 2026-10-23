@@ -14,17 +14,46 @@ enum VideoPicker {
     }
 }
 
+/// Import panel for videos, Wallpaper Engine scene packages and scene folders in one go.
+@MainActor
+enum WallpaperPicker {
+    static func choose() -> [URL] {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.message = "Choose videos, Wallpaper Engine scene packages (.pkg) or scene folders."
+        panel.prompt = "Import"
+        return panel.runModal() == .OK ? panel.urls : []
+    }
+}
+
+@MainActor
+enum ImportCenter {
+    /// Opens the import panel and brings whatever it recognises into the library.
+    static func importWallpapers(model: SettingsModel) async -> WallpaperImporter.Outcome {
+        let urls = WallpaperPicker.choose()
+        guard !urls.isEmpty else { return WallpaperImporter.Outcome() }
+        return await WallpaperImporter.importURLs(urls, into: model)
+    }
+}
+
 @MainActor
 struct AppCommands: Commands {
     let model: SettingsModel
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
+            Button("Import Wallpapers…") {
+                Task { @MainActor in _ = await ImportCenter.importWallpapers(model: model) }
+            }
+            .keyboardShortcut("o", modifiers: .command)
+
             Button("Add Videos…") {
                 let urls = VideoPicker.choose()
                 if !urls.isEmpty { model.addVideos(urls: urls) }
             }
-            .keyboardShortcut("o", modifiers: .command)
+            .keyboardShortcut("o", modifiers: [.command, .shift])
         }
 
         CommandMenu("Wallpaper") {

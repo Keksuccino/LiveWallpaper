@@ -3,8 +3,12 @@ import AppKit
 import Core
 
 // Views for the Workshop and Steam Setup tabs, built on the WorkshopModel surface in Workshop.swift. Result cards
-// open the detail pane (WorkshopDetailView.swift). Steam Setup is the in-app wizard (SteamWizardView.swift) plus an
-// Advanced section. Layout, states and microcopy: SPEC2.md 5.4 to 5.6, SPEC3.md 6.3 and 6.4.
+// open the detail pane (WorkshopDetailView.swift); downloads live in their own page (DownloadsView.swift). Steam
+// Setup is the in-app wizard (SteamWizardView.swift) plus an Advanced section.
+//
+// Layout stability rule: the browse task hangs off WorkshopView's root, whose identity never changes when the
+// window is resized or the detail pane opens. Only a real change of the search inputs (sort, text, mature, kind)
+// restarts it, and a restart keeps the previous results on screen while the new page loads.
 
 // MARK: - Shared pieces
 
@@ -14,21 +18,6 @@ private let apiKeyPage = URL(string: "https://steamcommunity.com/dev/apikey")!
 private func copyToPasteboard(_ text: String) {
     NSPasteboard.general.clearContents()
     _ = NSPasteboard.general.setString(text, forType: .string)
-}
-
-private extension View {
-    func cardStyle() -> some View {
-        padding(18)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                RoundedRectangle(cornerRadius: LWTheme.cardRadius, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: LWTheme.cardRadius, style: .continuous)
-                            .strokeBorder(Color.primary.opacity(0.07), lineWidth: 1)
-                    }
-            }
-    }
 }
 
 private func cardInfoLine(_ item: WorkshopItem) -> String {
@@ -113,7 +102,7 @@ private struct PreviewImage: View {
     let url: URL?
 
     var body: some View {
-        Rectangle().fill(.quaternary)
+        Rectangle().fill(Color.primary.opacity(0.05))
             .overlay {
                 AsyncImage(url: url) { phase in
                     if let image = phase.image {
@@ -124,9 +113,9 @@ private struct PreviewImage: View {
                 }
             }
             .aspectRatio(16 / 9, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(Color.primary.opacity(0.07), lineWidth: 1)
             }
     }
@@ -142,6 +131,12 @@ struct WorkshopChip: View {
     }
 }
 
+/// The tags of an item that are not meta chips (kind, resolution, rating), capped to keep cards tidy.
+private func topicTags(of item: WorkshopItem, limit: Int) -> [String] {
+    let shown = Set([item.resolutionTag, item.ratingTag, item.kind.rawValue].compactMap { $0?.lowercased() })
+    return item.tags.filter { !shown.contains($0.lowercased()) }.prefix(limit).map { $0 }
+}
+
 @MainActor
 private struct ChipRow: View {
     let item: WorkshopItem
@@ -149,7 +144,8 @@ private struct ChipRow: View {
     var body: some View {
         HStack(spacing: 6) {
             if item.kind != .unknown {
-                WorkshopChip(text: item.kind.rawValue.capitalized, tint: item.isImportable ? Color.accentColor : Color.orange)
+                WorkshopChip(text: item.kind.rawValue.capitalized,
+                             tint: item.isImportable ? Color.accentColor : Color.orange)
             }
             if let resolution = item.resolutionTag { WorkshopChip(text: resolution) }
             if let rating = item.ratingTag { WorkshopChip(text: rating) }
@@ -211,13 +207,26 @@ struct WorkshopCardActions: View {
         }
     }
 
-    private var downloadButton: some View {
-        let size = item.sizeBytes > 0 ? " · " + ByteCountFormatter.string(fromByteCount: item.sizeBytes, countStyle: .file) : ""
-        return Button { workshop.download(item) } label: { Label("Download" + size, systemImage: "arrow.down.circle") }
-            .buttonStyle(.borderedProminent)
-            .controlSize(compact ? .small : .regular)
+    @ViewBuilder private var downloadButton: some View {
+        let size = item.sizeBytes > 0
+            ? " · " + ByteCountFormatter.string(fromByteCount: item.sizeBytes, countStyle: .file)
+            : ""
+        if compact {
+            Button { workshop.download(item) } label: {
+                Label("Download" + size, systemImage: "arrow.down.circle")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
             .disabled(!ready)
             .help(ready ? "" : WorkshopCardActions.setupFirst)
+        } else {
+            Button { workshop.download(item) } label: {
+                Label("Download" + size, systemImage: "arrow.down.circle")
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!ready)
+            .help(ready ? "" : WorkshopCardActions.setupFirst)
+        }
     }
 
     private var cantPlay: some View {
@@ -245,7 +254,10 @@ struct WorkshopCardActions: View {
     /// `fraction` shows a bar, `spinner` an indeterminate spinner; cancelling is offered unless `cancellable` is off.
     private func progress(_ label: String, fraction: Double? = nil, spinner: Bool = false, cancellable: Bool = true) -> some View {
         HStack(spacing: 8) {
-            if let fraction { ProgressView(value: fraction).frame(width: compact ? 80 : 140) }
+            if let fraction {
+                LWProgressBar(progress: fraction, height: 4)
+                    .frame(width: compact ? 90 : 150)
+            }
             if spinner { ProgressView().controlSize(.small) }
             Text(label).font(.caption).foregroundStyle(.secondary)
             if cancellable {
@@ -256,6 +268,8 @@ struct WorkshopCardActions: View {
     }
 }
 
+// MARK: - Item cards: layouts
+
 @MainActor
 private struct ResultCard<Actions: View>: View {
     let item: WorkshopItem
@@ -265,8 +279,8 @@ private struct ResultCard<Actions: View>: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 18) {
-            PreviewImage(url: item.previewURL).frame(width: 224, height: 126)
-                .shadow(color: .black.opacity(hovering ? 0.20 : 0), radius: 14, y: 7)
+            PreviewImage(url: item.previewURL).frame(width: 232, height: 131)
+                .shadow(color: .black.opacity(hovering ? 0.22 : 0.08), radius: hovering ? 16 : 10, y: 7)
             VStack(alignment: .leading, spacing: 8) {
                 Text(item.title).font(.title3.weight(.semibold)).lineLimit(2)
                 ChipRow(item: item)
@@ -278,7 +292,8 @@ private struct ResultCard<Actions: View>: View {
                 actions.frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
-        .cardStyle()
+        .padding(18)
+        .background { glassShape(radius: LWTheme.cardRadius) }
         .scaleEffect(hovering ? 1.005 : 1)
         .animation(LWMotion.hover, value: hovering)
         .onHover { hovering = $0 }
@@ -301,15 +316,22 @@ private struct CompactCard<Actions: View>: View {
     @State private var hovering = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: 10) {
             PreviewImage(url: item.previewURL)
-                .scaleEffect(hovering ? 1.02 : 1)
+                .scaleEffect(hovering ? 1.02 : 1, anchor: .center)
                 .animation(LWMotion.hover, value: hovering)
-            Text(item.title).font(.subheadline.weight(.medium)).lineLimit(2, reservesSpace: true)
+            Text(item.title).font(.subheadline.weight(.semibold)).lineLimit(2, reservesSpace: true)
+            HStack(spacing: 5) {
+                ForEach(topicTags(of: item, limit: 2), id: \.self) { tag in
+                    LWChip(text: tag)
+                }
+            }
+            .frame(height: 16, alignment: .top)
             Text(info).font(.caption).foregroundStyle(.secondary)
             actions
         }
-        .cardStyle()
+        .padding(14)
+        .background { glassShape(radius: LWTheme.cardRadius) }
         .onHover { hovering = $0 }
         .contentShape(Rectangle())
     }
@@ -317,32 +339,38 @@ private struct CompactCard<Actions: View>: View {
 
 // MARK: - Workshop tab
 
-/// Workshop tab: paste field + result card, optional browse grid (needs an API key), setup banner.
+/// Workshop tab: paste field + result card, topic/tag browse grid (needs an API key), setup banner,
+/// and a live strip for running downloads.
 @MainActor
 struct WorkshopView: View {
     @ObservedObject var model: SettingsModel
     @ObservedObject var workshop: WorkshopModel
     let openSteamSetup: () -> Void
     let openLibrary: () -> Void
+    let openDownloads: () -> Void
     @State private var browsed = false
     @State private var detail: WorkshopItem?   // the result whose detail pane is open
 
     // RootView (another file) builds this view; spelling the init out keeps the private @State from affecting it.
     init(model: SettingsModel, workshop: WorkshopModel,
-         openSteamSetup: @escaping () -> Void, openLibrary: @escaping () -> Void) {
+         openSteamSetup: @escaping () -> Void, openLibrary: @escaping () -> Void,
+         openDownloads: @escaping () -> Void) {
         self._model = ObservedObject(wrappedValue: model)
         self._workshop = ObservedObject(wrappedValue: workshop)
         self.openSteamSetup = openSteamSetup
         self.openLibrary = openLibrary
+        self.openDownloads = openDownloads
     }
 
     // Wide windows show the detail pane next to the results; narrow ones replace the results with it.
+    // The browse task is attached here — the root — so no amount of resizing or detail opening restarts it.
     var body: some View {
         GeometryReader { proxy in
             content(wide: proxy.size.width >= 760)
         }
         .animation(LWMotion.content, value: detail?.id)
         .onAppear { workshop.recheckSetup() }
+        .task(id: workshop.searchKey) { await refreshBrowse() }
     }
 
     @ViewBuilder private func content(wide: Bool) -> some View {
@@ -369,19 +397,47 @@ struct WorkshopView: View {
 
     private var resultsColumn: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Steam Workshop").font(.system(size: 30, weight: .semibold))
-                    Text("Download video and scene wallpapers with your own Steam account.")
-                        .font(.callout).foregroundStyle(.secondary)
-                }
+            VStack(alignment: .leading, spacing: LWTheme.sectionSpacing) {
+                LWPageHeader(
+                    title: "Workshop",
+                    subtitle: "Video and scene wallpapers from Steam, downloaded with your own account.",
+                    trailing: { downloadsStrip })
+
                 if !workshop.setup.canDownload { setupBanner }
                 pasteRow
                 lookupSection
                 if workshop.canBrowse { browseSection } else { keyHint }
             }
-            .padding(24)
+            .padding(LWTheme.contentPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .scrollIndicators(.never)
+        .background(LWBackground())
+    }
+
+    /// Live "N downloads in progress" strip in the header; jumps to the Downloads page.
+    @ViewBuilder private var downloadsStrip: some View {
+        if workshop.hasActiveDownloads {
+            Button(action: openDownloads) {
+                HStack(spacing: 8) {
+                    ProgressRing(progress: workshop.overallDownloadProgress ?? 0,
+                                 size: 22, lineWidth: 2.5)
+                        .opacity(workshop.overallDownloadProgress == nil ? 0.35 : 1)
+                    Text("\(workshop.activeDownloadCount) downloading")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.primary)
+                }
+                .padding(.horizontal, 11)
+                .padding(.vertical, 6)
+                .background {
+                    Capsule()
+                        .fill(.regularMaterial)
+                        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 1))
+                }
+            }
+            .buttonStyle(.plain)
+            .help("Open Downloads")
+            .accessibilityLabel("Open Downloads")
         }
     }
 
@@ -394,13 +450,10 @@ struct WorkshopView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
+        .lwGlassCard(radius: 12)
+        .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.orange.opacity(0.12))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Color.orange.opacity(0.25), lineWidth: 1)
-                }
+                .strokeBorder(Color.orange.opacity(0.25), lineWidth: 1)
         }
     }
 
@@ -411,7 +464,7 @@ struct WorkshopView: View {
                     .foregroundStyle(.secondary)
                 TextField("Paste a Workshop link or item number", text: $workshop.pastedText)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 17, weight: .medium))
+                    .font(.system(size: 16, weight: .medium))
                     .onSubmit { workshop.lookUp() }
                 if !workshop.pastedText.isEmpty {
                     Button { workshop.pastedText = "" } label: {
@@ -433,14 +486,7 @@ struct WorkshopView: View {
                     .disabled(workshop.pastedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .padding(14)
-            .background {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-                    }
-            }
+            .background { glassShape(radius: 15) }
             Text("Paste a link from the Steam Workshop and it looks up automatically.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
@@ -477,7 +523,7 @@ struct WorkshopView: View {
                 .onTapGesture { detail = item }
         case .failed(let error):
             WorkshopFailureView(error: error, workshop: workshop, retry: { workshop.lookUp() }, openSteamSetup: openSteamSetup)
-                .cardStyle()
+                .lwGlassCard()
         }
     }
 
@@ -492,14 +538,7 @@ struct WorkshopView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 42)
-        .background {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.45))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
-                }
-        }
+        .background { glassShape(radius: LWTheme.cardRadius) }
     }
 
     private func actions(for item: WorkshopItem, compact: Bool) -> some View {
@@ -514,7 +553,19 @@ struct WorkshopView: View {
         openLibrary()
     }
 
-    // MARK: Browse
+    // MARK Browse
+
+    /// The first run loads (or keeps) the list at once; later changes of sort, search text, rating or kind wait
+    /// 400 ms and keep the previous results on screen while the new page loads (WorkshopModel.search).
+    private func refreshBrowse() async {
+        if !browsed {
+            browsed = true
+            if workshop.listState == .idle { workshop.search() }
+            return
+        }
+        try? await Task.sleep(nanoseconds: 400_000_000)
+        if !Task.isCancelled { workshop.search(keepingResults: true) }
+    }
 
     private var keyHint: some View {
         HStack(spacing: 9) {
@@ -526,30 +577,49 @@ struct WorkshopView: View {
         .font(.callout)
         .foregroundStyle(.secondary)
         .padding(14)
-        .background {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.55))
-        }
+        .background { glassShape(radius: 12) }
     }
 
     private var browseSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Browse").font(.title3)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("Browse").font(.title3.weight(.semibold))
+                Text("\(workshop.results.count)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+                Spacer()
+            }
+            topicRow
             browseControls
             browseResults
         }
-        .task(id: "\(workshop.sort.rawValue)|\(workshop.searchText)|\(workshop.includeMature)") { await refreshBrowse() }
     }
 
-    /// The first run loads (or keeps) the list at once; later changes of sort, search text or rating wait 400 ms.
-    private func refreshBrowse() async {
-        if !browsed {
-            browsed = true
-            if workshop.listState == .idle { workshop.search() }
-            return
+    /// Curated topics. A topic is the ranked text search on its name; "All" clears the text search.
+    private var topicRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                LWTopicChip(title: "All",
+                            selected: workshop.searchText.isEmpty) {
+                    workshop.searchText = ""
+                }
+                ForEach(WorkshopTopic.allCases) { topic in
+                    LWTopicChip(title: topic.rawValue,
+                                selected: workshop.searchText.caseInsensitiveCompare(topic.rawValue) == .orderedSame) {
+                        toggleTopic(topic)
+                    }
+                }
+            }
+            .padding(.vertical, 2)
         }
-        try? await Task.sleep(nanoseconds: 400_000_000)
-        if !Task.isCancelled { workshop.search() }
+    }
+
+    private func toggleTopic(_ topic: WorkshopTopic) {
+        if workshop.searchText.caseInsensitiveCompare(topic.rawValue) == .orderedSame {
+            workshop.searchText = ""
+        } else {
+            workshop.searchText = topic.rawValue
+        }
     }
 
     private var browseControls: some View {
@@ -560,23 +630,23 @@ struct WorkshopView: View {
                 }
             } label: {
                 Label(workshop.sort.label, systemImage: "arrow.up.arrow.down")
+                    .font(.callout.weight(.medium))
             }
             .fixedSize()
+            .disabled(!workshop.searchText.isEmpty)
+            .help(workshop.searchText.isEmpty
+                  ? "Order of the browse grid"
+                  : "Steam decides the order while a search is active")
 
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search video wallpapers", text: $workshop.searchText)
-                    .textFieldStyle(.plain)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+            LWSearchField(prompt: "Search wallpapers", text: $workshop.searchText)
+
+            HStack(spacing: 2) {
+                ForEach(WorkshopKindFilter.allCases) { kind in
+                    LWTopicChip(title: kind.label,
+                                selected: workshop.kindFilter == kind) {
+                        withAnimation(LWMotion.hover) { workshop.kindFilter = kind }
                     }
+                }
             }
 
             Toggle("Mature", isOn: $workshop.includeMature)
@@ -586,23 +656,45 @@ struct WorkshopView: View {
     }
 
     @ViewBuilder private var browseResults: some View {
-        if case .failed(let error) = workshop.listState {
+        if case .failed(let error) = workshop.listState, workshop.results.isEmpty {
             WorkshopFailureView(error: error, workshop: workshop, retry: { workshop.search() }, openSteamSetup: openSteamSetup)
         }
-        if workshop.listState == .loaded, workshop.results.isEmpty {
-            Text("No video wallpapers found.").font(.callout).foregroundStyle(.secondary)
+        if case .failed = workshop.listState, !workshop.results.isEmpty {
+            HStack(spacing: 8) {
+                Image(systemName: "wifi.exclamationmark").foregroundStyle(.orange)
+                Text("Couldn’t refresh — showing the previous results.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("Retry") { workshop.search(keepingResults: true) }
+                    .buttonStyle(.link).font(.caption)
+            }
+            .frame(maxWidth: .infinity)
         }
-        if !workshop.results.isEmpty { resultGrid }
+        if workshop.listState == .loaded, workshop.results.isEmpty {
+            Text("No wallpapers match. Try another topic or search.").font(.callout).foregroundStyle(.secondary)
+        }
+        if !workshop.results.isEmpty {
+            resultGrid
+                .opacity(workshop.listState == .loading ? 0.55 : 1)
+                .animation(LWMotion.content, value: workshop.listState == .loading)
+        }
         if workshop.listState == .loading {
             if workshop.results.isEmpty {
                 skeletonGrid
             } else {
-                ProgressView().controlSize(.small)
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Refreshing…").font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
             }
         } else if workshop.canLoadMore {
-            Button("Load More") { workshop.loadMore() }
-                .buttonStyle(.bordered)
-                .frame(maxWidth: .infinity)
+            Button {
+                workshop.loadMore()
+            } label: {
+                Label("Load More", systemImage: "chevron.down")
+            }
+            .buttonStyle(.bordered)
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -621,16 +713,13 @@ struct WorkshopView: View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 240, maximum: 320), spacing: LWTheme.gridSpacing)],
                   alignment: .leading, spacing: LWTheme.gridSpacing) {
             ForEach(0..<6, id: \.self) { _ in
-                VStack(alignment: .leading, spacing: 9) {
-                    SkeletonBlock(height: 132, radius: 10)
+                VStack(alignment: .leading, spacing: 10) {
+                    SkeletonBlock(height: 132, radius: 12)
                     SkeletonBlock(height: 12, width: 180)
                     SkeletonBlock(height: 10, width: 110)
                 }
-                .padding(18)
-                .background {
-                    RoundedRectangle(cornerRadius: LWTheme.cardRadius, style: .continuous)
-                        .fill(Color(nsColor: .controlBackgroundColor))
-                }
+                .padding(14)
+                .background { glassShape(radius: LWTheme.cardRadius) }
             }
         }
     }
@@ -648,22 +737,22 @@ struct SteamSetupView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Steam Setup").font(.system(size: 30, weight: .semibold))
-                    Text("Download wallpapers from the Steam Workshop with your own account.")
-                        .font(.callout).foregroundStyle(.secondary)
-                }
+            VStack(alignment: .leading, spacing: LWTheme.sectionSpacing) {
+                LWPageHeader(
+                    title: "Steam Setup",
+                    subtitle: "Download wallpapers from the Steam Workshop with your own account.")
                 SteamWizardView(setup: setup)
                 DisclosureGroup("Advanced", isExpanded: $advancedOpen) {
                     advanced.padding(.top, 10)
                 }
                 .font(.callout)
-                .cardStyle()
+                .lwGlassCard()
             }
-            .padding(24)
+            .padding(LWTheme.contentPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .scrollIndicators(.never)
+        .background(LWBackground())
         .onAppear { workshop.recheckSetup() }
         .onChange(of: setup.account) { account in
             // The download path reads the username from the Workshop model; keep both on the signed-in name.

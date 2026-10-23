@@ -4,15 +4,31 @@ import Core
 
 // The shared visual language for the Settings app. Keep every custom colour, radius, curve and
 // reusable surface here so the library, Workshop and Steam Setup feel like one product.
+//
+// The look: soft ambient colour behind everything, translucent "liquid glass" surfaces on top with a
+// light-catching top edge, one accent gradient used sparingly, and quiet typography that leans on
+// weight and spacing. Materials respect Reduce Transparency; every animation respects Reduce Motion.
+
+// MARK: - Tokens
 
 enum LWTheme {
-    static let contentPadding: CGFloat = 24
-    static let cardRadius: CGFloat = 16
-    static let panelRadius: CGFloat = 20
-    static let sidebarWidth: CGFloat = 224
-    static let inspectorWidth: CGFloat = 320
-    static let gridSpacing: CGFloat = 18
-    static let cardMinWidth: CGFloat = 250
+    static let contentPadding: CGFloat = 28
+    static let cardRadius: CGFloat = 18
+    static let panelRadius: CGFloat = 22
+    static let sidebarWidth: CGFloat = 236
+    static let inspectorWidth: CGFloat = 330
+    static let gridSpacing: CGFloat = 20
+    static let cardMinWidth: CGFloat = 252
+    static let sectionSpacing: CGFloat = 26
+
+    /// Hairline used on every glass edge: a light top and a shadowed bottom, in one pass.
+    static let edgeGradient = LinearGradient(
+        stops: [
+            .init(color: .white.opacity(0.28), location: 0),
+            .init(color: .white.opacity(0.04), location: 0.35),
+            .init(color: .black.opacity(0.10), location: 1),
+        ],
+        startPoint: .top, endPoint: .bottom)
 }
 
 enum LWMotion {
@@ -24,24 +40,56 @@ enum LWMotion {
     static let success = Animation.spring(response: 0.36, dampingFraction: 0.72)
 }
 
-/// A solid content surface. Cards use this instead of stacking translucent materials.
+// MARK: - Ambient background
+
+/// The page background every content area sits on. Deliberately plain: the window colour and nothing else.
+/// The depth in this app comes from the glass surfaces and their hairlines, not from colour washes.
+struct LWBackground: View {
+    var body: some View {
+        Color(nsColor: .windowBackgroundColor)
+            .ignoresSafeArea()
+    }
+}
+
+// MARK: - Surfaces
+
+/// The content surface: a translucent card with a light-catching top edge and a soft shadow. This is the
+/// app's glass — solid fill when the user asked for reduced transparency.
 struct LWCard<Content: View>: View {
     var padding: CGFloat = 16
     var radius: CGFloat = LWTheme.cardRadius
     @ViewBuilder var content: Content
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
         content
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: radius, style: .continuous)
-                            .strokeBorder(Color.primary.opacity(0.07), lineWidth: 1)
-                    }
-            }
+            .background { glassShape(radius: radius) }
+    }
+}
+
+/// One glass shape used by cards, banners and rows: material fill, top sheen, gradient hairline, shadow.
+@ViewBuilder
+func glassShape(radius: CGFloat, cornerStyle: RoundedCornerStyle = .continuous,
+                fill: some ShapeStyle = AnyShapeStyle(.regularMaterial)) -> some View {
+    let shape = RoundedRectangle(cornerRadius: radius, style: cornerStyle)
+    ZStack {
+        shape.fill(fill)
+        LinearGradient(colors: [.white.opacity(0.16), .clear],
+                       startPoint: .top, endPoint: .center)
+            .clipShape(shape)
+    }
+    .overlay(shape.strokeBorder(LWTheme.edgeGradient, lineWidth: 1))
+    .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+}
+
+extension View {
+    /// Wraps the view in the standard glass card.
+    func lwGlassCard(padding cardPadding: CGFloat = 16, radius: CGFloat = LWTheme.cardRadius) -> some View {
+        self.padding(cardPadding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background { glassShape(radius: radius) }
     }
 }
 
@@ -70,6 +118,42 @@ struct GlassPanel<Content: View>: View {
     }
 }
 
+// MARK: - Page header
+
+/// The big page title and a quiet subtitle, used to open every page. Typography-led: no icons, no colour.
+struct LWPageHeader<Trailing: View>: View {
+    let title: String
+    var subtitle: String = ""
+    @ViewBuilder let trailing: () -> Trailing
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 30, weight: .bold))
+                    .kerning(-0.4)
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 12)
+            trailing()
+        }
+        .padding(.bottom, 2)
+    }
+}
+
+extension LWPageHeader where Trailing == EmptyView {
+    /// Header without trailing actions.
+    init(title: String, subtitle: String = "") {
+        self.init(title: title, subtitle: subtitle, trailing: { EmptyView() })
+    }
+}
+
+// MARK: - Inspector pieces
+
 struct InspectorSection<Content: View>: View {
     let title: String
     var subtitle: String? = nil
@@ -79,9 +163,9 @@ struct InspectorSection<Content: View>: View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title.uppercased())
-                    .font(.caption2.weight(.semibold))
-                    .tracking(0.7)
-                    .foregroundStyle(.secondary)
+                    .font(.caption2.weight(.bold))
+                    .tracking(0.8)
+                    .foregroundStyle(.tertiary)
                 if let subtitle {
                     Text(subtitle).font(.caption).foregroundStyle(.tertiary)
                 }
@@ -91,11 +175,14 @@ struct InspectorSection<Content: View>: View {
     }
 }
 
+// MARK: - Chips
+
 struct LWChip: View {
     let text: String
     var tint: Color? = nil
     var filled: Bool = false
     var icon: String? = nil
+    var selected: Bool = false
 
     private var color: Color { tint ?? .secondary }
 
@@ -104,19 +191,55 @@ struct LWChip: View {
             if let icon { Image(systemName: icon).font(.system(size: 8, weight: .bold)) }
             Text(text).font(.system(size: 10, weight: .semibold))
         }
-        .foregroundStyle(filled ? Color.white : color)
+        .foregroundStyle(filled || selected ? Color.white : color)
         .padding(.horizontal, 7)
         .padding(.vertical, 2.5)
         .background {
-            Capsule().fill(filled ? color : color.opacity(0.13))
+            if selected {
+                Capsule().fill(Color.accentColor)
+            } else {
+                Capsule().fill(filled ? color : color.opacity(0.13))
+            }
         }
         .overlay {
-            if !filled {
+            if !filled && !selected {
                 Capsule().strokeBorder(color.opacity(0.22), lineWidth: 0.5)
             }
         }
     }
 }
+
+/// A tappable capsule used for topic chips and filter segments. Text only, system accent when selected.
+struct LWTopicChip: View {
+    let title: String
+    var selected: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(selected ? Color.white : Color.primary.opacity(0.72))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background {
+                    if selected {
+                        Capsule().fill(Color.accentColor)
+                    } else {
+                        Capsule()
+                            .fill(.regularMaterial)
+                            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 1))
+                    }
+                }
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .animation(LWMotion.hover, value: selected)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+// MARK: - Status
 
 struct StatusDot: View {
     let color: Color
@@ -184,14 +307,90 @@ struct ProgressRing: View {
                 .stroke(tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
                 .animation(.easeOut(duration: 0.25), value: progress)
-            Text("\(Int((min(max(progress, 0), 1) * 100).rounded()))")
-                .font(.system(size: 9, weight: .bold))
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
+            if size >= 26 {
+                Text("\(Int((min(max(progress, 0), 1) * 100).rounded()))")
+                    .font(.system(size: 9, weight: .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
         }
         .frame(width: size, height: size)
+        .accessibilityLabel("Progress \(Int((min(max(progress, 0), 1) * 100).rounded())) percent")
     }
 }
+
+/// A chunky linear progress bar for downloads. `progress` nil = indeterminate (a travelling highlight).
+struct LWProgressBar: View {
+    let progress: Double?
+    var height: CGFloat = 6
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var travelling = false
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.primary.opacity(0.10))
+                if let progress {
+                    Capsule()
+                        .fill(Color.accentColor)
+                        .frame(width: max(height, min(max(progress, 0), 1) * proxy.size.width))
+                        .animation(.easeOut(duration: 0.2), value: progress)
+                } else {
+                    Capsule()
+                        .fill(Color.accentColor.opacity(0.75))
+                        .frame(width: proxy.size.width * 0.3)
+                        .offset(x: travelling ? proxy.size.width * 0.7 : 0)
+                        .animation(reduceMotion ? nil
+                                   : .easeInOut(duration: 1.1).repeatForever(autoreverses: true),
+                                   value: travelling)
+                }
+            }
+        }
+        .frame(height: height)
+        .onAppear { travelling = true }
+        .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Search field
+
+/// Glass capsule search field with icon, clear button and an escape-to-clear shortcut.
+struct LWSearchField: View {
+    let prompt: String
+    @Binding var text: String
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+            TextField(prompt, text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 7)
+        .background {
+            Capsule()
+                .fill(.regularMaterial)
+                .overlay(Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 1))
+        }
+        .frame(maxWidth: 260)
+    }
+}
+
+// MARK: - View helpers
 
 extension View {
     func hoverLift(_ enabled: Bool = true) -> some View {
@@ -233,6 +432,8 @@ private struct HoverLiftModifier: ViewModifier {
     }
 }
 
+// MARK: - Thumbnails
+
 /// Shared thumbnail loading. Decodes once, keeps the result, and never does disk work in `body`.
 @MainActor
 final class ThumbnailCache {
@@ -263,7 +464,7 @@ struct ItemThumbnail: View {
     let item: VideoItem
     var broken = false
     var showsHoverPreview = true
-    var cornerRadius: CGFloat = 10
+    var cornerRadius: CGFloat = 12
 
     @State private var image: NSImage?
     @State private var hovering = false
@@ -273,7 +474,7 @@ struct ItemThumbnail: View {
 
     var body: some View {
         ZStack {
-            Rectangle().fill(Color(nsColor: .quaternaryLabelColor).opacity(0.18))
+            Rectangle().fill(Color.primary.opacity(0.05))
 
             if broken {
                 VStack(spacing: 5) {
@@ -349,7 +550,10 @@ private struct HoverPreview: View {
     }
 }
 
-/// A drop-in empty state used by the library and Workshop.
+// MARK: - Empty states
+
+/// A drop-in empty state used by the library and Workshop. One card: the dashed border and the surface
+/// are the same rounded rectangle, so the border always contains everything inside it.
 struct LWEmptyState: View {
     let icon: String
     let title: String
@@ -364,20 +568,20 @@ struct LWEmptyState: View {
         VStack(spacing: 14) {
             ZStack {
                 Circle()
-                    .fill(Color.accentColor.opacity(targeted ? 0.16 : 0.08))
+                    .fill(Color.primary.opacity(targeted ? 0.10 : 0.06))
                     .frame(width: 84, height: 84)
-                    .blur(radius: targeted ? 0 : 8)
                 Image(systemName: icon)
                     .font(.system(size: 32, weight: .light))
                     .foregroundStyle(targeted ? Color.accentColor : Color.secondary)
+                    .symbolRenderingMode(.hierarchical)
             }
             Text(targeted ? "Release to add" : title)
-                .font(.title2.weight(.semibold))
+                .font(.title3.weight(.semibold))
             Text(message)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: 380)
+                .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
                 if let actionTitle, let action {
                     Button(actionTitle, action: action)
@@ -392,20 +596,21 @@ struct LWEmptyState: View {
             }
             .padding(.top, 2)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background {
+        .padding(34)
+        .frame(maxWidth: 480)
+        .frame(maxWidth: .infinity)
+        .background { glassShape(radius: 24) }
+        .overlay {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.45))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .strokeBorder(targeted ? Color.accentColor : Color.secondary.opacity(0.18),
-                                      style: StrokeStyle(lineWidth: targeted ? 2 : 1,
-                                                         dash: targeted ? [] : [7, 7]))
-                }
+                .strokeBorder(targeted ? Color.accentColor : Color.secondary.opacity(0.22),
+                              style: StrokeStyle(lineWidth: targeted ? 2 : 1,
+                                                 dash: targeted ? [] : [6, 6]))
+                .animation(LWMotion.hover, value: targeted)
         }
-        .padding(28)
     }
 }
+
+// MARK: - Settings rows
 
 struct LWSettingRow<Content: View>: View {
     let title: String
