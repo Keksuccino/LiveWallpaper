@@ -31,6 +31,31 @@ pub const FBO_FORMAT: MTLPixelFormat = TARGET_FORMAT;
 /// Interleaved vertex: position xyz, texcoord uv.
 pub const VERTEX_STRIDE: usize = 20;
 
+/// Particle vertex: position xy, texcoord uv, straight colour rgba.
+pub const PARTICLE_STRIDE: usize = 32;
+
+/// One textured, coloured quad per particle; the quad corners are built on the CPU so a
+/// particle can be rotated and scaled without per-instance work on the GPU.
+const PARTICLE_MSL: &str = r#"
+#include <metal_stdlib>
+using namespace metal;
+struct VIn { float2 pos [[attribute(0)]]; float2 uv [[attribute(1)]]; float4 col [[attribute(2)]]; };
+struct VOut { float4 pos [[position]]; float2 uv; float4 col; };
+struct U { float4x4 mvp; };
+vertex VOut lw_particle_vs(VIn v [[stage_in]], constant U& u [[buffer(0)]]) {
+    VOut o;
+    o.pos = u.mvp * float4(v.pos, 0.0, 1.0);
+    o.uv = v.uv;
+    o.col = v.col;
+    return o;
+}
+fragment float4 lw_particle_fs(VOut i [[stage_in]], texture2d<float> t [[texture(0)]],
+                               sampler s [[sampler(0)]]) {
+    float4 c = t.sample(s, i.uv);
+    return float4(c.rgb * i.col.rgb, c.a * i.col.a);
+}
+"#;
+
 const COMPOSITE_MSL: &str = r#"
 #include <metal_stdlib>
 using namespace metal;
@@ -53,7 +78,7 @@ const BLUR_MSL: &str = r#"
 using namespace metal;
 struct VIn { float3 pos [[attribute(0)]]; float2 uv [[attribute(1)]]; };
 struct VOut { float4 pos [[position]]; float2 uv; };
-struct U { float4x4 mvp; float4 rect; float2 dir; };
+struct U { float4x4 mvp; float4 rect; float2 dir; float2 tp; };
 vertex VOut lw_blur_vs(VIn v [[stage_in]], constant U& u [[buffer(0)]]) {
     VOut o; o.pos = u.mvp * float4(v.pos, 1.0); o.uv = v.uv; return o;
 }
@@ -67,6 +92,17 @@ fragment float4 lw_blur_fs(VOut i [[stage_in]], constant U& u [[buffer(0)]],
     sum += t.sample(s, c - u.dir * 3.2307692308).rgb * 0.0702702703;
     return float4(sum, 1.0);
 }
+// Bloom source: a four-tap box average (for downsampling) keeping only what is brighter than
+// the threshold `tp.x`, scaled by `tp.y`.
+fragment float4 lw_bright_fs(VOut i [[stage_in]], constant U& u [[buffer(0)]],
+                             texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]]) {
+    float2 c = u.rect.xy + i.uv * u.rect.zw;
+    float3 x = (t.sample(s, c + u.dir).rgb + t.sample(s, c - u.dir).rgb
+              + t.sample(s, c + float2(u.dir.x, -u.dir.y)).rgb
+              + t.sample(s, c + float2(-u.dir.x, u.dir.y)).rgb) * 0.25;
+    float b = max(max(x.r, x.g), x.b);
+    return float4(x * (max(b - u.tp.x, 0.0) / max(b, 1e-4)) * u.tp.y, 1.0);
+}
 "#;
 
 #[derive(Debug)]
@@ -77,8 +113,10 @@ pub struct Gpu {
     pub samplers: [Retained<Sampler>; 4],
     composite: HashMap<(Blend, MTLPixelFormat, usize), Retained<Pipeline>>,
     composite_lib: Retained<ProtocolObject<dyn MTLLibrary>>,
-    blur: HashMap<usize, Retained<Pipeline>>,
+    blur: HashMap<(&'static str, usize), Retained<Pipeline>>,
     blur_lib: Retained<ProtocolObject<dyn MTLLibrary>>,
+    particle: HashMap<(Blend, MTLPixelFormat, usize), Retained<Pipeline>>,
+    particle_lib: Retained<ProtocolObject<dyn MTLLibrary>>,
 }
 
 impl Gpu {
@@ -117,6 +155,7 @@ impl Gpu {
         ];
         let composite_lib = library(&device, COMPOSITE_MSL)?;
         let blur_lib = library(&device, BLUR_MSL)?;
+        let particle_lib = library(&device, PARTICLE_MSL)?;
         Ok(Self {
             device,
             queue,
@@ -125,10 +164,15 @@ impl Gpu {
             composite_lib,
             blur: HashMap::new(),
             blur_lib,
+            particle: HashMap::new(),
+            particle_lib,
         })
     }
 
-    pub fn upload(&self, tex: &Tex, image: usize) -> Result<Retained<Texture>, Error> {
+    /// Uploads one image of `tex`. With `color`, a one- or two-channel texture reads as grey
+    /// (and alpha): that is what such a file holds when it is drawn as a picture, such as a
+    /// particle sprite. Masks and flow maps keep their raw channels.
+    pub fn upload(&self, tex: &Tex, image: usize, color: bool) -> Result<Retained<Texture>, Error> {
         let mips = tex
             .images
             .get(image)
@@ -164,6 +208,17 @@ impl Gpu {
         // SAFETY: `levels` is at least 1 and matches the chain we upload below.
         unsafe { desc.setMipmapLevelCount(levels) };
         desc.setUsage(MTLTextureUsage::ShaderRead);
+        let gray = |alpha| MTLTextureSwizzleChannels {
+            red: MTLTextureSwizzle::Red,
+            green: MTLTextureSwizzle::Red,
+            blue: MTLTextureSwizzle::Red,
+            alpha,
+        };
+        match tex.format {
+            Format::R8 if color => desc.setSwizzle(gray(MTLTextureSwizzle::One)),
+            Format::Rg8 if color => desc.setSwizzle(gray(MTLTextureSwizzle::Green)),
+            _ => {}
+        }
         let texture = self
             .device
             .newTextureWithDescriptor(&desc)
@@ -209,7 +264,7 @@ impl Gpu {
             }]],
             frames: Vec::new(),
         };
-        self.upload(&tex, 0)
+        self.upload(&tex, 0, false)
     }
 
     pub fn render_target(
@@ -269,7 +324,7 @@ impl Gpu {
                 attr.setBufferIndex(VERTEX_BUFFER_SLOT as usize);
             }
         }
-        self.finish_pipeline(&vs, &fs, &vd, blend, format, samples)
+        self.finish_pipeline(&vs, &fs, &vd, blend, format, samples, VERTEX_STRIDE)
     }
 
     pub fn composite(
@@ -296,18 +351,18 @@ impl Gpu {
                 attr.setBufferIndex(VERTEX_BUFFER_SLOT as usize);
             }
         }
-        let p = self.finish_pipeline(&vs, &fs, &vd, blend, format, samples)?;
+        let p = self.finish_pipeline(&vs, &fs, &vd, blend, format, samples, VERTEX_STRIDE)?;
         let _ = self.composite.insert((blend, format, samples), p.clone());
         Ok(p)
     }
 
-    /// Pipeline for the blur pass, without blending.
-    pub fn blur_pipeline(&mut self, samples: usize) -> Result<Retained<Pipeline>, Error> {
-        if let Some(p) = self.blur.get(&samples) {
+    /// Pipeline for a blur-library pass (`lw_blur_fs` or `lw_bright_fs`), without blending.
+    pub fn blur_pipeline(&mut self, fragment: &'static str, samples: usize) -> Result<Retained<Pipeline>, Error> {
+        if let Some(p) = self.blur.get(&(fragment, samples)) {
             return Ok(p.clone());
         }
         let vs = function(&self.blur_lib, "lw_blur_vs")?;
-        let fs = function(&self.blur_lib, "lw_blur_fs")?;
+        let fs = function(&self.blur_lib, fragment)?;
         let vd = MTLVertexDescriptor::new();
         for (i, (format, offset)) in [(MTLVertexFormat::Float3, 0), (MTLVertexFormat::Float2, 12)]
             .into_iter()
@@ -321,11 +376,47 @@ impl Gpu {
                 attr.setBufferIndex(VERTEX_BUFFER_SLOT as usize);
             }
         }
-        let p = self.finish_pipeline(&vs, &fs, &vd, Blend::Normal, FBO_FORMAT, samples)?;
-        let _ = self.blur.insert(samples, p.clone());
+        let p = self.finish_pipeline(&vs, &fs, &vd, Blend::Normal, FBO_FORMAT, samples, VERTEX_STRIDE)?;
+        let _ = self.blur.insert((fragment, samples), p.clone());
         Ok(p)
     }
 
+    /// Pipeline for particle quads, one draw per particle system.
+    pub fn particle_pipeline(
+        &mut self,
+        blend: Blend,
+        format: MTLPixelFormat,
+        samples: usize,
+    ) -> Result<Retained<Pipeline>, Error> {
+        let key = (blend, format, samples);
+        if let Some(p) = self.particle.get(&key) {
+            return Ok(p.clone());
+        }
+        let vs = function(&self.particle_lib, "lw_particle_vs")?;
+        let fs = function(&self.particle_lib, "lw_particle_fs")?;
+        let vd = MTLVertexDescriptor::new();
+        for (i, (format, offset)) in [
+            (MTLVertexFormat::Float2, 0),
+            (MTLVertexFormat::Float2, 8),
+            (MTLVertexFormat::Float4, 16),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            // SAFETY: fixed indices and offsets inside the 32-byte vertex.
+            unsafe {
+                let attr = vd.attributes().objectAtIndexedSubscript(i);
+                attr.setFormat(format);
+                attr.setOffset(offset);
+                attr.setBufferIndex(VERTEX_BUFFER_SLOT as usize);
+            }
+        }
+        let p = self.finish_pipeline(&vs, &fs, &vd, blend, format, samples, PARTICLE_STRIDE)?;
+        let _ = self.particle.insert(key, p.clone());
+        Ok(p)
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn finish_pipeline(
         &self,
         vs: &ProtocolObject<dyn MTLFunction>,
@@ -334,12 +425,13 @@ impl Gpu {
         blend: Blend,
         format: MTLPixelFormat,
         samples: usize,
+        stride: usize,
     ) -> Result<Retained<Pipeline>, Error> {
         // SAFETY: fixed slot index inside the 31 buffer slots.
         unsafe {
             vd.layouts()
                 .objectAtIndexedSubscript(VERTEX_BUFFER_SLOT as usize)
-                .setStride(VERTEX_STRIDE)
+                .setStride(stride)
         };
         let desc = MTLRenderPipelineDescriptor::new();
         desc.setVertexFunction(Some(vs));

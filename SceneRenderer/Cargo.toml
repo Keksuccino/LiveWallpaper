@@ -20,9 +20,13 @@ thiserror = "2.0"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 objc2 = "0.6.4"
 objc2-core-foundation = "0.3.2"
+objc2-core-graphics = "0.3"
+objc2-core-text = "0.3"
 objc2-foundation = "0.3.2"
 objc2-metal = "0.3.2"
 objc2-quartz-core = "0.3.2"
+# SceneScript (JavaScript on scene properties): QuickJS, MIT, small and embeddable.
+rquickjs = { version = "0.9.0", features = ["loader"] }
 uniffi = "0.28.3"
 
 [dev-dependencies]

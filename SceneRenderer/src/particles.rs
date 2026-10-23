@@ -124,6 +124,12 @@ impl std::ops::MulAssign<f32> for Vec3 {
     }
 }
 
+impl std::ops::MulAssign for Vec3 {
+    fn mul_assign(&mut self, o: Self) {
+        *self = *self * o;
+    }
+}
+
 impl std::ops::Mul for Vec3 {
     type Output = Self;
     fn mul(self, o: Self) -> Self {
@@ -870,12 +876,7 @@ fn field<'a>(map: &'a Map<String, Value>, name: &str) -> Option<&'a Value> {
     map.get(name).filter(|v| !v.is_null())
 }
 
-fn check_unknown(
-    map: &Map<String, Value>,
-    known: &[&str],
-    path: &str,
-    unknown: &mut Vec<String>,
-) {
+fn check_unknown(map: &Map<String, Value>, known: &[&str], path: &str, unknown: &mut Vec<String>) {
     for key in map.keys() {
         if !known.contains(&key.as_str()) {
             unknown.push(format!("{path}.{key}"));
@@ -976,8 +977,8 @@ fn objects(value: Option<&Value>) -> Vec<&Map<String, Value>> {
 
 impl ParticleSystem {
     pub fn parse_str(text: &str) -> Result<Self, Error> {
-        let value: Value = serde_json::from_str(text)
-            .map_err(|e| Error::Format(format!("particle JSON: {e}")))?;
+        let value: Value =
+            serde_json::from_str(text).map_err(|e| Error::Format(format!("particle JSON: {e}")))?;
         Self::from_json(&value)
     }
 
@@ -1013,10 +1014,7 @@ impl ParticleSystem {
         for (i, item) in objects(field(map, "renderer")).into_iter().enumerate() {
             system.renderers.push(parse_renderer(item, i, &mut unknown));
         }
-        for (i, item) in objects(field(map, "controlpoint"))
-            .into_iter()
-            .enumerate()
-        {
+        for (i, item) in objects(field(map, "controlpoint")).into_iter().enumerate() {
             system
                 .control_points
                 .push(parse_control_point(item, i, &mut unknown));
@@ -1706,11 +1704,7 @@ impl Simulation {
     pub fn new(system: &ParticleSystem, seed: u64) -> Self {
         let system = Arc::new(system.clone());
         let trail_capacity = system.trail_capacity();
-        let control_points = system
-            .control_points
-            .iter()
-            .map(|cp| cp.offset)
-            .collect();
+        let control_points = system.control_points.iter().map(|cp| cp.offset).collect();
         Self {
             emitter_states: vec![EmitterState::default(); system.emitters.len()],
             system,
@@ -1793,11 +1787,7 @@ impl Simulation {
         if let Some(v) = overrides.count.as_ref().and_then(OverrideValue::literal) {
             self.overrides.count = v.max(0.0);
         }
-        if let Some(v) = overrides
-            .lifetime
-            .as_ref()
-            .and_then(OverrideValue::literal)
-        {
+        if let Some(v) = overrides.lifetime.as_ref().and_then(OverrideValue::literal) {
             self.overrides.lifetime = v.max(0.0);
         }
         if let Some(v) = overrides.size.as_ref().and_then(OverrideValue::literal) {
@@ -1886,8 +1876,7 @@ impl Simulation {
                 .resize(self.particles.len(), (false, Vec3::ZERO, Vec3::ZERO));
             for (i, particle) in self.particles.iter().enumerate() {
                 if particle.alive {
-                    self.boids_snapshot[i] =
-                        (true, particle.render_position(), particle.velocity);
+                    self.boids_snapshot[i] = (true, particle.render_position(), particle.velocity);
                 }
             }
         }
@@ -1934,10 +1923,9 @@ impl Simulation {
             let delay_max = emitter.max_periodic_delay.unwrap_or(delay_min);
             let duration_min = emitter.min_periodic_duration.unwrap_or(0.0);
             let duration_max = emitter.max_periodic_duration.unwrap_or(duration_min);
-            let delay = self.emitter_states[index]
-                .cycle_time
-                .min(delay_max.max(delay_min));
-            let cycle = delay_max.max(delay_min) + duration_max.max(duration_min);
+            let delay = delay_max.max(delay_min);
+            let duration = duration_max.max(duration_min);
+            let cycle = delay + duration;
             if cycle <= EPS {
                 active = false;
             } else {
@@ -1951,8 +1939,7 @@ impl Simulation {
                     state.cycle_time -= cycle;
                     state.period_emitted = 0;
                 }
-                let duration = duration_max.max(duration_min);
-                active = state.cycle_time >= delay && state.cycle_time < delay + duration;
+                active = state.cycle_time >= delay && state.cycle_time < cycle;
             }
         }
 
@@ -1966,8 +1953,7 @@ impl Simulation {
 
         let mut rate_count = 0usize;
         if active {
-            state.accumulator +=
-                emitter.rate as f64 * self.overrides.rate as f64 * dt as f64;
+            state.accumulator += emitter.rate as f64 * self.overrides.rate as f64 * dt as f64;
             let mut n = state.accumulator.floor() as usize;
             state.accumulator -= n as f64;
             if let Some(limit) = emitter.max_to_emit_per_period {
@@ -2041,9 +2027,18 @@ impl Simulation {
             }
         }
 
-        let mut speed_dir = direction;
+        let masked = Vec3::new(
+            direction.x * emitter.directions.x,
+            direction.y * emitter.directions.y,
+            direction.z * emitter.directions.z,
+        );
+        let mut speed_dir = if masked.length() > EPS {
+            masked.normalized_or_zero()
+        } else {
+            direction
+        };
         if let Some(sign) = emitter.sign {
-            speed_dir = speed_dir * sign;
+            speed_dir *= sign;
         }
         if let Some(cone) = emitter.cone {
             if cone > 0.0 {
@@ -2067,11 +2062,11 @@ impl Simulation {
         let max_size = 1.0e6;
         state.lifetime = (state.lifetime * self.overrides.lifetime).max(0.001);
         state.size = (state.size * self.overrides.size * state.remap).clamp(0.0, max_size);
-        state.velocity = state.velocity * self.overrides.speed;
+        state.velocity *= self.overrides.speed;
         state.alpha = (state.alpha * self.overrides.alpha).clamp(0.0, 1.0);
-        state.color = state.color * self.overrides.brightness;
+        state.color *= self.overrides.brightness;
         if let Some(color) = self.overrides.color {
-            state.color = state.color * color;
+            state.color *= color;
         }
 
         let index = if let Some(index) = self.free.pop() {
@@ -2100,9 +2095,7 @@ impl Simulation {
         particle.base_alpha = state.alpha;
         particle.lifetime = state.lifetime;
         particle.sequence = state.sequence;
-        particle.remap = state
-            .remap
-            .clamp(0.0, MAX_PARTICLES_PER_SYSTEM as f32);
+        particle.remap = state.remap.clamp(0.0, MAX_PARTICLES_PER_SYSTEM as f32);
         particle.alive = true;
         if has_trail {
             particle.trail.reserve(trail_capacity.min(MAX_TRAIL_POINTS));
@@ -2136,18 +2129,16 @@ impl Simulation {
                 );
             }
             InitializerKind::HsvColorRandom => {
-                let hue = self.rng.range(
-                    init.hue_min.unwrap_or(0.0),
-                    init.hue_max.unwrap_or(1.0),
-                );
+                let hue = self
+                    .rng
+                    .range(init.hue_min.unwrap_or(0.0), init.hue_max.unwrap_or(1.0));
                 let sat = self.rng.range(
                     init.saturation_min.unwrap_or(0.0),
                     init.saturation_max.unwrap_or(1.0),
                 );
-                let val = self.rng.range(
-                    init.value_min.unwrap_or(1.0),
-                    init.value_max.unwrap_or(1.0),
-                );
+                let val = self
+                    .rng
+                    .range(init.value_min.unwrap_or(1.0), init.value_max.unwrap_or(1.0));
                 state.color = hsv_to_rgb(hue, sat.clamp(0.0, 1.0), val.clamp(0.0, 1.0));
             }
             InitializerKind::VelocityRandom => {
@@ -2186,10 +2177,9 @@ impl Simulation {
                 let scale = init.scale.unwrap_or(1.0);
                 let speed_lo = init.speed_min.unwrap_or(100.0);
                 let speed_hi = init.speed_max.unwrap_or(speed_lo);
-                let phase = self.rng.range(
-                    init.phase_min.unwrap_or(0.0),
-                    init.phase_max.unwrap_or(TAU),
-                );
+                let phase = self
+                    .rng
+                    .range(init.phase_min.unwrap_or(0.0), init.phase_max.unwrap_or(TAU));
                 let offset = init.offset.unwrap_or(0.0);
                 let time_scale = init.time_scale.unwrap_or(1.0);
                 let dir = noise_vec(
@@ -2335,7 +2325,12 @@ impl Simulation {
                     }
                 }
                 OperatorKind::OscillateAlpha => {
-                    let phase = hash_range(seed, key, op.phase_min.unwrap_or(0.0), op.phase_max.unwrap_or(TAU));
+                    let phase = hash_range(
+                        seed,
+                        key,
+                        op.phase_min.unwrap_or(0.0),
+                        op.phase_max.unwrap_or(TAU),
+                    );
                     let freq = hash_range(
                         seed,
                         key ^ 0x11,
@@ -2357,13 +2352,23 @@ impl Simulation {
                         op.frequency_min.unwrap_or(1.0),
                         op.frequency_max.unwrap_or(op.frequency_min.unwrap_or(1.0)),
                     );
-                    let phase = hash_range(seed, key ^ 0x33, op.phase_min.unwrap_or(0.0), op.phase_max.unwrap_or(TAU));
+                    let phase = hash_range(
+                        seed,
+                        key ^ 0x33,
+                        op.phase_min.unwrap_or(0.0),
+                        op.phase_max.unwrap_or(TAU),
+                    );
                     let mask = op.mask.unwrap_or(Vec3::ONE);
                     let s = (TAU * freq * age + phase).sin();
                     offset += mask * (amp * s);
                 }
                 OperatorKind::OscillateSize => {
-                    let phase = hash_range(seed, key, op.phase_min.unwrap_or(0.0), op.phase_max.unwrap_or(TAU));
+                    let phase = hash_range(
+                        seed,
+                        key,
+                        op.phase_min.unwrap_or(0.0),
+                        op.phase_max.unwrap_or(TAU),
+                    );
                     let freq = hash_range(
                         seed,
                         key ^ 0x44,
@@ -2378,10 +2383,15 @@ impl Simulation {
                 OperatorKind::Turbulence => {
                     let scale = op.scale.unwrap_or(0.01);
                     let time_scale = op.time_scale.unwrap_or(1.0);
-                    let phase = hash_range(seed, key, op.phase_min.unwrap_or(0.0), op.phase_max.unwrap_or(TAU));
+                    let phase = hash_range(
+                        seed,
+                        key,
+                        op.phase_min.unwrap_or(0.0),
+                        op.phase_max.unwrap_or(TAU),
+                    );
                     let mut dir = noise_vec(position * scale + Vec3::splat(phase), t * time_scale)
                         .normalized_or_zero();
-                    dir = dir * op.mask.unwrap_or(Vec3::ONE);
+                    dir *= op.mask.unwrap_or(Vec3::ONE);
                     let speed = hash_range(
                         seed,
                         key ^ 0x55,
@@ -2391,7 +2401,10 @@ impl Simulation {
                     velocity += dir * (speed * dt * blend_factor(op, age, lifetime));
                 }
                 OperatorKind::Vortex | OperatorKind::VortexV2 => {
-                    let axis = op.axis.unwrap_or(Vec3::new(0.0, 0.0, 1.0)).normalized_or_zero();
+                    let axis = op
+                        .axis
+                        .unwrap_or(Vec3::new(0.0, 0.0, 1.0))
+                        .normalized_or_zero();
                     let center = op
                         .control_point
                         .and_then(|i| cps.get(i).copied())
@@ -2403,7 +2416,8 @@ impl Simulation {
                     let speed = lerp_by_distance(
                         distance,
                         op.distance_inner.unwrap_or(0.0),
-                        op.distance_outer.unwrap_or(op.distance_inner.unwrap_or(0.0)),
+                        op.distance_outer
+                            .unwrap_or(op.distance_inner.unwrap_or(0.0)),
                         op.speed_inner.unwrap_or(0.0),
                         op.speed_outer.unwrap_or(op.speed_inner.unwrap_or(0.0)),
                     );
@@ -2454,8 +2468,8 @@ impl Simulation {
                         }
                     }
                     if neighbors > 0.0 {
-                        cohesion = cohesion * (1.0 / neighbors);
-                        alignment = alignment * (1.0 / neighbors);
+                        cohesion *= 1.0 / neighbors;
+                        alignment *= 1.0 / neighbors;
                         velocity += (cohesion * op.cohesion_factor.unwrap_or(0.0)
                             + (alignment - velocity) * op.alignment_factor.unwrap_or(0.0)
                             + separation * op.separation_factor.unwrap_or(0.0))
@@ -2546,11 +2560,7 @@ impl Simulation {
         p.offset = offset;
         p.size = size.clamp(0.0, 1.0e6);
         p.alpha = alpha.clamp(0.0, 1.0);
-        p.color = Vec3::new(
-            color.x.max(0.0),
-            color.y.max(0.0),
-            color.z.max(0.0),
-        );
+        p.color = Vec3::new(color.x.max(0.0), color.y.max(0.0), color.z.max(0.0));
 
         if !p.trail.is_empty() {
             p.trail.push(TrailPoint {
@@ -2609,9 +2619,7 @@ fn blend_factor(op: &Operator, age: f32, lifetime: f32) -> f32 {
         _ => 1.0,
     };
     let fade_out = match (op.blend_out_start, op.blend_out_end) {
-        (Some(start), Some(end)) if end > start => {
-            ((end - age) / (end - start)).clamp(0.0, 1.0)
-        }
+        (Some(start), Some(end)) if end > start => ((end - age) / (end - start)).clamp(0.0, 1.0),
         (Some(start), Some(_)) => {
             if age <= start {
                 1.0
@@ -2651,9 +2659,7 @@ fn eval_remap(
             .and_then(|i| control_points.get(i).copied())
             .unwrap_or(Vec3::ZERO);
         ((position - point).length() / 100.0).clamp(0.0, 1.0)
-    } else if input.contains("age") {
-        age
-    } else if input.contains("lifetime") {
+    } else if input.contains("age") || input.contains("lifetime") {
         age
     } else if input.contains("random") {
         hash01(seed, op.id as u64)
@@ -2684,4 +2690,433 @@ fn eval_remap(
         _ => transformed,
     }
     .clamp(0.0, 1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(json: &str) -> ParticleSystem {
+        ParticleSystem::parse_str(json).expect("system parses")
+    }
+
+    fn approx(a: f32, b: f32) -> bool {
+        (a - b).abs() <= 1.0e-3
+    }
+
+    #[test]
+    fn parses_full_system() {
+        let system = parse(
+            r#"{
+                "material": "particles/test.json",
+                "maxcount": 50,
+                "starttime": 2.5,
+                "flags": 3,
+                "animationmode": "randomframe",
+                "sequencemultiplier": 0.5,
+                "emitter": [{
+                    "id": 4, "name": "boxrandom", "rate": 12,
+                    "origin": "1 2 3", "distancemin": "-1 0 0", "distancemax": "1 2 3",
+                    "directions": "1 1 0", "speedmin": 5, "speedmax": 10,
+                    "instantaneous": false, "controlpoint": 0
+                }],
+                "initializer": [
+                    {"id": 0, "name": "lifetimerandom", "min": 1, "max": 2},
+                    {"id": 1, "name": "hsvcolorrandom", "huemin": 0.1, "huemax": 0.2}
+                ],
+                "operator": [
+                    {"id": 0, "name": "movement", "gravity": "0 -9.8 0", "drag": 0.5},
+                    {"id": 1, "name": "remapvalue", "input": "particlesystemtime",
+                     "output": "opacity", "outputrangemin": "0 0 0", "outputrangemax": "1 1 1"}
+                ],
+                "renderer": [{"id": 0, "name": "spritetrail", "maxlength": 12}],
+                "controlpoint": [{"id": 0, "flags": 1, "offset": "4 0 0"}],
+                "children": [{"id": 0, "name": "eventfollow", "type": "eventdeath", "probability": 0.5}]
+            }"#,
+        );
+        assert_eq!(system.material, "particles/test.json");
+        assert_eq!(system.max_count, 50);
+        assert!(approx(system.start_time, 2.5));
+        assert_eq!(system.flags, 3);
+        assert_eq!(system.animation_mode.as_deref(), Some("randomframe"));
+        assert_eq!(system.emitters.len(), 1);
+        assert_eq!(system.emitters[0].kind, EmitterKind::BoxRandom);
+        assert_eq!(system.emitters[0].id, 4);
+        assert!(approx(system.emitters[0].rate, 12.0));
+        assert!(approx(system.emitters[0].origin.y, 2.0));
+        assert!(approx(system.emitters[0].distance_max.z, 3.0));
+        assert_eq!(system.emitters[0].control_point, Some(0));
+        assert_eq!(system.initializers.len(), 2);
+        assert_eq!(system.initializers[1].kind, InitializerKind::HsvColorRandom);
+        assert_eq!(system.operators.len(), 2);
+        assert_eq!(system.operators[0].kind, OperatorKind::Movement);
+        assert_eq!(system.operators[1].kind, OperatorKind::RemapValue);
+        assert_eq!(system.operators[1].output.as_deref(), Some("opacity"));
+        assert_eq!(system.renderers.len(), 1);
+        assert_eq!(system.renderers[0].kind, RendererKind::SpriteTrail);
+        assert_eq!(system.trail_capacity(), 12);
+        assert!(system.has_trail_renderer());
+        assert_eq!(system.control_points.len(), 1);
+        assert!(system.control_points[0].lock_to_pointer);
+        assert_eq!(system.children.len(), 1);
+        assert_eq!(system.children[0].kind, ChildKind::EventDeath);
+        assert!(
+            system.unknown_fields.is_empty(),
+            "{:?}",
+            system.unknown_fields
+        );
+    }
+
+    #[test]
+    fn tracks_unknown_fields_and_names() {
+        let system = parse(
+            r#"{
+                "maxcount": 1, "bogus": 2,
+                "emitter": [{"name": "weirdshape", "rate": 1}],
+                "initializer": [{"name": "weirdinit"}],
+                "operator": [{"name": "weirdop"}],
+                "renderer": [{"name": "weirdrenderer"}],
+                "children": [{"type": "weirdchild"}]
+            }"#,
+        );
+        assert!(system.unknown_fields.iter().any(|f| f == "system.bogus"));
+        assert!(system
+            .unknown_fields
+            .iter()
+            .any(|f| f == "emitter[0].name=weirdshape"));
+        assert!(system
+            .unknown_fields
+            .iter()
+            .any(|f| f == "initializer[0].name=weirdinit"));
+        assert!(system
+            .unknown_fields
+            .iter()
+            .any(|f| f == "operator[0].name=weirdop"));
+        assert!(system
+            .unknown_fields
+            .iter()
+            .any(|f| f == "renderer[0].name=weirdrenderer"));
+        assert!(system
+            .unknown_fields
+            .iter()
+            .any(|f| f == "children[0].type=weirdchild"));
+    }
+
+    #[test]
+    fn parses_instance_override() {
+        let value: serde_json::Value = serde_json::from_str(
+            r#"{
+                "id": 2,
+                "rate": {"user": "speed", "value": 3.5},
+                "count": null,
+                "size": 2,
+                "alpha": 0.25,
+                "colorn": [255, 0, 128]
+            }"#,
+        )
+        .unwrap();
+        let overrides = InstanceOverride::from_json(&value).expect("override parses");
+        assert_eq!(overrides.id, 2);
+        assert_eq!(
+            overrides.rate.as_ref().and_then(OverrideValue::literal),
+            Some(3.5)
+        );
+        assert_eq!(overrides.count, None);
+        assert_eq!(
+            overrides.size.as_ref().and_then(OverrideValue::literal),
+            Some(2.0)
+        );
+        assert_eq!(
+            overrides.alpha.as_ref().and_then(OverrideValue::literal),
+            Some(0.25)
+        );
+        let color = overrides
+            .color
+            .as_ref()
+            .and_then(OverrideColor::literal)
+            .unwrap();
+        assert!((color.x - 1.0).abs() < 1.0e-3);
+        assert!((color.z - 128.0 / 255.0).abs() < 1.0e-3);
+    }
+
+    const FLOW_JSON: &str = r#"{
+        "maxcount": 32,
+        "starttime": 0,
+        "emitter": [{
+            "id": 0, "name": "boxrandom", "rate": 40,
+            "distancemin": "-2 -2 0", "distancemax": "2 2 0",
+            "speedmin": 1, "speedmax": 4, "directions": "1 1 0"
+        }],
+        "initializer": [
+            {"id": 0, "name": "lifetimerandom", "min": 0.5, "max": 1.5},
+            {"id": 1, "name": "sizerandom", "min": 0.2, "max": 0.8},
+            {"id": 2, "name": "velocityrandom", "min": "-1 -1 0", "max": "1 1 0"},
+            {"id": 3, "name": "colorrandom", "min": "0.2 0.4 0.6", "max": "1 1 1"}
+        ],
+        "operator": [
+            {"id": 0, "name": "movement", "gravity": "0 -2 0", "drag": 0.1},
+            {"id": 1, "name": "turbulence", "scale": 0.02, "speedmin": 2, "speedmax": 5,
+             "timescale": 0.5, "phasemin": 0, "phasemax": 3.14},
+            {"id": 2, "name": "alphafade", "fadeintime": 0.1, "fadeouttime": 0.2},
+            {"id": 3, "name": "sizechange", "startvalue": "1 1 1", "endvalue": "0.2 0.2 0.2"}
+        ],
+        "renderer": [{"id": 0, "name": "sprite"}]
+    }"#;
+
+    fn snapshot(sim: &Simulation) -> Vec<(f32, f32, f32, f32)> {
+        sim.alive_particles()
+            .map(|p| (p.position.x, p.position.y, p.size, p.alpha))
+            .collect()
+    }
+
+    #[test]
+    fn simulation_is_deterministic() {
+        let system = parse(FLOW_JSON);
+        let mut a = Simulation::new(&system, 0x1234_5678);
+        let mut b = Simulation::new(&system, 0x1234_5678);
+        for _ in 0..120 {
+            a.step_fixed();
+            b.step_fixed();
+        }
+        assert!(a.alive_count() > 0);
+        assert_eq!(snapshot(&a), snapshot(&b));
+        assert!((a.time() - 2.0).abs() < 1.0e-4);
+
+        let mut c = Simulation::new(&system, 0x8765_4321);
+        for _ in 0..120 {
+            c.step_fixed();
+        }
+        assert_ne!(snapshot(&a), snapshot(&c));
+    }
+
+    #[test]
+    fn start_time_delays_emission() {
+        let system = parse(
+            r#"{
+                "maxcount": 4, "starttime": 1.0,
+                "emitter": [{"name": "sphererandom", "rate": 60, "distancemax": 1}],
+                "initializer": [{"name": "lifetimerandom", "min": 2, "max": 2}],
+                "renderer": [{"name": "sprite"}]
+            }"#,
+        );
+        let mut sim = Simulation::new(&system, 1);
+        sim.step(0.9);
+        assert_eq!(sim.alive_count(), 0);
+        sim.step(0.2);
+        assert!(sim.alive_count() > 0);
+    }
+
+    #[test]
+    fn max_count_caps_spawning() {
+        let system = parse(
+            r#"{
+                "maxcount": 7,
+                "emitter": [{"name": "sphererandom", "rate": 10000}],
+                "initializer": [{"name": "lifetimerandom", "min": 5, "max": 5}],
+                "renderer": [{"name": "sprite"}]
+            }"#,
+        );
+        let mut sim = Simulation::new(&system, 2);
+        sim.step(1.0);
+        assert_eq!(sim.alive_count(), 7);
+        assert_eq!(sim.max_particles(), 7);
+    }
+
+    #[test]
+    fn instance_override_scales_capacity() {
+        let system = parse(
+            r#"{
+                "maxcount": 10,
+                "emitter": [{"name": "sphererandom", "rate": 10000}],
+                "initializer": [{"name": "lifetimerandom", "min": 5, "max": 5}],
+                "renderer": [{"name": "sprite"}]
+            }"#,
+        );
+        let value: serde_json::Value =
+            serde_json::from_str(r#"{"id": 0, "count": 2, "size": 0.5}"#).unwrap();
+        let overrides = InstanceOverride::from_json(&value).unwrap();
+        let mut sim = system.with_instance_override(&overrides, 3);
+        assert_eq!(sim.max_particles(), 20);
+        sim.step(1.0);
+        assert_eq!(sim.alive_count(), 20);
+        assert!(sim.alive_particles().all(|p| approx(p.size, 0.5)));
+    }
+
+    #[test]
+    fn lifetime_kills_and_emits_death_events() {
+        let system = parse(
+            r#"{
+                "maxcount": 3,
+                "emitter": [{"name": "sphererandom", "rate": 0, "instantaneous": true, "distancemax": 1}],
+                "initializer": [{"name": "lifetimerandom", "min": 0.1, "max": 0.1}],
+                "renderer": [{"name": "sprite"}],
+                "children": [{"id": 0, "name": "deathfx", "type": "eventdeath", "probability": 1}]
+            }"#,
+        );
+        let mut sim = Simulation::new(&system, 4);
+        sim.step(0.05);
+        assert_eq!(sim.alive_count(), 3);
+        sim.step(0.2);
+        assert_eq!(sim.alive_count(), 0);
+        let events = sim.take_events();
+        assert_eq!(events.len(), 3);
+        assert!(events
+            .iter()
+            .all(|e| e.kind == ChildKind::EventDeath && e.name == "deathfx"));
+        assert!(sim.take_events().is_empty());
+    }
+
+    #[test]
+    fn trails_are_capped_and_record_positions() {
+        let system = parse(
+            r#"{
+                "maxcount": 1,
+                "emitter": [{"name": "sphererandom", "rate": 60, "speedmin": 10, "speedmax": 10,
+                             "directions": "1 0 0"}],
+                "initializer": [{"name": "lifetimerandom", "min": 10, "max": 10}],
+                "renderer": [{"name": "spritetrail", "maxlength": 4}]
+            }"#,
+        );
+        let mut sim = Simulation::new(&system, 5);
+        sim.step(0.5);
+        let particle = sim.alive_particles().next().expect("particle exists");
+        assert!(!particle.trail.is_empty());
+        assert!(particle.trail.len() <= 4);
+        assert!(particle.position.length() > 1.0);
+    }
+
+    #[test]
+    fn control_point_sets_spawn_origin() {
+        let system = parse(
+            r#"{
+                "maxcount": 1,
+                "emitter": [{"name": "sphererandom", "rate": 60, "controlpoint": 0, "distancemin": 0, "distancemax": 0}],
+                "initializer": [{"name": "lifetimerandom", "min": 5, "max": 5}],
+                "renderer": [{"name": "sprite"}],
+                "controlpoint": [{"id": 0, "offset": "5 6 7"}]
+            }"#,
+        );
+        let mut sim = Simulation::new(&system, 6);
+        sim.step_fixed();
+        let p = sim.alive_particles().next().expect("particle exists");
+        assert!((p.position.x - 5.0).abs() < 1.0e-3);
+        assert!((p.position.y - 6.0).abs() < 1.0e-3);
+        assert!((p.position.z - 7.0).abs() < 1.0e-3);
+        sim.set_control_point(0, Vec3::new(1.0, 2.0, 3.0));
+        assert_eq!(sim.control_points()[0], Vec3::new(1.0, 2.0, 3.0));
+    }
+
+    #[test]
+    fn seek_backwards_replays_deterministically() {
+        let system = parse(FLOW_JSON);
+        let mut stepped = Simulation::new(&system, 7);
+        stepped.seek_to(1.0);
+        let at_one = snapshot(&stepped);
+        stepped.seek_to(0.5);
+        let at_half = snapshot(&stepped);
+
+        let mut fresh = Simulation::new(&system, 7);
+        fresh.seek_to(0.5);
+        assert_eq!(at_half, snapshot(&fresh));
+        assert_ne!(at_one, at_half);
+    }
+
+    #[test]
+    #[ignore = "needs the local Wallpaper Engine scene library"]
+    fn parses_real_scene_packages() {
+        let home = match std::env::var("HOME") {
+            Ok(home) => home,
+            Err(_) => return,
+        };
+        let root = std::path::PathBuf::from(home)
+            .join("Library/Application Support/LiveWallpaper/Library");
+        if !root.exists() {
+            return;
+        }
+        let cases = [
+            ("3695791724", "particles/presets/ember.json"),
+            ("3695791724", "particles/workshop/3291675677/DBEffect.json"),
+            ("3008153534", "particles/presets/fog2.json"),
+        ];
+        let mut parsed = 0;
+        for (scene, name) in cases {
+            let path = root.join(scene).join("scene.pkg");
+            if !path.exists() {
+                continue;
+            }
+            let pkg = crate::vfs::Pkg::open(&path).expect("package opens");
+            let Some(bytes) = pkg.get(name) else {
+                continue;
+            };
+            let text = String::from_utf8_lossy(&bytes);
+            let system = ParticleSystem::parse_str(&text).expect("particle json parses");
+            assert!(!system.emitters.is_empty(), "{name}");
+            assert!(!system.renderers.is_empty(), "{name}");
+            let mut sim = Simulation::new(&system, 11);
+            sim.step(system.start_time.max(0.0) + 2.0);
+            assert!(sim.alive_count() > 0, "{name} emitted nothing");
+            parsed += 1;
+        }
+        if parsed == 0 {
+            eprintln!("no local particle assets found");
+        }
+    }
+}
+
+#[cfg(test)]
+mod asset_audit {
+    use super::*;
+
+    #[test]
+    #[ignore = "needs the local Wallpaper Engine assets"]
+    fn parses_all_shared_particle_assets() {
+        let home = match std::env::var("HOME") {
+            Ok(home) => home,
+            Err(_) => return,
+        };
+        let root = std::path::PathBuf::from(home)
+            .join("Library/Application Support/LiveWallpaper/WallpaperEngineAssets/particles");
+        if !root.exists() {
+            return;
+        }
+        let mut stack = vec![root];
+        let mut files = 0usize;
+        let mut systems = 0usize;
+        let mut unknown = Vec::new();
+        let mut failures = Vec::new();
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                    continue;
+                }
+                files += 1;
+                let Ok(text) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+                match ParticleSystem::parse_str(&text) {
+                    Ok(system) => {
+                        systems += 1;
+                        for field in &system.unknown_fields {
+                            unknown.push(format!("{}: {field}", path.display()));
+                        }
+                        let mut sim = Simulation::new(&system, 1);
+                        sim.step(system.start_time.max(0.0) + 5.0);
+                    }
+                    Err(e) => failures.push(format!("{}: {e}", path.display())),
+                }
+            }
+        }
+        assert!(files > 0, "no particle assets found");
+        assert!(systems > 0, "no particle systems parsed");
+        assert!(failures.is_empty(), "{failures:#?}");
+        assert!(unknown.is_empty(), "unknown fields:\n{unknown:#?}");
+    }
 }

@@ -3,6 +3,7 @@
 # Swift bindings in Sources/SceneBridge. Idempotent: cargo and bindgen only redo what changed.
 # Works from any directory. Needs: rustup (~/.cargo/bin) with the stable toolchain.
 #   OFFLINE=1 scripts/build-scene-renderer.sh   build from the local cargo cache only
+#   UNIVERSAL=1 scripts/build-scene-renderer.sh  arm64 + x86_64 static library (needs both rustup targets)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -84,5 +85,19 @@ cp "$GEN/scene_rendererFFI.h" "$FFI/scene_rendererFFI.h"
 cp "$GEN/scene_rendererFFI.modulemap" "$FFI/module.modulemap"
 # Swift module names have to start with an upper-case letter, so the generated import and the
 # module map are renamed to match the system-library target.
-sed -i '' 's/scene_rendererFFI/SceneRendererFFI/g' "$OUT/SceneRenderer.swift" "$FFI/module.modulemap"
+sed -i '' 's/scene_rendererFFI/SceneRendererFFI/g' "$OUT/SceneRenderer.swift"
+sed -i '' 's/^module scene_rendererFFI/module SceneRendererFFI/' "$FFI/module.modulemap"
 echo "Scene renderer built; bindings in $OUT"
+
+# A universal app needs a universal static library: build the other architecture too and merge them
+# into the path Package.swift links from.
+if [[ "${UNIVERSAL:-0}" == "1" ]]; then
+  LIB="$RENDERER/target/release/libscene_renderer.a"
+  SLICES=()
+  for triple in aarch64-apple-darwin x86_64-apple-darwin; do
+    "${CARGO_CMD[@]}" "${CARGO_FLAGS[@]}" --package scene_renderer --target "$triple"
+    SLICES+=("$RENDERER/target/$triple/release/libscene_renderer.a")
+  done
+  lipo -create "${SLICES[@]}" -output "$LIB"
+  echo "Universal library: $(lipo -archs "$LIB")"
+fi

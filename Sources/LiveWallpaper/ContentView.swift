@@ -284,17 +284,17 @@ struct LibraryView: View {
 @MainActor
 fileprivate struct SetAsItems: View {
     let roles: Set<WallpaperTarget>
-    /// Scenes are live-rendered, so they can only be the desktop wallpaper; the lock screen needs a video.
+    /// A scene on the lock screen is first rendered into a short video loop, which takes a moment.
     var isScene = false
     let assign: (Set<WallpaperTarget>) -> Void
 
     var body: some View {
         entry("Set as Desktop", [.desktop], checked: roles.contains(.desktop), enabled: true)
-        entry("Set as Lock Screen", [.lock], checked: roles.contains(.lock), enabled: !isScene)
-        entry("Set as Both", [.desktop, .lock], checked: roles.count == WallpaperTarget.allCases.count, enabled: !isScene)
+        entry("Set as Lock Screen", [.lock], checked: roles.contains(.lock), enabled: true)
+        entry("Set as Both", [.desktop, .lock], checked: roles.count == WallpaperTarget.allCases.count, enabled: true)
         if isScene {
             Divider()
-            Text("Scenes can’t be used on the lock screen.\nUse a video for it.")
+            Text("On the lock screen a scene plays as a\n10-second loop, made once per screen size.")
         }
     }
 
@@ -381,8 +381,7 @@ fileprivate struct LibraryRow: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help(item.isScene ? "Set as Desktop (scenes can’t be used on the lock screen)"
-                           : "Set as Desktop, Lock Screen or Both")
+        .help("Set as Desktop, Lock Screen or Both")
         .accessibilityLabel("Set as")
     }
 
@@ -488,7 +487,7 @@ fileprivate struct LibrarySettingsCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if model.selectedItem?.isScene == true {
-                Label("Scenes can’t be used on the lock screen. Use a video for it.", systemImage: "info.circle")
+                Label("On the lock screen a scene plays as a 10-second loop, made once per screen size.", systemImage: "info.circle")
                     .font(.caption).foregroundStyle(.secondary)
                 Divider().padding(.vertical, 4)
             }
@@ -514,8 +513,6 @@ fileprivate struct LibrarySettingsCard: View {
             Divider().padding(.vertical, 4)
             Toggle("Mute sound", isOn: $model.muted)
                 .help("Videos play silently. The lock screen never has sound.")
-            Toggle("New scene renderer (experimental)", isOn: $model.useNewRenderer)
-                .help("Draws scenes with our own renderer instead of the old one. Scenes may miss parts (particles, text) and the picture can differ from the preview.")
             lockNote
         }
         .padding(16)

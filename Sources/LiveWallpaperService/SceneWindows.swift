@@ -21,6 +21,14 @@ private final class MetalView: NSView {
     var metalLayer: CAMetalLayer? { layer as? CAMetalLayer }
 }
 
+/// A borderless window that keeps its full screen frame. AppKit otherwise shrinks it to the visible
+/// frame, which leaves a strip under the menu bar undrawn.
+private final class SceneWindow: NSWindow {
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        frameRect
+    }
+}
+
 /// One display the scene is drawn on.
 struct SceneDisplay {
     /// Stable id of the display, used to attach and detach the layer.
@@ -78,8 +86,9 @@ struct SceneDisplay {
         windows.forEach { $0.window.close() }
         windows = NSScreen.screens.map { screen in
             let view = MetalView(frame: .zero)
-            let window = NSWindow(contentRect: screen.frame, styleMask: .borderless,
-                                  backing: .buffered, defer: false)
+            let window = SceneWindow(contentRect: screen.frame, styleMask: .borderless,
+                                     backing: .buffered, defer: false)
+            window.setFrame(screen.frame, display: false)
             window.isReleasedWhenClosed = false
             window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) + 1)
             window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]

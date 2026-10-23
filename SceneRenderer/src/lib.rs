@@ -5,10 +5,13 @@
 pub mod api;
 pub mod engine;
 pub mod gpu;
+pub mod mat;
 pub mod particles;
 pub mod puppet;
 pub mod scene;
+pub mod script;
 pub mod shader;
+pub mod sound;
 pub mod tex;
 pub mod text;
 pub mod vfs;

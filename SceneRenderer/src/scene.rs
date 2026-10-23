@@ -27,7 +27,7 @@ impl Bound {
         };
         let Some(obj) = v
             .as_object()
-            .filter(|o| o.contains_key("user") || o.contains_key("value"))
+            .filter(|o| o.contains_key("user") || o.contains_key("value") || o.contains_key("script"))
         else {
             return Self {
                 value: v.clone(),
@@ -135,7 +135,7 @@ pub struct Material {
 }
 
 impl Material {
-    fn load(vfs: &Vfs, path: &str) -> Result<Self, Error> {
+    pub(crate) fn load(vfs: &Vfs, path: &str) -> Result<Self, Error> {
         let json = vfs.json(path)?;
         let pass = &json["passes"][0];
         let mut m = Self {
@@ -203,11 +203,50 @@ pub struct Effect {
     pub fbos: Vec<Fbo>,
 }
 
+/// A text object's own fields; placement, colour and effects come from the layer.
+#[derive(Debug, Clone)]
+pub struct TextLayer {
+    /// A package font path (`fonts/...otf`) or a system family name.
+    pub font: String,
+    pub point_size: f32,
+    pub horizontal_align: String,
+    pub vertical_align: String,
+    pub padding: f32,
+    /// The static value; scripts would replace it every tick.
+    pub value: String,
+}
+
+/// A particle object: the system JSON to simulate and its per-instance overrides.
+#[derive(Debug, Clone)]
+pub struct ParticleLayer {
+    pub system: String,
+    pub instance_override: Option<Value>,
+}
+
+/// One animation layer of a puppet, as the scene object lists it.
+#[derive(Debug, Clone)]
+pub struct PuppetAnimation {
+    pub id: i64,
+    pub rate: f32,
+    pub blend: f32,
+    pub additive: bool,
+    pub visible: bool,
+}
+
+/// A puppet object: the model file and the animations that move it.
+#[derive(Debug, Clone)]
+pub struct PuppetLayer {
+    pub model: String,
+    pub animations: Vec<PuppetAnimation>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Layer {
     pub id: i64,
     pub name: String,
     pub parent: Option<i64>,
+    /// Named attachment point of a puppet parent the layer follows.
+    pub attachment: Option<String>,
     pub origin: Bound,
     pub scale: Bound,
     pub angles: Bound,
@@ -219,7 +258,51 @@ pub struct Layer {
     pub visible: Bound,
     /// Group objects only position their children.
     pub material: Option<Material>,
+    /// Set for text objects; such layers have no material and are drawn from a bitmap.
+    pub text: Option<TextLayer>,
+    /// Set for particle objects; such layers have no material of their own.
+    pub particles: Option<ParticleLayer>,
+    /// Set for puppet models; the layer keeps its material but draws a skinned mesh.
+    pub puppet: Option<PuppetLayer>,
     pub effects: Vec<Effect>,
+}
+
+/// A script on one value of a scene object, e.g. `{"script": "...", "value": ...}` under `text`.
+#[derive(Debug, Clone)]
+pub struct ScriptSpec {
+    pub layer_id: i64,
+    /// Path of the value inside the object: `origin`, `text`, `instanceoverride.rate`, ...
+    pub field: String,
+    pub source: String,
+    /// The `scriptproperties` the scene stores for this script.
+    pub properties: Value,
+}
+
+/// Collects every `{"script": ...}` value under a scene object.
+fn find_scripts(layer_id: i64, path: &str, v: &Value, out: &mut Vec<ScriptSpec>) {
+    match v {
+        Value::Object(map) => {
+            if let Some(source) = map.get("script").and_then(Value::as_str) {
+                out.push(ScriptSpec {
+                    layer_id,
+                    field: path.to_string(),
+                    source: source.to_string(),
+                    properties: map.get("scriptproperties").cloned().unwrap_or(Value::Null),
+                });
+                return;
+            }
+            for (k, child) in map {
+                let p = if path.is_empty() { k.clone() } else { format!("{path}.{k}") };
+                find_scripts(layer_id, &p, child, out);
+            }
+        }
+        Value::Array(items) => {
+            for (i, child) in items.iter().enumerate() {
+                find_scripts(layer_id, &format!("{path}[{i}]"), child, out);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -229,8 +312,21 @@ pub struct Parallax {
     pub mouse_influence: f32,
 }
 
+/// Scene-wide glow around bright parts, from `general`.
+#[derive(Debug, Clone)]
+pub struct Bloom {
+    pub enabled: Bound,
+    pub strength: Bound,
+    pub threshold: Bound,
+    pub tint: Bound,
+}
+
 #[derive(Debug, Clone)]
 pub struct Scene {
+    /// SceneScript programs attached to object values, in file order.
+    pub scripts: Vec<ScriptSpec>,
+    pub sounds: Vec<crate::sound::SoundSpec>,
+    pub bloom: Bloom,
     pub width: f32,
     pub height: f32,
     pub clear_color: [f32; 3],
@@ -264,40 +360,92 @@ impl Scene {
             parallax,
             layers: Vec::new(),
             skipped: BTreeMap::new(),
+            scripts: Vec::new(),
+            sounds: Vec::new(),
+            bloom: Bloom {
+                enabled: Bound::parse(general.get("bloom"), Value::Bool(false)),
+                strength: Bound::parse(general.get("bloomstrength"), Value::from(2.0)),
+                threshold: Bound::parse(general.get("bloomthreshold"), Value::from(0.65)),
+                tint: Bound::parse(general.get("bloomtint"), Value::from("1 1 1")),
+            },
         };
         for obj in json["objects"].as_array().into_iter().flatten() {
+            find_scripts(obj["id"].as_i64().unwrap_or(-1), "", obj, &mut scene.scripts);
             let kind = ["image", "particle", "text", "sound", "light", "model"]
                 .into_iter()
                 .find(|k| obj.get(*k).is_some_and(|v| !v.is_null()));
             match kind {
-                Some("image") | None => match Self::layer(vfs, obj, kind.is_none(), warnings) {
-                    Ok(layer) => scene.layers.push(layer),
-                    Err(e) => warnings.push(format!(
-                        "layer {}: {e}",
-                        obj["name"].as_str().unwrap_or("?")
-                    )),
-                },
+                Some("image") | Some("text") | Some("particle") | None => {
+                    match Self::layer(vfs, obj, kind.is_none(), warnings) {
+                        Ok(layer) => scene.layers.push(layer),
+                        Err(e) => warnings.push(format!(
+                            "layer {}: {e}",
+                            obj["name"].as_str().unwrap_or("?")
+                        )),
+                    }
+                }
+                Some("sound") => scene.sounds.extend(crate::sound::SoundSpec::parse(obj)),
                 Some(other) => *scene.skipped.entry(other.to_string()).or_default() += 1,
             }
         }
         Ok(scene)
     }
 
-    fn layer(
+    /// One drawable object; also used for layers a script creates at run time.
+    pub fn layer(
         vfs: &Vfs,
         obj: &Value,
         group: bool,
         warnings: &mut Vec<String>,
     ) -> Result<Layer, Error> {
         let name = obj["name"].as_str().unwrap_or("").to_string();
-        let material = if group {
+        let text = obj
+            .get("text")
+            .filter(|v| !v.is_null())
+            .map(|t| TextLayer {
+                font: obj["font"].as_str().unwrap_or("Helvetica").to_string(),
+                point_size: obj["pointsize"].as_f64().unwrap_or(32.0) as f32,
+                horizontal_align: obj["horizontalalign"]
+                    .as_str()
+                    .unwrap_or("left")
+                    .to_string(),
+                vertical_align: obj["verticalalign"].as_str().unwrap_or("top").to_string(),
+                padding: obj["padding"].as_f64().unwrap_or(0.0) as f32,
+                value: t["value"].as_str().unwrap_or("").to_string(),
+            });
+        let particles = obj
+            .get("particle")
+            .and_then(Value::as_str)
+            .map(|system| ParticleLayer {
+                system: system.to_string(),
+                instance_override: obj
+                    .get("instanceoverride")
+                    .filter(|v| !v.is_null())
+                    .cloned(),
+            });
+        let mut puppet = None;
+        let material = if group || text.is_some() || particles.is_some() {
             None
         } else {
             let model = vfs.json(obj["image"].as_str().unwrap_or(""))?;
-            if model.get("puppet").is_some_and(|p| !p.is_null()) {
-                warnings.push(format!(
-                    "layer {name}: puppet animation is drawn as a still image"
-                ));
+            if let Some(path) = model["puppet"].as_str() {
+                let animations = obj["animationlayers"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|a| a["visible"].as_bool().unwrap_or(true))
+                    .map(|a| PuppetAnimation {
+                        id: a["animation"].as_i64().unwrap_or(-1),
+                        rate: a["rate"].as_f64().unwrap_or(1.0) as f32,
+                        blend: a["blend"].as_f64().unwrap_or(1.0) as f32,
+                        additive: a["additive"].as_bool().unwrap_or(false),
+                        visible: true,
+                    })
+                    .collect();
+                puppet = Some(PuppetLayer {
+                    model: path.to_string(),
+                    animations,
+                });
             }
             let path = model["material"]
                 .as_str()
@@ -322,6 +470,7 @@ impl Scene {
             id: obj["id"].as_i64().unwrap_or(-1),
             name,
             parent: obj["parent"].as_i64(),
+            attachment: obj["attachment"].as_str().filter(|a| !a.is_empty()).map(str::to_string),
             origin: Bound::parse(obj.get("origin"), Value::String("0 0 0".into())),
             scale: Bound::parse(obj.get("scale"), Value::String("1 1 1".into())),
             angles: Bound::parse(obj.get("angles"), Value::String("0 0 0".into())),
@@ -335,6 +484,9 @@ impl Scene {
                 .unwrap_or(1.0),
             visible: Bound::parse(obj.get("visible"), Value::Bool(true)),
             material,
+            text,
+            particles,
+            puppet,
             effects,
         })
     }

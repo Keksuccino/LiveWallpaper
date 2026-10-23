@@ -4,7 +4,7 @@ import PackageDescription
 // Targets, one bundle (see build.sh):
 //   Core                    (library)    settings model, state file, XPC/socket messages; no SwiftUI/AppKit
 //   SceneFormat             (library)    scene package, texture and scene.json parsing; Foundation only
-//   WallpaperBridgeFFI/RenderBridge      Rust renderer (RenderService/, built by scripts/build-render-service.sh)
+//   SceneRendererFFI/SceneBridge         Rust + Metal scene renderer (SceneRenderer/, built by scripts/build-scene-renderer.sh)
 //   LiveWallpaperService    (executable) background service: menu bar, playback, lock screen, socket server
 //   LiveWallpaper           (executable) settings app, SwiftUI; Steam sign-in and Workshop downloads
 // Deployment target stays macOS 13 for every target: nothing in the scene engine needs newer API (SPEC3.md 0).
@@ -24,40 +24,6 @@ let package = Package(
             name: "SceneFormat",
             path: "Sources/SceneFormat"
         ),
-        // WallpaperMachine's Rust/C++ renderer (RenderService/), via uniffi. Build the static lib and
-        // regenerate these sources with scripts/build-render-service.sh first. See docs/render-bridge-notes.md.
-        .systemLibrary(
-            name: "WallpaperBridgeFFI",
-            path: "Sources/RenderBridge/FFI"
-        ),
-        .target(
-            name: "RenderBridge",
-            dependencies: ["WallpaperBridgeFFI"],
-            path: "Sources/RenderBridge",
-            exclude: ["FFI"],
-            // Same libraries as WallpaperMachine's project.yml (rendererLibraryPaths / rendererLinkerFlags).
-            linkerSettings: [
-                .unsafeFlags([
-                    "-L", Context.packageDirectory + "/RenderService/target/release",
-                    "-L", "/opt/homebrew/opt/mwe-ffmpeg/lib",
-                    "-L", "/opt/homebrew/lib",
-                    "-L", "/opt/homebrew/opt/quickjs-ng/lib",
-                    "-L", "/opt/homebrew/opt/glslang/lib",
-                    "-Xlinker", "-rpath", "-Xlinker", "/opt/homebrew/opt/mwe-ffmpeg/lib",
-                    "-Xlinker", "-rpath", "-Xlinker", "/opt/homebrew/lib",
-                    "-Xlinker", "-rpath", "-Xlinker", "/opt/homebrew/opt/quickjs-ng/lib",
-                    "-lwallpaper_bridge", "-lc++", "-lvulkan", "-llz4", "-lfreetype",
-                    "-lavformat", "-lavcodec", "-lavutil", "-lswresample", "-lavfilter", "-lavdevice", "-lswscale",
-                    "-lqjs", "-lglslang", "-lSPIRV", "-lglslang-default-resource-limits", "-liconv",
-                ]),
-                .linkedFramework("Accelerate"), .linkedFramework("AppKit"), .linkedFramework("CoreAudio"),
-                .linkedFramework("CoreData"), .linkedFramework("CoreFoundation"), .linkedFramework("CoreGraphics"),
-                .linkedFramework("CoreImage"), .linkedFramework("CoreMedia"), .linkedFramework("CoreText"),
-                .linkedFramework("CoreVideo"), .linkedFramework("Foundation"), .linkedFramework("IOSurface"),
-                .linkedFramework("Metal"), .linkedFramework("OpenGL"), .linkedFramework("QuartzCore"),
-                .linkedFramework("VideoToolbox"),
-            ]
-        ),
         // Our own renderer (SceneRenderer/, a Rust library that draws scenes with Metal), via uniffi.
         // Build the static lib and regenerate these sources with scripts/build-scene-renderer.sh.
         .systemLibrary(
@@ -74,14 +40,15 @@ let package = Package(
                     "-L", Context.packageDirectory + "/SceneRenderer/target/release",
                     "-lscene_renderer",
                 ]),
-                .linkedFramework("AppKit"), .linkedFramework("CoreFoundation"), .linkedFramework("CoreGraphics"),
-                .linkedFramework("Foundation"), .linkedFramework("Metal"), .linkedFramework("QuartzCore"),
+                .linkedFramework("AppKit"), .linkedFramework("AVFoundation"), .linkedFramework("CoreFoundation"),
+                .linkedFramework("CoreGraphics"), .linkedFramework("CoreText"), .linkedFramework("Foundation"),
+                .linkedFramework("Metal"), .linkedFramework("QuartzCore"),
             ]
         ),
         // Background service: the only writer of state.json, plays wallpapers, XPC to the UI. AppKit only.
         .executableTarget(
             name: "LiveWallpaperService",
-            dependencies: ["Core", "RenderBridge", "SceneBridge"],
+            dependencies: ["Core", "SceneBridge"],
             path: "Sources/LiveWallpaperService"
         ),
         .executableTarget(

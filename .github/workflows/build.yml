@@ -49,9 +49,7 @@ jobs:
         run: cargo +stable clippy --offline --all-targets -- -D warnings
 
   build:
-    # One arm64 runner. macos-26 is required, not just preferred: the renderer's C++ uses std::jthread, which
-    # only exists from libc++ 18 (ungated in 19). macos-14 ships Xcode 15.4/libc++ 16 and cannot compile it,
-    # and those images are retired on 2026-11-02.
+    # One arm64 runner with the macOS 26 SDK (the audio tap needs the macOS 14.2+ Core Audio API).
     name: build (macos-26)
     runs-on: macos-26
     steps:
@@ -79,16 +77,9 @@ jobs:
         working-directory: SceneRenderer
         run: cargo +stable fetch --locked
 
-      # The service links both the old render bridge (RenderBridge) and our own scene renderer
-      # (SceneBridge), so both static libraries have to exist before any Swift build, including
-      # `swift test` (SwiftPM builds every target of the package).
-      - name: Install renderer dependencies
-        run: scripts/install-render-deps.sh
-
-      - name: Build the render service
-        run: scripts/build-render-service.sh
-
-      - name: Build our scene renderer (offline)
+      # The service links the scene renderer (SceneBridge), so its static library has to exist before
+      # any Swift build, including `swift test` (SwiftPM builds every target of the package).
+      - name: Build the scene renderer (offline)
         run: OFFLINE=1 scripts/build-scene-renderer.sh
 
       - name: Swift build (release)

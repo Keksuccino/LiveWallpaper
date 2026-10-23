@@ -29,7 +29,6 @@ struct RenderOptions: Equatable {
 }
 
 /// Videos on the desktop through AVPlayer windows.
-// TODO: move to RenderBridge (the Rust renderer will play videos too; this wraps the old agent's AVPlayer windows).
 @MainActor final class VideoRenderService: WallpaperService {
     private let windows = WallpaperWindowManager()
 

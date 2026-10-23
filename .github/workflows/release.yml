@@ -15,7 +15,7 @@ on:
         default: '0.0.0'
         required: true
       universal:
-        description: 'Build arm64 + x86_64 (not supported yet: the renderer is arm64-only)'
+        description: 'Build arm64 + x86_64'
         type: boolean
         default: false
 
@@ -24,9 +24,7 @@ permissions:
 
 jobs:
   dmg:
-    # macos-26 (Xcode 26 / libc++ 19+) is required: the renderer's C++ uses std::jthread, missing from the
-    # libc++ that ships with macos-14's Xcode 15. Homebrew is at /opt/homebrew (Package.swift links from there)
-    # and the Rust renderer is built for aarch64-apple-darwin only.
+    # macos-26: the macOS 26 SDK has the Core Audio tap API the service uses for audio response.
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
@@ -65,18 +63,11 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Ensure stable Rust toolchain
-        run: rustup toolchain install stable --profile minimal
+        run: rustup toolchain install stable --profile minimal --target aarch64-apple-darwin --target x86_64-apple-darwin
 
-      # The scene renderers, built and bindgen'd for Swift: WallpaperMachine's Rust core
-      # (RenderService/, the old bridge) and our own SceneRenderer/. Both must come before
-      # `swift test`, because SwiftPM builds every target of the package.
-      - name: Install renderer dependencies
-        run: scripts/install-render-deps.sh
-
-      - name: Build the render service
-        run: scripts/build-render-service.sh
-
-      - name: Build our scene renderer
+      # The scene renderer, built and bindgen'd for Swift. It must come before `swift test`, because
+      # SwiftPM builds every target of the package.
+      - name: Build the scene renderer
         run: scripts/build-scene-renderer.sh
 
       - name: Tests (Core and SceneFormat)
@@ -88,13 +79,9 @@ jobs:
           BUILD_NUMBER: ${{ github.run_number }}
           UNIVERSAL_INPUT: ${{ inputs.universal }}
         run: |
-          # Tags and unset inputs build arm64 only: the renderer static library and every Homebrew dependency
-          # it links are arm64, so a universal build cannot link the x86_64 slice. Revisit if that changes.
-          if [[ "$UNIVERSAL_INPUT" == "true" ]]; then
-            echo "::error::universal builds are not supported: the Rust renderer is arm64-only"
-            exit 1
-          fi
-          export UNIVERSAL=0
+          # Tags and unset inputs build arm64 only; the input adds the x86_64 slice (build.sh passes it on
+          # to the renderer build, which merges both static libraries).
+          if [[ "$UNIVERSAL_INPUT" == "true" ]]; then export UNIVERSAL=1; else export UNIVERSAL=0; fi
           ./build.sh
 
       - name: Verify the bundle
@@ -122,8 +109,6 @@ jobs:
           Ad-hoc signed, not notarized. On first launch macOS will say it cannot verify the app:
           open System Settings > Privacy & Security, scroll down and press "Open Anyway" once, or run
           `xattr -dr com.apple.quarantine /Applications/LiveWallpaper.app` in Terminal. Details are in the README.
-
-          Apple silicon (arm64) only: the scene renderer is built for arm64.
 
           Verify the download with the `.sha256` file: `shasum -a 256 -c LiveWallpaper-__VERSION__.dmg.sha256`.
 

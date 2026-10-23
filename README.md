@@ -38,21 +38,18 @@ Everything the app installs stays in `~/Library/Application Support/LiveWallpape
 
 - macOS 15 or later on Apple silicon.
 - Live lock-screen video on macOS 26 or later. On macOS 15 the lock screen uses a still frame of the current video instead.
-- To build from source: macOS 26 with Xcode 26 or matching Command Line Tools (libc++ 19+), Rust stable (our scene renderer) and nightly (the old render service), and Homebrew at `/opt/homebrew`.
+- To build from source: macOS 26 with Xcode 26 or matching Command Line Tools, and Rust stable (rustup). No Homebrew libraries are needed.
 
-The release build is arm64-only. The renderer and its Homebrew dependencies are arm64; universal builds are not supported.
+Release builds are arm64. `UNIVERSAL=1 ./build.sh` adds an x86_64 slice (it needs `rustup target add x86_64-apple-darwin`).
 
 ## Build and run
 
 ```sh
-./scripts/install-render-deps.sh
-./scripts/build-render-service.sh
-./scripts/build-scene-renderer.sh
 ./build.sh
 open build/LiveWallpaper.app
 ```
 
-`install-render-deps.sh` installs the Homebrew libraries, the project-specific LGPL FFmpeg formula and the pinned Rust toolchain. `build-render-service.sh` builds the old Rust renderer and regenerates the UniFFI Swift bindings in `Sources/RenderBridge`. `build-scene-renderer.sh` builds our own Rust renderer (`SceneRenderer/target/release/libscene_renderer.a`) and regenerates the bindings in `Sources/SceneBridge`; it needs a Rust stable toolchain and no Docker. `build.sh` calls it automatically, then builds the two Swift products and assembles `build/LiveWallpaper.app` with `LiveWallpaperService.app` nested at `Contents/Library/LoginItems/`, and signs both ad hoc.
+`build.sh` first runs `scripts/build-scene-renderer.sh`, which builds the scene renderer (`SceneRenderer/target/release/libscene_renderer.a`) and regenerates its UniFFI Swift bindings in `Sources/SceneBridge`. It then builds the two Swift products and assembles `build/LiveWallpaper.app` with `LiveWallpaperService.app` nested at `Contents/Library/LoginItems/`, and signs both ad hoc.
 
 Run the app through the `.app` bundle. `swift run` does not work, because both products need their `Info.plist`.
 
@@ -62,7 +59,7 @@ Useful options:
 - `VERSION=1.2.3 BUILD_NUMBER=45 ./build.sh` stamps a version into both bundles.
 - `swift test` runs the Core and SceneFormat tests after the renderer has been built.
 
-The build checks that Settings never links the old scene engine and that the service never links SwiftUI or the old in-repo scene engine. The service does link Metal and `RenderBridge` for scenes.
+The build checks that Settings never links the old scene engine and that the service never links SwiftUI or the old in-repo scene engine. The service does link Metal and `SceneBridge` for scenes.
 
 `scripts/make-dmg.sh build/LiveWallpaper.app 1.2.3` packs the app into `dist/LiveWallpaper-1.2.3.dmg` with an Applications shortcut and a SHA-256 file. Pushing a tag such as `v1.2.3` runs the `release` workflow on a macOS 26 runner and attaches the DMG to a GitHub Release.
 
@@ -70,7 +67,7 @@ The build checks that Settings never links the old scene engine and that the ser
 
 ## Architecture
 
-Live Wallpaper has two processes: the SwiftUI Settings app and the nested background service. The service owns playback, the lock screen, `state.json` and the Unix socket. Settings talks to it over that socket and never imports `RenderBridge`. The Rust/C++ scene renderer is statically linked into the service, not a separate process.
+Live Wallpaper has two processes: the SwiftUI Settings app and the nested background service. The service owns playback, the lock screen, `state.json` and the Unix socket. Settings talks to it over that socket and never imports `SceneBridge`. The Rust scene renderer is statically linked into the service, not a separate process.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the combined process, class, IPC and Rust bridge diagram, state ownership, scene-option mapping and build details.
 
@@ -88,13 +85,13 @@ Click a Workshop result to see its preview, tags, size and description, then Dow
 
 ## Scenes
 
-Scenes are Wallpaper Engine wallpapers with layers, effects, particles and sound. They are drawn by the bundled renderer derived from [WallpaperMachine](https://github.com/WallpaperMachine/WallpaperMachine), not by an in-repo MIT scene engine. The renderer is GPL-2.0-only; see `RenderService/SOURCE.txt` and `RenderService/LICENSE`.
+Scenes are Wallpaper Engine wallpapers with layers, effects, particles, puppets (animated models), text, scripts and sound. They are drawn by our own MIT renderer in `SceneRenderer/` (Rust + Metal); see `SceneRenderer/NOTES.md` for where its ideas came from.
 
-Scenes can be the **desktop** wallpaper only. The lock screen needs a video, so a scene cannot be assigned to the lock screen and is not rendered offline into a video. All displays show the same live scene.
+On the desktop all displays show the same live scene. The lock screen needs a video, so a scene chosen for the lock screen is rendered once into a 10-second loop at the screen's size and cached next to the scene (`Library/<id>/lock-<W>x<H>.mov`).
 
 Scene support depends on the renderer. The library badge reports **Full**, **Partial** or **Preview only**; partial scenes may ignore unsupported effects, particles, sounds or scripts. Some scenes need Wallpaper Engine's shared asset files, which can be fetched with your own account in Steam Setup.
 
-Scene settings include fit, zoom, pan, frame rate, render scale, volume, audio response and the scene's own user properties. Power settings include a frame-rate cap, battery behavior, **Skip repeated frames** and **Update only when the scene changes**. The property editor currently supports bool, slider, color, text and combo properties; file, directory and other advanced property types are not yet exposed in Settings. Antialiasing is stored but not applied or exposed in Settings yet.
+Scene settings include fit, zoom, pan, frame rate, render scale, volume, audio response and the scene's own user properties. Audio response listens to what the Mac plays (macOS 14.2 or later; macOS asks once for permission) and only while a scene that uses it is playing. Power settings include a frame-rate cap, battery behavior, **Skip repeated frames** and **Update only when the scene changes**. The property editor currently supports bool, slider, color, text and combo properties; file, directory and other advanced property types are not yet exposed in Settings. Antialiasing is stored but not applied or exposed in Settings yet.
 
 ## Desktop, lock screen and sound
 
@@ -131,7 +128,6 @@ Everything lives in `~/Library/Application Support/LiveWallpaper/`:
 - `Backups/` and `Stills/`: Apple Aerial backups and lock-screen stills.
 - `SteamCMD/` and `SteamHome/`: the Steam tool and its login token.
 - `WallpaperEngineAssets/`: optional shared Wallpaper Engine assets.
-- `RenderService/config.toml` and `RenderService/wallpapers/<id>.json`: the renderer's own saved settings.
 - `service.sock`: the Unix socket used by Settings and the service, when the path fits. Otherwise the service uses `/tmp/lw-<uid>/service.sock`.
 
 Steam downloads are staged in `~/Library/Caches/LiveWallpaperSteam/`.
@@ -150,17 +146,17 @@ Because the signature is ad hoc, macOS may ask again for access to folders such 
 
 Prefer H.264 or HEVC videos at or near your screen resolution. Higher resolutions and exotic codecs use more CPU and battery. The service pauses video playback when the desktop is fully covered and while the display sleeps, and releases GPU memory when possible.
 
-A playing scene costs more GPU time and memory than a video. Scenes run inside the service, not in a separate scene host, and all displays show the same scene. The battery rule defaults to reduced quality (lower render scale and 24 fps); **Skip repeated frames** is on by default, and **Update only when the scene changes** can stop an idle scene's periodic tick. Antialiasing is not applied yet.
+A playing scene costs more GPU time and memory than a video. Scenes run inside the service, not in a separate scene host, and all displays show the same scene. The battery rule (also used in Low Power Mode) defaults to reduced quality (lower render scale and 24 fps). The renderer always stops drawing a scene in which nothing moves, so **Skip repeated frames** and **Update only when the scene changes** no longer change anything. Antialiasing is not applied yet.
 
 ## Credits and license
 
-The Swift app code in this repository is MIT-licensed; see `LICENSE`. The scene renderer under `RenderService/` is derived from WallpaperMachine and is **GPL-2.0-only**; see `RenderService/LICENSE` and `RenderService/SOURCE.txt`. Distributing the combined app therefore also has to satisfy the renderer's GPL-2.0 terms.
+All code in this repository, including the scene renderer in `SceneRenderer/`, is MIT-licensed; see `LICENSE`. The renderer's Rust dependencies are MIT or Apache-2.0 (QuickJS, through `rquickjs`, is MIT).
 
 This app is an independent implementation and is not affiliated with Apple, Valve or Wallpaper Engine. Ideas and format knowledge came from these projects:
 
 - [vlzuiev/animated](https://github.com/vlzuiev/animated) (MIT): the lock screen technique of swapping a converted video into an Apple Aerial slot.
 - [MozeeB/OpenWallpaperMac](https://github.com/MozeeB/OpenWallpaperMac) (MIT): reference for scene wallpaper structure on macOS.
-- [WallpaperMachine](https://github.com/WallpaperMachine/WallpaperMachine): the source of the Rust/C++ scene renderer in `RenderService/`.
+- [WallpaperMachine](https://github.com/WallpaperMachine/WallpaperMachine) (GPL-2.0): an earlier version of this app shipped its renderer; it was removed and none of its code is used.
 - [Almamu/linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine) (GPL-3.0), [deepratna-awale/open-wallpaper-engine-mac](https://github.com/deepratna-awale/open-wallpaper-engine-mac) (GPL-3.0) and [ayasa520/wallpaper-scene-renderer](https://github.com/ayasa520/wallpaper-scene-renderer): existing scene renderers studied for how Wallpaper Engine scenes work.
 - [kageroumado/phosphene](https://github.com/kageroumado/phosphene) (MIT): considered as an alternative lock screen approach.
 - [notscuffed/repkg](https://github.com/notscuffed/repkg) (MIT): read for the layout of the `.pkg` and `.tex` formats; no code is copied.

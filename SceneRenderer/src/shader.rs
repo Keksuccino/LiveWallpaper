@@ -17,7 +17,7 @@ use serde_json::Value;
 use crate::vfs::Vfs;
 use crate::Error;
 
-const TRANSLATOR_REVISION: u32 = 5;
+const TRANSLATOR_REVISION: u32 = 6;
 
 /// Vertex buffer slot; uniform blocks use slot 0 in both stages.
 pub const VERTEX_BUFFER_SLOT: u8 = 16;
@@ -663,15 +663,15 @@ fn rewrite(text: &str, stage: Stage, varyings_in: &[(String, u32)]) -> RewriteOu
                         2 * index + 2
                     );
                 }
-                // shortcut: no audio capture yet, so spectra are silent constants (std140 would
-                // also give these float arrays a stride that function parameters cannot take).
+                // std140 gives float arrays a 16-byte stride that function parameters cannot take,
+                // so the spectrum travels packed in vec4s and is unpacked into a float array.
                 "uniform" if base.starts_with("g_AudioSpectrum") => {
-                    let n = slots(name);
-                    let _ = writeln!(
-                        decls,
-                        "const float {base}[{n}] = float[{n}]({});",
-                        vec!["0.0"; n as usize].join(", ")
-                    );
+                    let n = slots(name).max(4);
+                    let _ = writeln!(block, "    vec4 {base}_v[{}];", n / 4);
+                    let items: Vec<String> = (0..n)
+                        .map(|i| format!("{base}_v[{}].{}", i / 4, ["x", "y", "z", "w"][i as usize % 4]))
+                        .collect();
+                    let _ = writeln!(decls, "#define {base} float[{n}]({})", items.join(", "));
                 }
                 "uniform" => {
                     let _ = writeln!(

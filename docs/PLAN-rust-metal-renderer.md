@@ -5,6 +5,17 @@ Date written: 2026-10-22. Branch: `feat-lean-rust-metal-renderer`.
 
 ---
 
+## Status, 2026-10-22 (end of the integration round)
+
+Done: B1 puppets (pose, attachments), B2 particles (y-up simulation space fixed), B3 bloom, B4 text
+(box-height scale, script-driven clock/date), B5 SceneScript on QuickJS, B6 sound objects
+(AVAudioPlayer) and audio response (Core Audio process tap + FFT in the service, packed spectrum
+uniforms), D1–D3 API and Swift service (battery/Low Power rules applied in Swift), D4 scene lock
+screen (`LockSceneRecorder`, 10 s HEVC loop per screen size), D5 `RenderService/`,
+`Sources/RenderBridge`, its scripts and docs deleted. Phase C skipped by the owner's choice.
+Still open: B7 3D-only shaders (`gl_InstanceID`), B8 video textures, random sound playlists and
+`mintime`/`maxtime` gaps, antialiasing setting, audio tap not yet checked on a playing Mac.
+
 ## 0. Why this exists
 
 LiveWallpaper (MIT) plays Wallpaper Engine scenes on the macOS desktop. Today it does that with

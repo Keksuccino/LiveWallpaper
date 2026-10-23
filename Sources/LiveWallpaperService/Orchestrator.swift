@@ -42,6 +42,7 @@ import Core
     private var rotationTimers: [WallpaperTarget: Timer] = [:]
     private var activity: NSObjectProtocol?
     private var lockApplies = 0
+    private var lockRender: Task<Void, Never>?
     private var showDepth = 0  // > 0 while show() runs: a render service may report a failure synchronously
     private var screenTask: Task<Void, Never>?
     private var screenObserver: NSObjectProtocol?
@@ -173,7 +174,7 @@ import Core
         ServiceStatus(
             playback: isRunning ? (isPaused ? .paused : .playing) : .stopped,
             slots: WallpaperTarget.allCases.map { ServiceStatus.Slot(target: $0, itemID: current[$0], error: slotErrors[$0]) },
-            stateRevision: state.revision, muted: state.muted, message: message)
+            stateRevision: state.revision, muted: state.muted, message: message, lockBusy: lockBusy)
     }
 
     // MARK: Library changes
@@ -321,6 +322,8 @@ import Core
             video.stop()
             scene.stop()
             case .lock:
+            lockRender?.cancel()
+            lockRender = nil
             lock.restore()
         }
     }
@@ -345,16 +348,35 @@ import Core
         return (Int(size.width.rounded()) & ~1, Int(size.height.rounded()) & ~1)
     }
 
-    // A scene on the lock screen is a video rendered once per resolution. A render the old scene host left in the
-    // cache is still used; rendering a new one waits for RenderBridge.
+    // A scene on the lock screen is a video rendered once per resolution and cached next to the scene.
     private func showLockScene(_ item: VideoItem) {
         let size = lockPixelSize()
-        guard LockRenderCache.isValid(for: item, width: size.width, height: size.height) else {
-            // TODO: RenderBridge — render the lock loop here.
-            fail(item, on: .lock, SceneRenderService.notConnected)
+        lockRender?.cancel()
+        lockRender = nil
+        if LockRenderCache.isValid(for: item, width: size.width, height: size.height) {
+            applyLock(LockRenderCache.videoURL(for: item, width: size.width, height: size.height))
             return
         }
-        applyLock(LockRenderCache.videoURL(for: item, width: size.width, height: size.height))
+        lockApplies += 1
+        // Detached, so cancelling it (another item, lock screen turned off) stops the render itself.
+        lockRender = Task.detached(priority: .utility) { [weak self] in
+            let result: Result<URL, Error>
+            do {
+                result = .success(try await LockSceneRecorder.render(item, width: size.width, height: size.height))
+            } catch {
+                result = .failure(error)
+            }
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.lockApplies -= 1
+                guard !Task.isCancelled, self.current[.lock] == item.id else { return }
+                switch result {
+                case .success(let url): self.applyLock(url)
+                case .failure(let error): self.fail(item, on: .lock, error.localizedDescription)
+                }
+                self.onChange?()
+            }
+        }
     }
 
     // MARK: System events

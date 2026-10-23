@@ -1,0 +1,342 @@
+//! Glue between the engine and the SceneScript host: what scripts see of the layers, and how
+//! their results land back in the scene.
+
+use serde_json::{json, Map, Value};
+
+use super::{Engine, FrameInput};
+use crate::particles;
+use crate::scene::{floats, Bound, Scene};
+use crate::script::{Created, Events, FrameState, Host};
+
+/// What a script write requires before the next draw.
+#[derive(Debug, Default, Clone, Copy)]
+struct Changes {
+    place: bool,
+    text: bool,
+    rebuild: bool,
+}
+
+fn fixed(value: Value) -> Bound {
+    Bound { value, user: None, condition: None }
+}
+
+impl Engine {
+    /// Starts the scene's scripts, if it has any. Failures become load warnings; the scene still
+    /// draws with the values stored in the file.
+    pub(super) fn start_scripts(&mut self) {
+        if self.scene.scripts.is_empty() {
+            return;
+        }
+        let mut host = match Host::new() {
+            Ok(h) => h,
+            Err(e) => {
+                self.warnings.push(format!("{e}; scripts disabled"));
+                return;
+            }
+        };
+        if let Err(e) = host.set_layers(&self.script_layers()) {
+            self.warnings.push(format!("{e}; scripts disabled"));
+            return;
+        }
+        let mut all = Events::default();
+        for id in 0..self.scene.scripts.len() {
+            let spec = self.scene.scripts[id].clone();
+            let Some(index) = self.layer_index(spec.layer_id) else { continue };
+            let Some(value) = self.field_value(index, &spec.field) else {
+                self.warnings.push(format!(
+                    "layer {}: script on {} not supported",
+                    self.scene.layers[index].name, spec.field
+                ));
+                continue;
+            };
+            match host.add(id, spec.layer_id, &spec.field, &spec.source, &spec.properties, &value) {
+                Ok(e) => {
+                    all.values.extend(e.values);
+                    all.dirty.extend(e.dirty);
+                    all.created.extend(e.created);
+                    all.moves.extend(e.moves);
+                }
+                Err(e) => self.warnings.push(format!(
+                    "layer {}: {} script: {e}",
+                    self.scene.layers[index].name, spec.field
+                )),
+            }
+        }
+        for line in host.take_log() {
+            self.warnings.push(line);
+        }
+        self.script_host = Some(host);
+        self.apply_script_events(all);
+    }
+
+    /// Runs one frame of every script and applies what they changed.
+    pub(super) fn run_scripts(&mut self, input: FrameInput, screen: [f32; 2]) {
+        // The pointer in scene units (y up), through the same view the frame is drawn with.
+        let (l, r, t, b) = self.view_rect(screen[0], screen[1]);
+        let Some(host) = self.script_host.as_mut() else { return };
+        let (w, h) = (self.scene.width, self.scene.height);
+        let [px, py] = input.pointer;
+        let state = FrameState {
+            time: input.time,
+            frame_time: input.frame_time,
+            time_of_day: super::day_time(),
+            screen,
+            canvas: [w, h],
+            cursor: [input.pointer[0] * screen[0], input.pointer[1] * screen[1]],
+            cursor_world: [l + px * (r - l), h - (t + py * (b - t))],
+            cursor_down: input.pointer_down,
+            left: self.audio[0].clone(),
+            right: self.audio[1].clone(),
+        };
+        let events = match host.frame(&state) {
+            Ok(e) => e,
+            Err(e) => {
+                self.warnings.push(format!("{e}; scripts stopped"));
+                self.script_host = None;
+                return;
+            }
+        };
+        let log = host.take_log();
+        self.warnings.extend(log);
+        if !events.is_empty() {
+            self.apply_script_events(events);
+        }
+    }
+
+    pub(super) fn scripts_animated(&self) -> bool {
+        self.script_host.as_ref().is_some_and(Host::animated)
+    }
+
+    /// The scripts' view of every layer, in draw order.
+    fn script_layers(&self) -> Value {
+        let layers = self
+            .scene
+            .layers
+            .iter()
+            .map(|l| {
+                json!({
+                    "id": l.id,
+                    "name": l.name,
+                    "parent": l.parent,
+                    "origin": text3(&l.origin.get(&self.props)),
+                    "scale": text3(&l.scale.get(&self.props)),
+                    "angles": text3(&l.angles.get(&self.props)),
+                    "color": text3(&l.color.get(&self.props)),
+                    "alpha": floats(&l.alpha.get(&self.props)).first().copied().unwrap_or(1.0),
+                    "visible": l.visible.truthy(&self.props),
+                    "text": l.text.as_ref().map(|t| t.value.clone()).unwrap_or_default(),
+                    "size": format!("{} {}", l.size[0], l.size[1]),
+                    "parallaxDepth": format!("{} {}", l.parallax_depth[0], l.parallax_depth[1]),
+                })
+            })
+            .collect();
+        Value::Array(layers)
+    }
+
+    fn layer_index(&self, id: i64) -> Option<usize> {
+        self.scene.layers.iter().position(|l| l.id == id)
+    }
+
+    /// Current value of a scripted field, as the scene file would store it.
+    fn field_value(&self, index: usize, field: &str) -> Option<Value> {
+        let l = &self.scene.layers[index];
+        Some(match field {
+            "origin" => l.origin.get(&self.props),
+            "scale" => l.scale.get(&self.props),
+            "angles" => l.angles.get(&self.props),
+            "color" => l.color.get(&self.props),
+            "alpha" => l.alpha.get(&self.props),
+            "visible" => Value::Bool(l.visible.truthy(&self.props)),
+            "text" => Value::String(l.text.as_ref()?.value.clone()),
+            _ => {
+                let key = field.strip_prefix("instanceoverride.")?;
+                let v = l.particles.as_ref()?.instance_override.as_ref()?.get(key)?;
+                v.get("value").cloned().unwrap_or_else(|| v.clone())
+            }
+        })
+    }
+
+    fn apply_script_events(&mut self, events: Events) {
+        let mut changes = Changes::default();
+        for (id, value) in events.values {
+            let Some(spec) = self.scene.scripts.get(id) else { continue };
+            let (layer_id, field) = (spec.layer_id, spec.field.clone());
+            self.set_field(layer_id, &field, value, &mut changes);
+        }
+        for (layer_id, fields) in events.dirty {
+            for (field, value) in fields {
+                self.set_field(layer_id, &field, value, &mut changes);
+            }
+        }
+        if !events.created.is_empty() || !events.moves.is_empty() {
+            self.restructure(&events.created, &events.moves);
+            changes.rebuild = true;
+        }
+        if changes.rebuild {
+            self.rebuild();
+        } else {
+            if changes.place {
+                self.replace_layers();
+            }
+            if changes.text {
+                self.refresh_texts();
+            }
+        }
+    }
+
+    fn set_field(&mut self, layer_id: i64, field: &str, value: Value, changes: &mut Changes) {
+        let Some(index) = self.layer_index(layer_id) else { return };
+        let props = &self.props;
+        let layer = &mut self.scene.layers[index];
+        match field {
+            "origin" | "scale" | "angles" | "color" | "alpha" => {
+                let slot = match field {
+                    "origin" => &mut layer.origin,
+                    "scale" => &mut layer.scale,
+                    "angles" => &mut layer.angles,
+                    "color" => &mut layer.color,
+                    _ => &mut layer.alpha,
+                };
+                if slot.get(props) != value {
+                    *slot = fixed(value);
+                    changes.place = true;
+                }
+            }
+            "visible" => {
+                let now = crate::scene::truthy(&value);
+                if layer.visible.truthy(props) != now {
+                    layer.visible = fixed(Value::Bool(now));
+                    changes.rebuild = true;
+                }
+            }
+            "text" => {
+                if let Some(t) = layer.text.as_mut() {
+                    let s = value.as_str().map_or_else(|| value.to_string(), str::to_string);
+                    if t.value != s {
+                        t.value = s;
+                        changes.text = true;
+                    }
+                }
+            }
+            "parallaxDepth" => {
+                let f = floats(&value);
+                layer.parallax_depth = [f.first().copied().unwrap_or(0.0), f.get(1).copied().unwrap_or(0.0)];
+                changes.place = true;
+            }
+            _ => {
+                let Some(key) = field.strip_prefix("instanceoverride.") else { return };
+                let Some(p) = layer.particles.as_mut() else { return };
+                let o = p.instance_override.get_or_insert_with(|| Value::Object(Map::new()));
+                if let Some(map) = o.as_object_mut() {
+                    let _ = map.insert(key.to_string(), value.clone());
+                }
+                let single = json!({ key: value });
+                if let (Some(sim), Some(o)) = (
+                    self.particles.iter_mut().find(|p| p.layer == index),
+                    particles::InstanceOverride::from_json(&single),
+                ) {
+                    sim.sim.apply_override(&o);
+                }
+            }
+        }
+    }
+
+    /// Re-places every layer after scripts moved, scaled, tinted or faded some of them.
+    fn replace_layers(&mut self) {
+        for i in 0..self.layers.len().min(self.scene.layers.len()) {
+            if self.layers[i].placed.is_none() {
+                continue;
+            }
+            let layer = self.scene.layers[i].clone();
+            let image = self.layers[i].image.clone();
+            let text_rect = self.layers[i].text_rect;
+            let placed = self.place(i, &layer, image.as_deref());
+            self.layers[i].placed = placed;
+            self.layers[i].text_rect = text_rect;
+        }
+        let worlds: Vec<_> = self.particles.iter().map(|p| self.world(p.layer, 0)).collect();
+        for (p, w) in self.particles.iter_mut().zip(worlds) {
+            p.world = w;
+        }
+    }
+
+    /// Adds the layers scripts created and applies their draw-order moves. Particle systems and
+    /// puppets are keyed by layer index, so they are re-keyed through the layer ids.
+    fn restructure(&mut self, created: &[Created], moves: &[(i64, usize)]) {
+        let ids: Vec<i64> = self.scene.layers.iter().map(|l| l.id).collect();
+        for c in created {
+            let path = self.resolve_asset(&c.path, &c.workshop);
+            let obj = json!({
+                "id": c.id,
+                "name": c.path,
+                "image": path,
+                "origin": "0 0 0",
+                "scale": "1 1 1",
+                "visible": true,
+            });
+            match Scene::layer(&self.vfs, &obj, false, &mut self.warnings) {
+                Ok(layer) => self.scene.layers.push(layer),
+                Err(e) => self.warnings.push(format!("script layer {}: {e}", c.path)),
+            }
+        }
+        for &(id, to) in moves {
+            let Some(from) = self.layer_index(id) else { continue };
+            let layer = self.scene.layers.remove(from);
+            let to = to.min(self.scene.layers.len());
+            self.scene.layers.insert(to, layer);
+        }
+        let new_index = |old: usize| ids.get(old).and_then(|id| self.scene.layers.iter().position(|l| l.id == *id));
+        let remap: Vec<Option<usize>> = (0..ids.len()).map(new_index).collect();
+        self.particles.retain_mut(|p| match remap.get(p.layer).copied().flatten() {
+            Some(n) => {
+                p.layer = n;
+                true
+            }
+            None => false,
+        });
+        self.puppets.retain_mut(|p| match remap.get(p.layer).copied().flatten() {
+            Some(n) => {
+                p.layer = n;
+                true
+            }
+            None => false,
+        });
+        self.sync_script_layers();
+    }
+
+    /// Scripts name assets as their author saw them; a workshop script's files were moved under
+    /// `<dir>/workshop/<id>/` when the scene was published.
+    fn resolve_asset(&self, path: &str, workshop: &str) -> String {
+        if self.vfs.read(path).is_some() || workshop.is_empty() {
+            return path.to_string();
+        }
+        let moved = match path.split_once('/') {
+            Some((dir, rest)) => format!("{dir}/workshop/{workshop}/{rest}"),
+            None => format!("workshop/{workshop}/{path}"),
+        };
+        if self.vfs.read(&moved).is_some() {
+            moved
+        } else {
+            path.to_string()
+        }
+    }
+
+    /// Pushes the layer values to the scripts again, after a user property change.
+    pub fn sync_script_layers(&mut self) {
+        let layers = self.script_layers();
+        if let Some(host) = self.script_host.as_mut() {
+            let _ = host.set_layers(&layers);
+        }
+    }
+}
+
+/// A scene vector value as the "x y z" text scripts parse.
+fn text3(v: &Value) -> String {
+    let f = floats(v);
+    match f.len() {
+        0 => "0 0 0".into(),
+        1 => format!("{0} {0} {0}", f[0]),
+        2 => format!("{} {} 0", f[0], f[1]),
+        _ => format!("{} {} {}", f[0], f[1], f[2]),
+    }
+}

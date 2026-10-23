@@ -595,6 +595,12 @@ public protocol RendererProtocol : AnyObject {
     func setAudioResponse(enabled: Bool) 
     
     /**
+     * Latest system audio spectrum, 0...1 per band, low to high, for each channel. Shaders and
+     * scripts that respond to audio read it; it is ignored while audio response is off.
+     */
+    func setAudioSpectrum(left: [Float], right: [Float]) 
+    
+    /**
      * How the scene is mapped onto the target: fill, fit, stretch, unscaled or blurred fit.
      */
     func setFitMode(mode: FitMode) 
@@ -615,6 +621,11 @@ public protocol RendererProtocol : AnyObject {
      * Pointer in 0...1 screen coordinates (origin top-left), for parallax and cursor effects.
      */
     func setPointer(x: Float, y: Float) 
+    
+    /**
+     * Left button pressed on the desktop, for scripts that react to clicks and drags.
+     */
+    func setPointerDown(down: Bool) 
     
     /**
      * Fraction of the target's pixels the scene is drawn in; the layer scales it up.
@@ -809,6 +820,18 @@ open func setAudioResponse(enabled: Bool) {try! rustCall() {
 }
     
     /**
+     * Latest system audio spectrum, 0...1 per band, low to high, for each channel. Shaders and
+     * scripts that respond to audio read it; it is ignored while audio response is off.
+     */
+open func setAudioSpectrum(left: [Float], right: [Float]) {try! rustCall() {
+    uniffi_scene_renderer_fn_method_renderer_set_audio_spectrum(self.uniffiClonePointer(),
+        FfiConverterSequenceFloat.lower(left),
+        FfiConverterSequenceFloat.lower(right),$0
+    )
+}
+}
+    
+    /**
      * How the scene is mapped onto the target: fill, fit, stretch, unscaled or blurred fit.
      */
 open func setFitMode(mode: FitMode) {try! rustCall() {
@@ -854,6 +877,16 @@ open func setPointer(x: Float, y: Float) {try! rustCall() {
     uniffi_scene_renderer_fn_method_renderer_set_pointer(self.uniffiClonePointer(),
         FfiConverterFloat.lower(x),
         FfiConverterFloat.lower(y),$0
+    )
+}
+}
+    
+    /**
+     * Left button pressed on the desktop, for scripts that react to clicks and drags.
+     */
+open func setPointerDown(down: Bool) {try! rustCall() {
+    uniffi_scene_renderer_fn_method_renderer_set_pointer_down(self.uniffiClonePointer(),
+        FfiConverterBool.lower(down),$0
     )
 }
 }
@@ -1325,6 +1358,31 @@ extension FitMode: Equatable, Hashable {}
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceFloat: FfiConverterRustBuffer {
+    typealias SwiftType = [Float]
+
+    public static func write(_ value: [Float], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterFloat.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Float] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Float]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterFloat.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
     typealias SwiftType = [String]
 
@@ -1420,6 +1478,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_scene_renderer_checksum_method_renderer_set_audio_response() != 30273) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_scene_renderer_checksum_method_renderer_set_audio_spectrum() != 11514) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_scene_renderer_checksum_method_renderer_set_fit_mode() != 22736) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -1433,6 +1494,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_scene_renderer_checksum_method_renderer_set_pointer() != 12874) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_scene_renderer_checksum_method_renderer_set_pointer_down() != 54417) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_scene_renderer_checksum_method_renderer_set_render_scale() != 43863) {

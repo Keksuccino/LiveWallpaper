@@ -5,18 +5,28 @@
 //! engine-driven uniforms (matrices, time) and issues draws.
 
 use std::collections::{BTreeMap, HashMap};
+use std::ffi::c_void;
+use std::ptr::NonNull;
 use std::rc::Rc;
 
 use objc2::rc::Retained;
+use objc2::runtime::ProtocolObject;
 use objc2_metal::*;
 use serde_json::Value;
 
 use crate::gpu::{self, Gpu, Pool, Texture, TARGET_FORMAT};
-use crate::scene::{floats, Blend, Layer, Material, Scene};
+use crate::mat;
+use crate::particles;
+use crate::puppet;
+use crate::scene::{floats, Blend, Layer, Material, ParticleLayer, PuppetLayer, Scene};
 use crate::shader::{self, Program, Uniform};
 use crate::tex::Frame;
+use crate::text::{self, TextRenderer, TextSpec};
 use crate::vfs::Vfs;
 use crate::Error;
+
+#[path = "engine_scripts.rs"]
+mod scripts;
 
 type Mat4 = [f32; 16];
 
@@ -28,9 +38,6 @@ const IDENTITY: Mat4 = [
 const FBO_MVP: Mat4 = [
     2., 0., 0., 0., 0., -2., 0., 0., 0., 0., 0., 0., 0., 0., 0.5, 1.,
 ];
-
-/// Blur radius in source texels for the blurred background of the blurred-fit mode.
-const BLUR_RADIUS: f32 = 32.0;
 
 fn mul(a: &Mat4, b: &Mat4) -> Mat4 {
     let mut out = [0.0; 16];
@@ -121,6 +128,8 @@ enum Dyn {
     Alpha,
     SpriteRotation,
     SpriteTranslation,
+    /// Audio spectrum: right channel?, band count.
+    Audio(bool, usize),
 }
 
 impl Dyn {
@@ -135,6 +144,7 @@ impl Dyn {
                 | Self::Parallax
                 | Self::SpriteRotation
                 | Self::SpriteTranslation
+                | Self::Audio(..)
         )
     }
 }
@@ -164,6 +174,11 @@ fn engine_uniform(name: &str) -> Option<Dyn> {
         "g_Alpha" | "g_UserAlpha" => Dyn::Alpha,
         "g_Texture0Rotation" => Dyn::SpriteRotation,
         "g_Texture0Translation" => Dyn::SpriteTranslation,
+        _ if name.starts_with("g_AudioSpectrum") => {
+            let rest = name.strip_prefix("g_AudioSpectrum")?.strip_suffix("_v")?;
+            let digits = rest.find(|c: char| !c.is_ascii_digit())?;
+            Dyn::Audio(&rest[digits..] == "Right", rest[..digits].parse().ok()?)
+        }
         _ => {
             let rest = name.strip_prefix("g_Texture")?;
             let digits = rest.find(|c: char| !c.is_ascii_digit())?;
@@ -245,6 +260,10 @@ struct LayerGpu {
     blend: Blend,
     /// Placement resolved from the current properties; `None` when hidden or sizeless.
     placed: Option<Placed>,
+    /// For a text layer: its bitmap quad inside the layer box (`x, y, w, h`, y down).
+    text_rect: Option<[f32; 4]>,
+    /// The layer draws a skinned mesh instead of a quad.
+    puppet: bool,
     /// The effect chain's output never changes (no time, pointer or sprite input), so it is
     /// rendered once and kept.
     still: bool,
@@ -260,12 +279,45 @@ struct Placed {
     compose: bool,
 }
 
+/// A particle system bound to its scene layer.
+struct ParticleGpu {
+    /// Scene layer index, so particles draw in the same order as the other objects.
+    layer: usize,
+    sim: particles::Simulation,
+    texture: Option<Rc<TexEntry>>,
+    blend: Blend,
+    /// The layer's transform, in design units.
+    world: Mat4,
+    color: [f32; 3],
+    alpha: f32,
+}
+
+/// A puppet drawn as a skinned mesh.
+struct PuppetGpu {
+    /// Scene layer index.
+    layer: usize,
+    model: Rc<puppet::Puppet>,
+    /// Bind-pose local transform decomposed to translation, Euler rotation and scale.
+    bind: Vec<([f32; 3], [f32; 3], [f32; 3])>,
+    /// Inverse of each bone's bind-pose world matrix.
+    bind_inverse: Vec<mat::M4>,
+    /// Enabled animation layers: animation index, rate, blend weight, additive.
+    animations: Vec<(usize, f32, f32, bool)>,
+    /// The mesh's index buffer, built once.
+    indices: Retained<ProtocolObject<dyn MTLBuffer>>,
+    texture: Option<Rc<TexEntry>>,
+    blend: Blend,
+}
+
 /// Values a frame needs.
 #[derive(Debug, Clone, Copy)]
 pub struct FrameInput {
     pub time: f32,
     pub frame_time: f32,
     pub pointer: [f32; 2],
+    pub pointer_down: bool,
+    /// The pointer eased over time (0...1, centre 0.5): `g_ParallaxPosition`.
+    pub parallax: [f32; 2],
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -278,7 +330,7 @@ struct DrawCtx {
     alpha: f32,
     /// Intermediate buffers are rendered at this fraction of the layer's native size;
     /// resolution uniforms still report native sizes, so texel-based kernels keep their look.
-    buffer_scale: f32,
+    buffer_scale: [f32; 2],
 }
 
 /// How the scene is mapped onto the target.
@@ -318,6 +370,25 @@ pub struct Engine {
     pub pan: [f32; 2],
     /// Magnification; 1 shows the scene at its fitted size.
     pub zoom: f32,
+    /// Text bitmaps, keyed by font, size and string.
+    text: TextRenderer,
+    /// Fonts by (name, point size).
+    fonts: HashMap<(String, u32), Rc<text::Font>>,
+    /// On-screen pixels per design pixel the text bitmaps were rasterised for.
+    text_scale: f32,
+    /// A text bitmap is too small or too sharp for the current zoom; rebuild after this frame.
+    text_dirty: bool,
+    /// Particle systems, one per visible particle layer.
+    particles: Vec<ParticleGpu>,
+    /// Skinned meshes, one per visible puppet layer.
+    puppets: Vec<PuppetGpu>,
+    /// Time the puppet poses are sampled at; attached layers read it through `world`.
+    pose_time: f32,
+    /// The scene's SceneScript runtime; `None` when the scene has no scripts.
+    script_host: Option<crate::script::Host>,
+    /// Latest audio spectrum, left and right, 0..1 per band.
+    pub audio: [Vec<f32>; 2],
+    pub sounds: crate::sound::Sounds,
 }
 
 impl Engine {
@@ -337,6 +408,7 @@ impl Engine {
             }))
         };
         let (white, black) = (solid([255; 4])?, solid([0, 0, 0, 255])?);
+        let sounds = crate::sound::Sounds::load(&vfs, &scene.sounds, &mut warnings);
         let mut engine = Self {
             gpu,
             vfs,
@@ -356,137 +428,217 @@ impl Engine {
             fit: FitMode::Fill,
             pan: [0.0, 0.0],
             zoom: 1.0,
+            text: TextRenderer::new(),
+            fonts: HashMap::new(),
+            text_scale: 0.0,
+            text_dirty: false,
+            particles: Vec::new(),
+            puppets: Vec::new(),
+            pose_time: 0.0,
+            script_host: None,
+            audio: [vec![0.0; 64], vec![0.0; 64]],
+            sounds,
         };
         engine.rebuild();
+        engine.start_scripts();
         Ok(engine)
     }
 
     /// Re-resolves materials after a property or antialiasing change. Textures, shader sources,
     /// programs and pipelines are cached, so only changed combos compile anything.
     pub fn rebuild(&mut self) {
-        let mut layers = Vec::with_capacity(self.scene.layers.len());
+        let layers = (0..self.scene.layers.len()).map(|i| self.build_layer(i)).collect();
+        self.layers = layers;
+        // Running simulations and loaded meshes survive a rebuild; only new layers load.
+        let mut old_systems = std::mem::take(&mut self.particles);
+        let mut old_puppets = std::mem::take(&mut self.puppets);
+        let mut systems = Vec::new();
         for index in 0..self.scene.layers.len() {
-            let layer = self.scene.layers[index].clone();
-            // Hidden layers load nothing; a property change that shows them rebuilds.
-            let material = layer.material.as_ref().filter(|_| self.visible(index));
-            let Some(material) = material else {
-                layers.push(LayerGpu {
-                    base: None,
-                    base_fx: None,
-                    image: None,
-                    effects: Vec::new(),
-                    blend: Blend::Translucent,
-                    placed: None,
-                    still: false,
-                    cached: None,
-                });
+            let Some(layer) = self.scene.layers[index].particles.clone() else {
                 continue;
             };
-            let has_effects = !layer.effects.is_empty();
-            let image = material
-                .textures
-                .first()
-                .cloned()
-                .flatten()
-                .filter(|t| !t.starts_with("_rt_"))
-                .and_then(|t| self.texture(&t));
-            let base = match self.draw_item(
-                material,
-                material.blend,
-                TARGET_FORMAT,
-                self.samples,
-                &[],
-                false,
-            ) {
-                Ok(item) => Some(item),
-                Err(e) => {
-                    self.warnings.push(format!(
-                        "layer {}: {e}; drawing its texture directly",
-                        layer.name
-                    ));
-                    None
-                }
-            };
-            // With effects the base pass renders into an intermediate buffer, replacing it whole.
-            let base_fx = if has_effects && base.is_some() {
-                // The colour blend mode applies when the finished layer meets the screen.
-                let mut plain = material.clone();
-                let _ = plain.combos.remove("BLENDMODE");
-                self.draw_item(&plain, Blend::Disabled, gpu::FBO_FORMAT, 1, &[], false)
-                    .ok()
-            } else {
-                None
-            };
-            let mut effects = Vec::new();
-            for effect in &layer.effects {
-                if !effect.visible.truthy(&self.props) {
-                    continue;
-                }
-                let mut passes = Vec::new();
-                let mut failed = None;
-                for pass in &effect.passes {
-                    match self.draw_item(
-                        &pass.material,
-                        pass.material.blend,
-                        gpu::FBO_FORMAT,
-                        1,
-                        &pass.binds,
-                        true,
-                    ) {
-                        Ok(item) => passes.push(EffectPassGpu {
-                            item,
-                            target: pass.target.clone(),
-                        }),
-                        Err(e) => {
-                            failed = Some(e);
-                            break;
-                        }
-                    }
-                }
-                match failed {
-                    Some(e) => self.warnings.push(format!(
-                        "layer {}: effect {} skipped: {e}",
-                        layer.name, effect.name
-                    )),
-                    None => effects.push(EffectGpu {
-                        passes,
-                        fbos: effect
-                            .fbos
-                            .iter()
-                            .map(|f| (f.name.clone(), f.scale.max(1.0)))
-                            .collect(),
-                    }),
-                }
+            if !self.visible(index) {
+                continue;
             }
-            let placed = self.place(index, &layer, image.as_deref());
-            let items = base_fx.iter().chain(
-                effects
-                    .iter()
-                    .flat_map(|e| e.passes.iter().map(|p| &p.item)),
-            );
-            let still = !effects.is_empty()
-                && !base.as_ref().is_some_and(|b| b.reads_frame)
-                && image.as_ref().is_none_or(|t| t.frames.len() <= 1)
-                && !placed.is_some_and(|p| p.compose)
-                && items
-                    .into_iter()
-                    .all(|i| !i.reads_frame && !i.dynamic.iter().any(|(_, _, d)| d.moves()));
-            layers.push(LayerGpu {
-                base,
-                base_fx,
-                image,
-                effects,
-                blend: material.blend,
-                placed,
-                still,
-                cached: None,
-            });
+            if let Some(i) = old_systems.iter().position(|p| p.layer == index) {
+                systems.push(old_systems.swap_remove(i));
+                continue;
+            }
+            match self.particle_system(index, &layer) {
+                Ok(system) => systems.push(system),
+                Err(e) => self.warnings.push(format!(
+                    "layer {}: {e}; particles skipped",
+                    self.scene.layers[index].name
+                )),
+            }
         }
-        self.layers = layers;
+        self.particles = systems;
+        let mut puppets = Vec::new();
+        for index in 0..self.scene.layers.len() {
+            let Some(layer) = self.scene.layers[index].puppet.clone() else {
+                continue;
+            };
+            if !self.visible(index) {
+                continue;
+            }
+            if let Some(i) = old_puppets.iter().position(|p| p.layer == index) {
+                puppets.push(old_puppets.swap_remove(i));
+                continue;
+            }
+            match self.puppet_mesh(index, &layer) {
+                Ok(mesh) => puppets.push(mesh),
+                Err(e) => self.warnings.push(format!(
+                    "layer {}: {e}; puppet skipped",
+                    self.scene.layers[index].name
+                )),
+            }
+        }
+        self.puppets = puppets;
         // Drop textures nothing draws any more (hidden by a property change).
         self.textures.retain(|_, t| Rc::strong_count(t) > 1);
         let mut seen = std::collections::HashSet::new();
         self.warnings.retain(|w| seen.insert(w.clone()));
+    }
+
+    /// Redraws the bitmaps of text layers (new string or new zoom) without touching the rest.
+    pub fn refresh_texts(&mut self) {
+        for i in 0..self.scene.layers.len().min(self.layers.len()) {
+            if self.scene.layers[i].text.is_some() {
+                self.layers[i] = self.build_layer(i);
+            }
+        }
+    }
+
+    /// GPU state of one layer: its draw items, effect chain and placement.
+    fn build_layer(&mut self, index: usize) -> LayerGpu {
+        let layer = self.scene.layers[index].clone();
+        // Hidden layers load nothing; a property change that shows them rebuilds.
+        let visible = self.visible(index);
+        let text = if visible && layer.text.is_some() {
+            self.text_material(&layer)
+        } else {
+            None
+        };
+        let material = match (layer.material.as_ref().filter(|_| visible), text) {
+            (Some(m), _) => Some((m.clone(), None)),
+            (None, Some((m, rect))) => Some((m, Some(rect))),
+            (None, None) => None,
+        };
+        let Some((material, text_rect)) = material else {
+            return LayerGpu {
+                base: None,
+                base_fx: None,
+                image: None,
+                effects: Vec::new(),
+                blend: Blend::Translucent,
+                placed: None,
+                text_rect: None,
+                puppet: false,
+                still: false,
+                cached: None,
+            };
+        };
+        let material = &material;
+        let has_effects = !layer.effects.is_empty();
+        let image = material
+            .textures
+            .first()
+            .and_then(|t| t.as_deref())
+            .filter(|t| !t.starts_with("_rt_"))
+            .and_then(|t| self.texture(t));
+        let base = match self.draw_item(
+            material,
+            material.blend,
+            TARGET_FORMAT,
+            self.samples,
+            &[],
+            false,
+        ) {
+            Ok(item) => Some(item),
+            Err(e) => {
+                self.warnings.push(format!(
+                    "layer {}: {e}; drawing its texture directly",
+                    layer.name
+                ));
+                None
+            }
+        };
+        // With effects the base pass renders into an intermediate buffer, replacing it whole.
+        let base_fx = if has_effects && base.is_some() {
+            // The colour blend mode applies when the finished layer meets the screen.
+            let mut plain = material.clone();
+            let _ = plain.combos.remove("BLENDMODE");
+            self.draw_item(&plain, Blend::Disabled, gpu::FBO_FORMAT, 1, &[], false)
+                .ok()
+        } else {
+            None
+        };
+        let mut effects = Vec::new();
+        for effect in &layer.effects {
+            if !effect.visible.truthy(&self.props) {
+                continue;
+            }
+            let mut passes = Vec::new();
+            let mut failed = None;
+            for pass in &effect.passes {
+                match self.draw_item(
+                    &pass.material,
+                    pass.material.blend,
+                    gpu::FBO_FORMAT,
+                    1,
+                    &pass.binds,
+                    true,
+                ) {
+                    Ok(item) => passes.push(EffectPassGpu {
+                        item,
+                        target: pass.target.clone(),
+                    }),
+                    Err(e) => {
+                        failed = Some(e);
+                        break;
+                    }
+                }
+            }
+            match failed {
+                Some(e) => self.warnings.push(format!(
+                    "layer {}: effect {} skipped: {e}",
+                    layer.name, effect.name
+                )),
+                None => effects.push(EffectGpu {
+                    passes,
+                    fbos: effect
+                        .fbos
+                        .iter()
+                        .map(|f| (f.name.clone(), f.scale.max(1.0)))
+                        .collect(),
+                }),
+            }
+        }
+        let placed = self.place(index, &layer, image.as_deref());
+        let items = base_fx.iter().chain(
+            effects
+                .iter()
+                .flat_map(|e| e.passes.iter().map(|p| &p.item)),
+        );
+        let still = !effects.is_empty()
+            && !base.as_ref().is_some_and(|b| b.reads_frame)
+            && image.as_ref().is_none_or(|t| t.frames.len() <= 1)
+            && !placed.is_some_and(|p| p.compose)
+            && items
+                .into_iter()
+                .all(|i| !i.reads_frame && !i.dynamic.iter().any(|(_, _, d)| d.moves()));
+        LayerGpu {
+            base,
+            base_fx,
+            image,
+            effects,
+            blend: material.blend,
+            placed,
+            text_rect,
+            puppet: layer.puppet.is_some(),
+            still,
+            cached: None,
+        }
     }
 
     pub fn set_samples(&mut self, samples: usize) {
@@ -511,8 +663,443 @@ impl Engine {
         self.msaa = None;
     }
 
+    /// Rasterises a text layer at the last known zoom and registers the bitmap as a texture.
+    /// The returned material draws it like an image layer, so effects, colour and alpha work
+    /// the same way they do for images.
+    fn text_material(&mut self, layer: &Layer) -> Option<(Material, [f32; 4])> {
+        let t = layer.text.as_ref()?;
+        let scale = if self.text_scale > 0.0 {
+            self.text_scale
+        } else {
+            2.0
+        };
+        // The editor sizes a text box to fit its text, so the box height against the font's
+        // line height at the stored point size gives the point-to-design-unit factor.
+        let font = self.font(&t.font, t.point_size).and_then(|base| {
+            let (a, d, l) = base.metrics();
+            let inner = layer.size[1] - 2.0 * t.padding;
+            let k = if a + d + l > 0.0 && inner > 0.0 {
+                (inner / (a + d + l)).clamp(1.0, 8.0)
+            } else {
+                4.0
+            };
+            self.font(&t.font, t.point_size * k)
+        });
+        let font = match font {
+            Ok(f) => f,
+            Err(e) => {
+                self.warnings
+                    .push(format!("layer {}: {e}; text skipped", layer.name));
+                return None;
+            }
+        };
+        let spec = TextSpec {
+            text: t.value.clone(),
+            // The layer's colour and alpha uniforms tint the bitmap, as for image layers.
+            color: [1.0; 4],
+            opacity: 1.0,
+            h_align: text::HAlign::from_scene(Some(&t.horizontal_align)),
+            v_align: text::VAlign::from_scene(Some(&t.vertical_align)),
+            line_spacing: 1.0,
+            padding: t.padding,
+            pixels_per_point: scale,
+            box_size: Some(layer.size),
+        };
+        let bitmap = match self.text.render(&font, &spec) {
+            Ok(b) => b,
+            Err(e) => {
+                self.warnings
+                    .push(format!("layer {}: {e}; text skipped", layer.name));
+                return None;
+            }
+        };
+        if bitmap.is_empty() {
+            return None;
+        }
+        let texture = match self.upload_bitmap(&bitmap) {
+            Ok(t) => t,
+            Err(e) => {
+                self.warnings
+                    .push(format!("layer {}: {e}; text skipped", layer.name));
+                return None;
+            }
+        };
+        let key = format!("@text/{}", layer.id);
+        let (w, h) = (bitmap.width as f32, bitmap.height as f32);
+        let entry = Rc::new(TexEntry {
+            images: vec![texture],
+            res: [w, h, w, h],
+            frames: Vec::new(),
+            sampler: 0,
+        });
+        let _ = self.textures.insert(key.clone(), entry);
+        let material = Material {
+            shader: "genericimage2".into(),
+            blend: Blend::Translucent,
+            textures: vec![Some(key)],
+            combos: BTreeMap::new(),
+            constants: HashMap::new(),
+        };
+        Some((material, bitmap.rect))
+    }
+
+    /// A font from the package or the system, cached per name and point size.
+    fn font(&mut self, name: &str, point_size: f32) -> Result<Rc<text::Font>, Error> {
+        let key = (name.to_string(), point_size.to_bits());
+        if let Some(font) = self.fonts.get(&key) {
+            return Ok(font.clone());
+        }
+        let source = text::FontSource::from_scene(&self.vfs, name);
+        let font = Rc::new(text::Font::load(&source, point_size)?);
+        let _ = self.fonts.insert(key, font.clone());
+        Ok(font)
+    }
+
+    /// Loads a puppet model, its index buffer and the bind-pose data skinning needs.
+    fn puppet_mesh(&mut self, index: usize, layer: &PuppetLayer) -> Result<PuppetGpu, Error> {
+        let data = self
+            .vfs
+            .read(&layer.model)
+            .ok_or_else(|| Error::Missing(layer.model.clone()))?;
+        let model = Rc::new(puppet::Puppet::parse(&data)?);
+        let bind: Vec<_> = model.bones.iter().map(|b| mat::decompose(&b.local)).collect();
+        // Bind-pose world matrices, then their inverses for the skinning transform.
+        let mut world = vec![mat::IDENTITY; model.bones.len()];
+        for (i, bone) in model.bones.iter().enumerate() {
+            world[i] = match bone.parent {
+                Some(p) if p < i => mat::mul(&bone.local, &world[p]),
+                _ => bone.local,
+            };
+        }
+        let bind_inverse = world.iter().map(mat::invert).collect();
+        let animations = layer
+            .animations
+            .iter()
+            .filter_map(|a| {
+                let found = model
+                    .animations
+                    .iter()
+                    .position(|anim| anim.id as i64 == a.id)?;
+                Some((found, a.rate, a.blend.clamp(0.0, 1.0), a.additive))
+            })
+            .collect();
+        let (texture_name, blend) = self
+            .scene
+            .layers
+            .get(index)
+            .and_then(|l| l.material.as_ref())
+            .map(|m| {
+                (
+                    m.textures.first().cloned().flatten(),
+                    m.blend,
+                )
+            })
+            .unwrap_or((None, Blend::Translucent));
+        let texture = texture_name.and_then(|name| self.texture(&name));
+        let indices_ptr = NonNull::new(model.indices.as_ptr() as *mut c_void)
+            .ok_or_else(|| Error::Format("puppet has no indices".into()))?;
+        // SAFETY: the buffer copies `indices.len()` u16 values immediately.
+        let indices = unsafe {
+            self.gpu
+                .device
+                .newBufferWithBytes_length_options(
+                    indices_ptr,
+                    model.indices.len() * 2,
+                    MTLResourceOptions::StorageModeShared,
+                )
+                .ok_or_else(|| Error::Metal("puppet index buffer".into()))?
+        };
+        Ok(PuppetGpu {
+            layer: index,
+            model,
+            bind,
+            bind_inverse,
+            animations,
+            indices,
+            texture,
+            blend,
+        })
+    }
+
+    /// Draws one puppet: sample its animation layers, walk the skeleton and skin on the CPU.
+    fn draw_puppet(
+        &mut self,
+        enc: &gpu::Encoder,
+        index: usize,
+        ctx: &DrawCtx,
+        input: FrameInput,
+        samples: usize,
+    ) -> Result<(), Error> {
+        let Some(pi) = self.puppets.iter().position(|p| p.layer == index) else {
+            return Ok(());
+        };
+        let (model, texture, blend, indices) = {
+            let p = &self.puppets[pi];
+            (
+                p.model.clone(),
+                p.texture.clone(),
+                p.blend,
+                p.indices.clone(),
+            )
+        };
+        let bones = self.puppets[pi].bones_at(input.time);
+        let mut verts = Vec::with_capacity(model.vertices.len() * 8);
+        for v in &model.vertices {
+            let mut pos = [0.0f32; 3];
+            for k in 0..4 {
+                let w = v.bone_weights[k];
+                if w <= 0.0 {
+                    continue;
+                }
+                let skin = bones.get(v.bone_indices[k] as usize).copied().unwrap_or(mat::IDENTITY);
+                let q = mat::point(&skin, v.position);
+                pos[0] += q[0] * w;
+                pos[1] += q[1] * w;
+                pos[2] += q[2] * w;
+            }
+            // Model-space position; `ctx.mvp` carries the layer transform.
+            for f in [
+                pos[0],
+                pos[1],
+                v.uv[0],
+                v.uv[1],
+                ctx.color[0],
+                ctx.color[1],
+                ctx.color[2],
+                ctx.alpha,
+            ] {
+                verts.extend_from_slice(&f.to_le_bytes());
+            }
+        }
+        if verts.is_empty() || model.indices.is_empty() {
+            return Ok(());
+        }
+        let pipeline = self.gpu.particle_pipeline(blend, TARGET_FORMAT, samples)?;
+        enc.setRenderPipelineState(&pipeline);
+        let uniform: Vec<u8> = ctx.mvp.iter().flat_map(|f| f.to_le_bytes()).collect();
+        gpu::set_bytes(enc, true, &uniform, 0);
+        let ptr = NonNull::new(verts.as_ptr() as *mut c_void)
+            .ok_or_else(|| Error::Format("puppet vertex buffer".into()))?;
+        // SAFETY: the buffer copies `verts` immediately and outlives the draw.
+        let vb = unsafe {
+            self.gpu.device.newBufferWithBytes_length_options(
+                ptr,
+                verts.len(),
+                MTLResourceOptions::StorageModeShared,
+            )
+        }
+        .ok_or_else(|| Error::Metal("puppet vertex buffer".into()))?;
+        // SAFETY: the vertex buffer holds 32-byte vertices and lives past the draw.
+        unsafe {
+            enc.setVertexBuffer_offset_atIndex(Some(&vb), 0, shader::VERTEX_BUFFER_SLOT as usize)
+        };
+        let (tex, sampler) = match &texture {
+            Some(t) => (&t.images[0], t.sampler),
+            None => (&self.white.images[0], 0),
+        };
+        // SAFETY: slot 0 exists in the particle shader; the index buffer and texture outlive the
+        // draw.
+        unsafe {
+            enc.setFragmentTexture_atIndex(Some(tex), 0);
+            enc.setFragmentSamplerState_atIndex(Some(&self.gpu.samplers[sampler]), 0);
+            enc.drawIndexedPrimitives_indexCount_indexType_indexBuffer_indexBufferOffset(
+                MTLPrimitiveType::Triangle,
+                model.indices.len(),
+                MTLIndexType::UInt16,
+                &indices,
+                0,
+            );
+        }
+        Ok(())
+    }
+
+    /// Loads a particle layer's system, its instance overrides and the texture it draws with.
+    fn particle_system(&mut self, index: usize, layer: &ParticleLayer) -> Result<ParticleGpu, Error> {
+        let json = self.vfs.json(&layer.system)?;
+        let system = particles::ParticleSystem::from_json(&json)?;
+        // A fixed seed per layer keeps a frozen frame, and the golden harness, reproducible.
+        let seed = 0x9E37_79B9_7F4A_7C15u64.wrapping_mul(index as u64 + 1);
+        let mut sim = particles::Simulation::new(&system, seed);
+        if let Some(overrides) = &layer.instance_override {
+            if let Some(o) = particles::InstanceOverride::from_json(overrides) {
+                sim.apply_override(&o);
+            }
+        }
+        let material = Material::load(&self.vfs, &system.material)?;
+        let texture = material
+            .textures
+            .first()
+            .and_then(|t| t.as_deref())
+            .and_then(|t| self.texture(t));
+        let scene_layer = &self.scene.layers[index];
+        let mut color = [1.0f32; 3];
+        for (o, v) in color
+            .iter_mut()
+            .zip(floats(&scene_layer.color.get(&self.props)))
+        {
+            *o = v * scene_layer.brightness;
+        }
+        Ok(ParticleGpu {
+            layer: index,
+            sim,
+            texture,
+            blend: material.blend,
+            world: self.world(index, 0),
+            color,
+            alpha: floats(&scene_layer.alpha.get(&self.props))
+                .first()
+                .copied()
+                .unwrap_or(1.0),
+        })
+    }
+
+    /// Draws one particle layer: simulate to `input.time`, build six vertices per particle and
+    /// issue a single triangle list draw.
+    fn draw_particles(
+        &mut self,
+        enc: &gpu::Encoder,
+        index: usize,
+        view_projection: &Mat4,
+        input: FrameInput,
+    ) -> Result<(), Error> {
+        let (blend, texture, verts) = {
+            let Some(p) = self.particles.get_mut(index) else {
+                return Ok(());
+            };
+            p.sim.seek_to(input.time);
+            let world = p.world;
+            let (cr, cg, cb) = (p.color[0], p.color[1], p.color[2]);
+            let ca = p.alpha;
+            // A sprite sheet's frames: each particle shows one, picked by the animation mode.
+            let sheet = p.texture.as_ref().filter(|t| !t.frames.is_empty());
+            let system = p.sim.system();
+            let mode = system.animation_mode.as_deref().unwrap_or("");
+            let speed = system.sequence_multiplier;
+            let mut verts = Vec::with_capacity(p.sim.alive_count() * 6 * 8);
+            for q in p.sim.alive_particles() {
+                let half = (q.size * 0.5).max(0.0);
+                let alpha = q.alpha * ca;
+                if half <= 0.0 || alpha <= 0.0 {
+                    continue;
+                }
+                // Simulation space is y up; the render space is y down, so the centre and the
+                // rotation are mirrored while the sprite itself stays upright.
+                let (s, c) = (-q.rotation.z).sin_cos();
+                let (x, y) = (q.position.x, -q.position.y);
+                let corners = [
+                    (-half, -half, 0.0f32, 0.0f32),
+                    (half, -half, 1.0, 0.0),
+                    (-half, half, 0.0, 1.0),
+                    (half, -half, 1.0, 0.0),
+                    (half, half, 1.0, 1.0),
+                    (-half, half, 0.0, 1.0),
+                ];
+                let frame = sheet.map(|t| {
+                    let n = t.frames.len();
+                    let i = match mode {
+                        "randomframe" => (q.seed % n as u64) as usize,
+                        // shortcut: plays the sheet once per lifetime times the multiplier; check
+                        // against a scene that uses "sequence" when one turns up.
+                        "sequence" => {
+                            let life = (q.age / q.lifetime.max(1e-3)) * speed.max(0.0);
+                            ((life * n as f32) as usize) % n
+                        }
+                        _ => 0,
+                    };
+                    (t.frames[i], t.res)
+                });
+                for (dx, dy, u, v) in corners {
+                    let (u, v) = match frame {
+                        Some((f, res)) => (
+                            (f.x + u * f.width_x + v * f.height_x) / res[0].max(1.0),
+                            (f.y + u * f.width_y + v * f.height_y) / res[1].max(1.0),
+                        ),
+                        None => (u, v),
+                    };
+                    let lx = x + dx * c - dy * s;
+                    let ly = y + dx * s + dy * c;
+                    let wx = world[0] * lx + world[4] * ly + world[12];
+                    let wy = world[1] * lx + world[5] * ly + world[13];
+                    for f in [wx, wy, u, v, q.color.x * cr, q.color.y * cg, q.color.z * cb, alpha] {
+                        verts.extend_from_slice(&f.to_le_bytes());
+                    }
+                }
+            }
+            (p.blend, p.texture.clone(), verts)
+        };
+        if verts.is_empty() {
+            return Ok(());
+        }
+        let pipeline = self.gpu.particle_pipeline(blend, TARGET_FORMAT, self.samples)?;
+        enc.setRenderPipelineState(&pipeline);
+        let uniform: Vec<u8> = view_projection
+            .iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
+        gpu::set_bytes(enc, true, &uniform, 0);
+        gpu::set_buffer_or_bytes(
+            &self.gpu,
+            enc,
+            true,
+            &verts,
+            shader::VERTEX_BUFFER_SLOT as usize,
+        );
+        let (tex, sampler) = match &texture {
+            Some(t) => (&t.images[0], t.sampler),
+            None => (&self.white.images[0], 0),
+        };
+        // SAFETY: slot 0 exists in the particle shader; resources outlive the frame.
+        unsafe {
+            enc.setFragmentTexture_atIndex(Some(tex), 0);
+            enc.setFragmentSamplerState_atIndex(Some(&self.gpu.samplers[sampler]), 0);
+            enc.drawPrimitives_vertexStart_vertexCount(
+                MTLPrimitiveType::Triangle,
+                0,
+                verts.len() / 32,
+            );
+        }
+        Ok(())
+    }
+
+    /// Text bitmaps arrive premultiplied; the blend state multiplies by alpha, so divide it out.
+    fn upload_bitmap(&self, bitmap: &text::TextBitmap) -> Result<Retained<Texture>, Error> {
+        let (w, h) = (bitmap.width as usize, bitmap.height as usize);
+        let mut data = bitmap.pixels.clone();
+        for p in data.as_chunks_mut::<4>().0 {
+            let a = p[3] as u32;
+            if a > 0 && a < 255 {
+                for c in &mut p[..3] {
+                    *c = (((*c as u32) * 255 + a / 2) / a).min(255) as u8;
+                }
+            }
+        }
+        let tex = crate::tex::Tex {
+            texture_width: w,
+            texture_height: h,
+            image_width: w,
+            image_height: h,
+            format: crate::tex::Format::Rgba8,
+            clamp: true,
+            nearest: false,
+            images: vec![vec![crate::tex::Mip {
+                width: w,
+                height: h,
+                data,
+            }]],
+            frames: Vec::new(),
+        };
+        self.gpu.upload(&tex, 0, false)
+    }
+
+    /// A texture drawn as a picture: layer images, sprites, slot 0 of a material.
     fn texture(&mut self, name: &str) -> Option<Rc<TexEntry>> {
-        if let Some(t) = self.textures.get(name) {
+        self.texture_as(name, true)
+    }
+
+    /// `color` decides how one- and two-channel files read; see `Gpu::upload`.
+    fn texture_as(&mut self, name: &str, color: bool) -> Option<Rc<TexEntry>> {
+        let key = if color { name.to_string() } else { format!("{name}#raw") };
+        if let Some(t) = self.textures.get(&key) {
             return Some(t.clone());
         }
         let loaded = (|| -> Result<TexEntry, Error> {
@@ -520,7 +1107,7 @@ impl Engine {
             let data = self.vfs.read(&path).ok_or(Error::Missing(path))?;
             let tex = crate::tex::decode(&data)?;
             let images = (0..tex.images.len())
-                .map(|i| self.gpu.upload(&tex, i))
+                .map(|i| self.gpu.upload(&tex, i, color))
                 .collect::<Result<Vec<_>, _>>()?;
             let sampler = usize::from(!tex.clamp) + 2 * usize::from(tex.nearest);
             Ok(TexEntry {
@@ -538,7 +1125,7 @@ impl Engine {
         match loaded {
             Ok(entry) => {
                 let entry = Rc::new(entry);
-                let _ = self.textures.insert(name.to_string(), entry.clone());
+                let _ = self.textures.insert(key, entry.clone());
                 Some(entry)
             }
             Err(e) => {
@@ -588,7 +1175,7 @@ impl Engine {
             if let Some(name) = name {
                 if name.starts_with("_rt_") {
                     let _ = sources.insert(i, TexSource::Target(name.clone()));
-                } else if let Some(t) = self.texture(name) {
+                } else if let Some(t) = self.texture_as(name, i == 0) {
                     let _ = sources.insert(i, TexSource::Image(t));
                 }
             }
@@ -643,7 +1230,7 @@ impl Engine {
                         TexSource::Image(self.white.clone())
                     } else {
                         TexSource::Image(
-                            self.texture(default).unwrap_or_else(|| self.black.clone()),
+                            self.texture_as(default, index == 0).unwrap_or_else(|| self.black.clone()),
                         )
                     }
                 }
@@ -738,23 +1325,62 @@ impl Engine {
     }
 
     /// Layer world matrix including parents, in design pixels (y up).
+    /// Re-places layers that hang off a puppet attachment, since the bones move every frame.
+    fn follow_attachments(&mut self, time: f32) {
+        self.pose_time = time;
+        for i in 0..self.layers.len().min(self.scene.layers.len()) {
+            if self.layers[i].placed.is_none() || !self.attached(i) {
+                continue;
+            }
+            let world = self.world(i, 0);
+            if let Some(p) = &mut self.layers[i].placed {
+                p.world = world;
+            }
+        }
+    }
+
+    /// The layer or one of its parents follows a puppet attachment.
+    fn attached(&self, index: usize) -> bool {
+        let mut layer = self.scene.layers.get(index);
+        for _ in 0..32 {
+            let Some(l) = layer else { return false };
+            if l.attachment.is_some() {
+                return true;
+            }
+            layer = l.parent.and_then(|p| self.scene.layers.iter().find(|x| x.id == p));
+        }
+        false
+    }
+
     fn world(&self, index: usize, depth: u32) -> Mat4 {
         let layer = &self.scene.layers[index];
         let o = floats(&layer.origin.get(&self.props));
         let s = floats(&layer.scale.get(&self.props));
         let a = floats(&layer.angles.get(&self.props));
         let get = |v: &[f32], i: usize, d: f32| v.get(i).copied().unwrap_or(d);
-        // The file stores y down from the top of the design; the renderer works y up.
+        let parent = layer
+            .parent
+            .and_then(|p| self.scene.layers.iter().position(|l| l.id == p));
+        // The file is y up from the design's bottom-left (a child's origin is an offset from its
+        // parent, also y up); the renderer works y down from the top-left, like Metal textures.
+        let y = get(&o, 1, 0.0);
+        let y = if parent.is_some() { -y } else { self.scene.height - y };
         let local = mul(
             &mul(
-                &translate(get(&o, 0, 0.0), get(&o, 1, 0.0), 0.0),
+                &translate(get(&o, 0, 0.0), y, 0.0),
                 &rotate_z(-get(&a, 2, 0.0)),
             ),
             &scale(get(&s, 0, 1.0), get(&s, 1, 1.0), 1.0),
         );
-        let parent = layer
-            .parent
-            .and_then(|p| self.scene.layers.iter().position(|l| l.id == p));
+        // A layer attached to a puppet follows the attachment point as the bones move.
+        let attached = parent.zip(layer.attachment.as_deref()).and_then(|(p, name)| {
+            let puppet = self.puppets.iter().find(|g| g.layer == p)?;
+            puppet.attachment_at(name, self.pose_time)
+        });
+        let local = match attached {
+            Some(a) => mul(&a, &local),
+            None => local,
+        };
         match parent {
             Some(p) if depth < 32 => mul(&self.world(p, depth + 1), &local),
             _ => local,
@@ -824,6 +1450,8 @@ impl Engine {
         input: FrameInput,
     ) -> Result<(), Error> {
         let (tw, th) = (target.width() as f32, target.height() as f32);
+        self.run_scripts(input, [tw, th]);
+        self.follow_attachments(input.time);
         if self.samples > 1
             && self
                 .msaa
@@ -850,7 +1478,8 @@ impl Engine {
         // The blurred-fit mode draws the scene into a texture first: the empty part of the
         // target is then filled with a blurred copy of the same picture.
         let blurred = self.fit == FitMode::MatchBlurred;
-        let scene_tex = if blurred {
+        let bloom = self.scene.bloom.enabled.truthy(&self.props);
+        let scene_tex = if blurred || bloom {
             Some(self.pool.take(&self.gpu, target.width(), target.height())?)
         } else {
             None
@@ -867,6 +1496,17 @@ impl Engine {
         let mut frame_copy: HashMap<String, Retained<Texture>> = HashMap::new();
 
         for li in 0..self.layers.len() {
+            // Particle layers have no image draw of their own; draw their systems in layer order.
+            for pi in 0..self.particles.len() {
+                if self.particles[pi].layer != li {
+                    continue;
+                }
+                let enc = main
+                    .as_ref()
+                    .ok_or_else(|| Error::Metal("main pass".into()))?;
+                let vp = view_projection;
+                self.draw_particles(enc, pi, &vp, input)?;
+            }
             let Some(Placed {
                 world,
                 size,
@@ -881,9 +1521,28 @@ impl Engine {
                 continue;
             }
             let image = self.layers[li].image.clone();
-            let model = mul(&world, &scale(size[0], size[1], 1.0));
+            let is_puppet = self.layers[li].puppet;
+            let model = match self.layers[li].text_rect {
+                Some([x, y, w, h]) => {
+                    // The quad is centred on the model origin, and the layer box is centred on
+                    // the layer origin; `rect` is measured from the box's top-left corner.
+                    let ox = x - size[0] / 2.0 + w / 2.0;
+                    let oy = y - size[1] / 2.0 + h / 2.0;
+                    mul(
+                        &mul(&world, &translate(ox, oy, 0.0)),
+                        &scale(w.max(0.001), h.max(0.001), 1.0),
+                    )
+                }
+                None => mul(&world, &scale(size[0], size[1], 1.0)),
+            };
             // Screen pixels per layer pixel. Effects never need more detail than the screen shows.
             let on_screen = fit * world_scale(&world);
+            if self.layers[li].text_rect.is_some()
+                && self.text_scale > 0.0
+                && !(0.75..=1.34).contains(&(on_screen / self.text_scale))
+            {
+                self.text_dirty = true;
+            }
             let ctx = DrawCtx {
                 mvp: mul(&view_projection, &model),
                 model,
@@ -891,8 +1550,12 @@ impl Engine {
                 target: screen,
                 color,
                 alpha,
-                buffer_scale: 1.0,
+                buffer_scale: [1.0, 1.0],
             };
+            // Nothing of the layer reaches the target: its effects and draw would be wasted.
+            if !is_puppet && off_target(&ctx.mvp) {
+                continue;
+            }
             let uv = image.as_ref().map_or([1.0, 1.0], |t| {
                 [t.res[2] / t.res[0].max(1.0), t.res[3] / t.res[1].max(1.0)]
             });
@@ -916,6 +1579,13 @@ impl Engine {
                     .as_ref()
                     .ok_or_else(|| Error::Metal("main pass".into()))?;
                 match &self.layers[li].base {
+                    _ if is_puppet => {
+                        // Puppet vertices are in design units, y up: the layer transform without the
+                        // box scale, flipped into the y-down design space.
+                        let flip = mul(&world, &scale(1.0, -1.0, 1.0));
+                        let pctx = DrawCtx { mvp: mul(&view_projection, &flip), ..ctx };
+                        self.draw_puppet(enc, li, &pctx, input, self.samples)?;
+                    }
                     Some(item) if visible_effects.is_empty() => {
                         self.draw(enc, item, &ctx, uv, input, None, &frame_copy, None);
                         // Copied again by the next reader, so it need not stay alive meanwhile.
@@ -939,10 +1609,11 @@ impl Engine {
                 continue;
             }
 
-            let k = on_screen.clamp(0.05, 1.0);
+            // Per axis, so a layer stretched in one direction gets a buffer of its screen shape.
+            let k = axis_scale(&world).map(|s| (fit * s).clamp(0.05, 1.0));
             let (fw, fh) = (
-                (size[0] * k).round().max(1.0) as usize,
-                (size[1] * k).round().max(1.0) as usize,
+                (size[0] * k[0]).round().max(1.0) as usize,
+                (size[1] * k[1]).round().max(1.0) as usize,
             );
             if let Some(cached) = self.layers[li]
                 .cached
@@ -974,6 +1645,13 @@ impl Engine {
                 enc.endEncoding();
             }
             let mut prev = self.pool.take(&self.gpu, fw, fh)?;
+            // Effects only need to run where the layer can show, plus a margin for effects that
+            // sample a little way off; a cached layer keeps all of it, the view may change later.
+            let clip = if is_puppet || self.layers[li].still {
+                [0.0, 0.0, 1.0, 1.0]
+            } else {
+                visible_uv(&ctx.mvp, 1.25)
+            };
             let fbo_ctx = DrawCtx {
                 mvp: FBO_MVP,
                 model: IDENTITY,
@@ -985,7 +1663,13 @@ impl Engine {
             };
             {
                 let enc = gpu::begin(cb, &prev, None, Some([0.0; 4]))?;
-                if let Some(item) = &self.layers[li].base_fx {
+                scissor(&enc, &prev, clip);
+                if is_puppet {
+                    // The buffer spans the layer box, so map design units (y up) onto the unit quad (y down).
+                    let inv = scale(1.0 / size[0].max(1.0), -1.0 / size[1].max(1.0), 1.0);
+                    let pctx = DrawCtx { mvp: mul(&FBO_MVP, &inv), color: [1.0; 3], alpha: 1.0, ..ctx };
+                    self.draw_puppet(&enc, li, &pctx, input, 1)?;
+                } else if let Some(item) = &self.layers[li].base_fx {
                     // A compose layer samples the screen behind it, so it keeps its real placement.
                     let base_ctx = if compose {
                         DrawCtx {
@@ -1004,6 +1688,11 @@ impl Engine {
             }
             if let Some(t) = frame_copy.remove("_rt_FullFrameBuffer") {
                 self.pool.give(t);
+            }
+            if std::env::var("LW_WORK").is_ok() {
+                let passes: usize = visible_effects.iter().map(|&ei| self.layers[li].effects[ei].passes.len()).sum();
+                let area = fw as f32 * fh as f32 * clip[2] * clip[3];
+                eprintln!("WORK layer {} {}x{} clip {:.2}x{:.2} passes {} mpx {:.1}", li, fw, fh, clip[2], clip[3], passes + 1, area * (passes + 1) as f32 / 1e6);
             }
             for &ei in &visible_effects {
                 let effect = &self.layers[li].effects[ei];
@@ -1024,8 +1713,9 @@ impl Engine {
                         None => self.pool.take(&self.gpu, fw, fh)?,
                     };
                     let enc = gpu::begin(cb, &out, None, Some([0.0; 4]))?;
+                    scissor(&enc, &out, clip);
                     let pctx = DrawCtx {
-                        target: [out.width() as f32 / k, out.height() as f32 / k],
+                        target: [out.width() as f32 / k[0], out.height() as f32 / k[1]],
                         ..fbo_ctx
                     };
                     self.draw(
@@ -1061,7 +1751,9 @@ impl Engine {
                 self.layers[li].cached = Some(keep);
             }
             // With a colour blend mode, the layer's own material blends the result with the screen.
-            let blended = self.layers[li].base.as_ref().filter(|b| b.reads_frame);
+            // A compose layer's own shader covers the whole target, so its result is composited
+            // into the layer's box instead.
+            let blended = self.layers[li].base.as_ref().filter(|b| b.reads_frame && !compose);
             let enc = match blended {
                 Some(_) => {
                     self.copy_frame(cb, None, scene_target, msaa.as_deref(), &mut frame_copy)?
@@ -1069,7 +1761,7 @@ impl Engine {
                 None => gpu::begin(cb, scene_target, msaa.as_deref(), None)?,
             };
             match &self.layers[li].base {
-                Some(item) if item.reads_frame => {
+                Some(item) if item.reads_frame && !compose => {
                     self.draw(
                         &enc,
                         item,
@@ -1092,13 +1784,25 @@ impl Engine {
         if let Some(enc) = main {
             enc.endEncoding();
         }
-        if let Some(scene_tex) = scene_tex {
+        if let Some(scene_tex) = scene_tex.as_ref().filter(|_| bloom) {
+            let glow = self.bloom(cb, scene_tex)?;
+            let tint = floats(&self.scene.bloom.tint.get(&self.props));
+            let tint = [0, 1, 2].map(|i| tint.get(i).copied().unwrap_or(1.0));
+            let enc = gpu::begin(cb, scene_tex, None, None)?;
+            self.composite_rect(&enc, &glow, 0, Blend::Additive, 1, FBO_MVP, [0.0, 0.0, 1.0, 1.0], tint, 1.0)?;
+            enc.endEncoding();
+            self.pool.give(glow);
+        }
+        if let Some(scene_tex) = scene_tex.clone().filter(|_| !blurred) {
+            let enc = gpu::begin(cb, target, None, None)?;
+            self.composite_rect(&enc, &scene_tex, 0, Blend::Disabled, 1, FBO_MVP, [0.0, 0.0, 1.0, 1.0], [1.0; 3], 1.0)?;
+            enc.endEncoding();
+            self.pool.give(scene_tex);
+        } else if let Some(scene_tex) = scene_tex {
             // The scene is on its own texture; put a blurred copy of it behind and the sharp
             // picture on top, so the empty part of the target is not bare.
             let (x, y, cw, ch) = self.content_rect(tw, th);
-            let qw = ((cw / 4.0).round() as usize).max(1);
-            let qh = ((ch / 4.0).round() as usize).max(1);
-            let bg = self.blur_frame(cb, &scene_tex, [x / tw, y / th, cw / tw, ch / th], qw, qh)?;
+            let bg = self.blur_frame(cb, &scene_tex, [x / tw, y / th, cw / tw, ch / th])?;
             let enc = gpu::begin(cb, target, None, Some([0.0, 0.0, 0.0, 1.0]))?;
             // The blurred copy covers the whole target.
             let crop = cover_crop(cw / ch, tw / th);
@@ -1124,6 +1828,13 @@ impl Engine {
             self.pool.give(t);
         }
         self.pool.end_frame(&self.gpu);
+        // The zoom moved far enough that the text bitmaps are the wrong size; redraw them at
+        // the new scale for the next frame.
+        if self.text_dirty {
+            self.text_dirty = false;
+            self.text_scale = fit;
+            self.refresh_texts();
+        }
         Ok(())
     }
 
@@ -1223,30 +1934,71 @@ impl Engine {
         Ok(())
     }
 
-    /// A blurred copy of the part of `src` the rectangle names, in a texture of `w` by `h`.
+    /// The scene's glow: bright parts at a quarter of the size, blurred twice. Bloom is
+    /// low-frequency, so the small buffers lose nothing visible.
+    fn bloom(&mut self, cb: &gpu::CommandBuffer, src: &Texture) -> Result<Retained<Texture>, Error> {
+        let b = &self.scene.bloom;
+        let num = |v: Value, d: f32| floats(&v).first().copied().unwrap_or(d);
+        let threshold = num(b.threshold.get(&self.props), 0.65);
+        let strength = num(b.strength.get(&self.props), 2.0);
+        let (w, h) = ((src.width() / 4).max(1), (src.height() / 4).max(1));
+        let a = self.pool.take(&self.gpu, w, h)?;
+        let enc = gpu::begin(cb, &a, None, Some([0.0; 4]))?;
+        let texel = (1.0 / src.width().max(1) as f32, 1.0 / src.height().max(1) as f32);
+        self.blur_library_pass(&enc, "lw_bright_fs", src, [0.0, 0.0, 1.0, 1.0], texel, [threshold, strength])?;
+        enc.endEncoding();
+        let out = a;
+        for radius in [1.0f32, 2.5] {
+            let tmp = self.pool.take(&self.gpu, w, h)?;
+            let enc = gpu::begin(cb, &tmp, None, Some([0.0; 4]))?;
+            self.blur_pass(&enc, &out, [0.0, 0.0, 1.0, 1.0], (radius / w as f32, 0.0))?;
+            enc.endEncoding();
+            let enc = gpu::begin(cb, &out, None, Some([0.0; 4]))?;
+            self.blur_pass(&enc, &tmp, [0.0, 0.0, 1.0, 1.0], (0.0, radius / h as f32))?;
+            enc.endEncoding();
+            self.pool.give(tmp);
+        }
+        Ok(out)
+    }
+
+    /// A blurred copy of the part of `src` the rectangle names. The picture is halved four
+    /// times, each step averaging a 4x4 block so nothing aliases, then blurred at that size;
+    /// drawn back up with linear filtering it gives a soft, even backdrop.
     fn blur_frame(
         &mut self,
         cb: &gpu::CommandBuffer,
         src: &Texture,
         rect: [f32; 4],
-        w: usize,
-        h: usize,
     ) -> Result<Retained<Texture>, Error> {
-        let tmp = self.pool.take(&self.gpu, w, h)?;
-        let out = self.pool.take(&self.gpu, w, h)?;
-        {
+        let mut w = (src.width() as f32 * rect[2]).round().max(1.0) as usize;
+        let mut h = (src.height() as f32 * rect[3]).round().max(1.0) as usize;
+        let mut cur: Option<Retained<Texture>> = None;
+        for _ in 0..4 {
+            (w, h) = ((w / 2).max(1), (h / 2).max(1));
+            let next = self.pool.take(&self.gpu, w, h)?;
+            let (input, area): (&Texture, [f32; 4]) = match &cur {
+                Some(t) => (t, [0.0, 0.0, 1.0, 1.0]),
+                None => (src, rect),
+            };
+            let texel = (1.0 / input.width().max(1) as f32, 1.0 / input.height().max(1) as f32);
+            let enc = gpu::begin(cb, &next, None, Some([0.0; 4]))?;
+            self.blur_library_pass(&enc, "lw_bright_fs", input, area, texel, [0.0, 1.0])?;
+            enc.endEncoding();
+            if let Some(t) = cur.replace(next) {
+                self.pool.give(t);
+            }
+        }
+        let out = cur.ok_or_else(|| Error::Metal("blur".into()))?;
+        for radius in [1.0f32, 2.0] {
+            let tmp = self.pool.take(&self.gpu, w, h)?;
             let enc = gpu::begin(cb, &tmp, None, Some([0.0; 4]))?;
-            let dir = (BLUR_RADIUS / src.width().max(1) as f32, 0.0);
-            self.blur_pass(&enc, src, rect, dir)?;
+            self.blur_pass(&enc, &out, [0.0, 0.0, 1.0, 1.0], (radius / w as f32, 0.0))?;
             enc.endEncoding();
-        }
-        {
             let enc = gpu::begin(cb, &out, None, Some([0.0; 4]))?;
-            let dir = (0.0, BLUR_RADIUS / tmp.height().max(1) as f32);
-            self.blur_pass(&enc, &tmp, [0.0, 0.0, 1.0, 1.0], dir)?;
+            self.blur_pass(&enc, &tmp, [0.0, 0.0, 1.0, 1.0], (0.0, radius / h as f32))?;
             enc.endEncoding();
+            self.pool.give(tmp);
         }
-        self.pool.give(tmp);
         Ok(out)
     }
 
@@ -1258,13 +2010,28 @@ impl Engine {
         rect: [f32; 4],
         dir: (f32, f32),
     ) -> Result<(), Error> {
-        let pipeline = self.gpu.blur_pipeline(1)?;
+        self.blur_library_pass(enc, "lw_blur_fs", src, rect, dir, [0.0; 2])
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn blur_library_pass(
+        &mut self,
+        enc: &gpu::Encoder,
+        fragment: &'static str,
+        src: &Texture,
+        rect: [f32; 4],
+        dir: (f32, f32),
+        tp: [f32; 2],
+    ) -> Result<(), Error> {
+        let pipeline = self.gpu.blur_pipeline(fragment, 1)?;
         enc.setRenderPipelineState(&pipeline);
         let mut u = [0f32; 24];
         u[..16].copy_from_slice(&FBO_MVP);
         u[16..20].copy_from_slice(&rect);
         u[20] = dir.0;
         u[21] = dir.1;
+        u[22] = tp[0];
+        u[23] = tp[1];
         let bytes: Vec<u8> = u.iter().flat_map(|f| f.to_le_bytes()).collect();
         gpu::set_bytes(enc, true, &bytes, 0);
         gpu::set_bytes(enc, false, &bytes, 0);
@@ -1325,11 +2092,11 @@ impl Engine {
                     let tex = tex.map(|t| &**t).unwrap_or(&*self.black.images[0]);
                     // The screen copy is real size; effect buffers report their native size.
                     let k = if name == "_rt_FullFrameBuffer" {
-                        1.0
+                        [1.0, 1.0]
                     } else {
                         ctx.buffer_scale
                     };
-                    let (w, h) = (tex.width() as f32 / k, tex.height() as f32 / k);
+                    let (w, h) = (tex.width() as f32 / k[0], tex.height() as f32 / k[1]);
                     bound.push((*slot, *index, tex, 0, [w, h, w, h]));
                 }
             }
@@ -1338,10 +2105,14 @@ impl Engine {
 
         let mut vs = item.vs.clone();
         let mut fs = item.fs.clone();
-        let mvp_inv = invert_affine_2d(&ctx.mvp);
+        // Effect passes draw a full-target quad. Some effect shaders skip the matrix and use
+        // the position as clip space, so the quad is given in clip space with an identity matrix.
+        let full_target = ctx.mvp == FBO_MVP;
+        let mvp = if full_target { IDENTITY } else { ctx.mvp };
+        let mvp_inv = invert_affine_2d(&mvp);
         for (vertex, u, d) in &item.dynamic {
             let v: Vec<f32> = match d {
-                Dyn::Mvp => ctx.mvp.to_vec(),
+                Dyn::Mvp => mvp.to_vec(),
                 Dyn::Model => ctx.model.to_vec(),
                 Dyn::ModelInverse => invert_affine_2d(&ctx.model).to_vec(),
                 Dyn::ViewProjection => ctx.view_projection.to_vec(),
@@ -1356,7 +2127,7 @@ impl Engine {
                     ctx.target[0] / ctx.target[1].max(1.0),
                 ],
                 Dyn::Pointer => input.pointer.to_vec(),
-                Dyn::Parallax => vec![input.pointer[0] - 0.5, input.pointer[1] - 0.5],
+                Dyn::Parallax => input.parallax.to_vec(),
                 Dyn::TexResolution(n) => res(*n).to_vec(),
                 Dyn::TexTexel(n) => {
                     let r = res(*n);
@@ -1382,12 +2153,14 @@ impl Engine {
                     Some((f, r)) => vec![f.x / r[0], f.y / r[1]],
                     None => vec![0.0, 0.0],
                 },
+                Dyn::Audio(right, n) => bands(&self.audio[*right as usize], *n),
             };
             write_uniform(if *vertex { &mut vs } else { &mut fs }, u, &v);
         }
         gpu::set_buffer_or_bytes(&self.gpu, enc, true, &vs, 0);
         gpu::set_buffer_or_bytes(&self.gpu, enc, false, &fs, 0);
-        gpu::set_bytes(enc, true, &quad(uv), shader::VERTEX_BUFFER_SLOT as usize);
+        let verts = if full_target { clip_quad(uv) } else { quad(uv) };
+        gpu::set_bytes(enc, true, &verts, shader::VERTEX_BUFFER_SLOT as usize);
         for (slot, _, tex, sampler, _) in bound {
             let slot = slot as usize;
             // SAFETY: slots come from the program's own binding map; resources outlive the frame.
@@ -1423,6 +2196,9 @@ impl Engine {
             .filter_map(|l| l.image.as_ref())
             .any(|t| t.frames.len() > 1);
         sprites
+            || !self.particles.is_empty()
+            || self.puppets.iter().any(|p| !p.animations.is_empty())
+            || self.scripts_animated()
             || self.scene.parallax.is_some()
             || items
                 .into_iter()
@@ -1438,14 +2214,81 @@ impl Engine {
     }
 }
 
+/// A spectrum regrouped into `n` bands, each the mean of the bins it covers.
+pub(crate) fn bands(src: &[f32], n: usize) -> Vec<f32> {
+    let m = src.len();
+    (0..n)
+        .map(|i| {
+            if m == 0 {
+                return 0.0;
+            }
+            let a = i * m / n;
+            let b = ((i + 1) * m / n).max(a + 1).min(m);
+            src[a..b].iter().sum::<f32>() / (b - a) as f32
+        })
+        .collect()
+}
+
 /// Length of the world matrix's x and y axes, the larger one.
 fn world_scale(m: &Mat4) -> f32 {
-    m[0].hypot(m[1]).max(m[4].hypot(m[5]))
+    let [x, y] = axis_scale(m);
+    x.max(y)
+}
+
+/// Length of the matrix's x and y axes: how much it scales each.
+fn axis_scale(m: &Mat4) -> [f32; 2] {
+    [m[0].hypot(m[1]), m[4].hypot(m[5])]
+}
+
+/// The part of the centred unit quad that `mvp` puts inside clip space grown to `reach` (1 is the
+/// target itself), as texture coordinates `[u0, v0, u1, v1]` of the quad.
+fn visible_uv(mvp: &Mat4, reach: f32) -> [f32; 4] {
+    let inv = invert_affine_2d(mvp);
+    let p = [[-reach, -reach], [reach, -reach], [-reach, reach], [reach, reach]]
+        .map(|[x, y]| [inv[0] * x + inv[4] * y + inv[12] + 0.5, inv[1] * x + inv[5] * y + inv[13] + 0.5]);
+    let lo = |a: usize| p.iter().map(|c| c[a]).fold(f32::INFINITY, f32::min).clamp(0.0, 1.0);
+    let hi = |a: usize| p.iter().map(|c| c[a]).fold(f32::NEG_INFINITY, f32::max).clamp(0.0, 1.0);
+    [lo(0), lo(1), hi(0), hi(1)]
+}
+
+/// Limits drawing to the `uv` part of the target.
+fn scissor(enc: &gpu::Encoder, target: &Texture, uv: [f32; 4]) {
+    let (w, h) = (target.width() as f32, target.height() as f32);
+    let x = (uv[0] * w).floor() as usize;
+    let y = (uv[1] * h).floor() as usize;
+    let x1 = ((uv[2] * w).ceil() as usize).clamp(x + 1, target.width());
+    let y1 = ((uv[3] * h).ceil() as usize).clamp(y + 1, target.height());
+    let x = x.min(target.width() - 1);
+    let y = y.min(target.height() - 1);
+    enc.setScissorRect(MTLScissorRect { x, y, width: x1 - x, height: y1 - y });
+}
+
+/// Whether the centred unit quad, put through `mvp` (an orthographic one), lies wholly outside
+/// clip space.
+fn off_target(mvp: &Mat4) -> bool {
+    let corners = [[-0.5f32, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]]
+        .map(|[x, y]| [mvp[0] * x + mvp[4] * y + mvp[12], mvp[1] * x + mvp[5] * y + mvp[13]]);
+    (0..2).any(|a| corners.iter().all(|c| c[a] > 1.0) || corners.iter().all(|c| c[a] < -1.0))
 }
 
 /// Centred unit quad as a triangle strip, y down; texcoord (0, 0) is the image's top-left.
 fn quad(uv: [f32; 2]) -> Vec<u8> {
     quad_rect([0.0, 0.0, uv[0], uv[1]])
+}
+
+/// The unit quad already in clip space: what `FBO_MVP` would make of it.
+fn clip_quad(uv: [f32; 2]) -> Vec<u8> {
+    let (l, r, b, t) = (-1.0f32, 1.0, -1.0, 1.0);
+    let v = [
+        [l, b, 0.0, 0.0, uv[1]],
+        [r, b, 0.0, uv[0], uv[1]],
+        [l, t, 0.0, 0.0, 0.0],
+        [r, t, 0.0, uv[0], 0.0],
+    ];
+    v.iter()
+        .flatten()
+        .flat_map(|f: &f32| f.to_le_bytes())
+        .collect()
 }
 
 /// The same quad, but taking the part of the texture the rectangle names: left, top, right,
@@ -1491,9 +2334,9 @@ fn sub_rect_mvp(x: f32, y: f32, w: f32, h: f32, tw: f32, th: f32) -> Mat4 {
 fn day_time() -> f32 {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
-    // shortcut: UTC day fraction; local time needs the time zone offset from Foundation.
-    (secs % 86_400) as f32 / 86_400.0
+        .map_or(0, |d| d.as_secs() as i64);
+    let offset = objc2_foundation::NSTimeZone::localTimeZone().secondsFromGMT() as i64;
+    (secs + offset).rem_euclid(86_400) as f32 / 86_400.0
 }
 
 /// Writes `v` into a std140 block slot, element by element.
@@ -1543,9 +2386,127 @@ fn write_uniform(bytes: &mut [u8], u: &Uniform, v: &[f32]) {
     }
 }
 
+
+/// Where an animation is after `t` seconds, by its play mode: `mirror` plays forward then back,
+/// `single` plays once and holds the last frame, anything else loops.
+fn anim_seconds(mode: &str, t: f32, duration: f32) -> f32 {
+    if duration <= 0.0 {
+        return 0.0;
+    }
+    match mode {
+        "mirror" => {
+            let x = t.rem_euclid(2.0 * duration);
+            if x > duration { 2.0 * duration - x } else { x }
+        }
+        "single" => t.clamp(0.0, duration),
+        _ => t.rem_euclid(duration),
+    }
+}
+
+impl PuppetGpu {
+    /// Skinning matrices for `time`: each animation layer samples its bone tracks, the layers
+    /// combine in order (additive ones as deltas from the bind pose), then the skeleton is walked
+    /// and the bind-pose world is undone with `bind_inverse`.
+    fn bones_at(&self, time: f32) -> Vec<mat::M4> {
+        let world = self.pose_at(time);
+        (0..world.len())
+            .map(|i| mat::mul(&self.bind_inverse[i], &world[i]))
+            .collect()
+    }
+
+    /// Animated world matrix of a named attachment point, in the puppet's design units.
+    fn attachment_at(&self, name: &str, time: f32) -> Option<Mat4> {
+        let att = self.model.attachments.iter().find(|a| a.name == name)?;
+        let bone = self.pose_at(time).get(att.bone).copied().unwrap_or(mat::IDENTITY);
+        let m = mat::mul(&att.matrix, &bone);
+        // Row-vector rows laid end to end are the column-major array the engine uses.
+        let mut out = [0.0f32; 16];
+        for (i, v) in m.iter().flatten().enumerate() {
+            out[i] = *v;
+        }
+        // Puppet space is y up; mirror the matrix into the y-down render space.
+        out[1] = -out[1];
+        out[4] = -out[4];
+        out[13] = -out[13];
+        Some(out)
+    }
+
+    /// World matrix of every bone at `time`, animation layers applied.
+    fn pose_at(&self, time: f32) -> Vec<mat::M4> {
+        let n = self.model.bones.len();
+        let mut local = Vec::with_capacity(n);
+        for (i, (bt, br, bs)) in self.bind.iter().copied().enumerate() {
+            let (mut t, mut r, mut s) = (bt, br, bs);
+            let mut replaced = false;
+            for &(ai, rate, blend, additive) in &self.animations {
+                let Some(anim) = self.model.animations.get(ai) else {
+                    continue;
+                };
+                let Some(track) = anim.tracks.iter().find(|t| t.bone == i) else {
+                    continue;
+                };
+                let frame = anim_seconds(&anim.flag, time * rate, anim.duration_seconds()) * anim.fps;
+                let sample = track.sample(frame);
+                if additive {
+                    for k in 0..3 {
+                        t[k] += (sample.translation[k] - bt[k]) * blend;
+                        r[k] += (sample.rotation[k] - br[k]) * blend;
+                    }
+                    for k in 0..3 {
+                        let base = bs[k].abs().max(1e-6);
+                        s[k] *= (sample.scale[k] / base).max(1e-6).powf(blend);
+                    }
+                } else if !replaced {
+                    (t, r, s) = (sample.translation, sample.rotation, sample.scale);
+                    replaced = true;
+                }
+            }
+            local.push(mat::from_trs(t, r, s));
+        }
+        let mut world = vec![mat::IDENTITY; n];
+        for (i, bone) in self.model.bones.iter().enumerate() {
+            world[i] = match bone.parent {
+                Some(p) if p < i => mat::mul(&local[i], &world[p]),
+                _ => local[i],
+            };
+        }
+        world
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn visible_part_of_a_layer_hanging_off_the_right() {
+        // Quad spanning clip x 0..2: its left half shows.
+        let m = mul(&translate(1.0, 0.0, 0.0), &scale(2.0, 2.0, 1.0));
+        let uv = visible_uv(&m, 1.0);
+        assert!((uv[0] - 0.0).abs() < 1e-5 && (uv[2] - 0.5).abs() < 1e-5, "{uv:?}");
+        assert!((uv[1] - 0.0).abs() < 1e-5 && (uv[3] - 1.0).abs() < 1e-5, "{uv:?}");
+        assert_eq!(visible_uv(&FBO_MVP, 1.0), [0.0, 0.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn a_layer_wholly_beside_the_target_is_off_target() {
+        // Unit quad scaled to 0.1 wide, centred at x = 1.1 in clip space: entirely right of it.
+        let beside = mul(&translate(1.1, 0.0, 0.0), &scale(0.1, 1.0, 1.0));
+        assert!(off_target(&beside));
+        // Overlapping the right edge by a little still counts as on target.
+        let edge = mul(&translate(0.98, 0.0, 0.0), &scale(0.1, 1.0, 1.0));
+        assert!(!off_target(&edge));
+        assert!(!off_target(&FBO_MVP));
+    }
+
+    #[test]
+    fn mirrored_animations_play_back_instead_of_jumping() {
+        assert_eq!(anim_seconds("mirror", 1.5, 2.0), 1.5);
+        assert_eq!(anim_seconds("mirror", 2.5, 2.0), 1.5);
+        assert_eq!(anim_seconds("mirror", 4.5, 2.0), 0.5);
+        assert_eq!(anim_seconds("loop", 2.5, 2.0), 0.5);
+        assert_eq!(anim_seconds("single", 9.0, 2.0), 2.0);
+    }
 
     #[test]
     fn mat3_uniform_takes_top_left_of_mat4() {

@@ -43,6 +43,8 @@ pub struct RenderStats {
 struct Counters {
     frames: AtomicU64,
     gpu_ns: AtomicU64,
+    /// Frames committed but not yet on screen.
+    waiting: AtomicU64,
 }
 
 enum Command {
@@ -54,14 +56,17 @@ enum Command {
     FpsCap(f32),
     Resize(u32, u32),
     Visible(bool),
-    Pointer(f32, f32),
     Attach(String, usize, u32, u32),
     Detach(String),
     Fit(FitMode),
     PanZoom(f32, f32, f32),
     RenderScale(f32),
     AudioResponse(bool),
+    Sound(bool, f32),
+    Spectrum(Vec<f32>, Vec<f32>),
     RenderFrame(f64, Sender<Result<Vec<u8>, Error>>),
+    /// Something in the shared state changed; draw a frame.
+    Wake,
 }
 
 #[derive(Debug, uniffi::Object)]
@@ -71,6 +76,22 @@ pub struct Renderer {
     errors: Vec<String>,
     audio: Mutex<(bool, f32)>,
     counters: Arc<Counters>,
+    /// Latest pointer, read by the render thread each frame. Shared state rather than a command, so
+    /// a mouse move never waits for the render thread's queue.
+    pointer: Arc<Mutex<Pointer>>,
+}
+
+/// Pointer in 0...1 screen coordinates (origin top-left) and the left button.
+#[derive(Debug, Clone, Copy)]
+struct Pointer {
+    pos: [f32; 2],
+    down: bool,
+}
+
+impl Default for Pointer {
+    fn default() -> Self {
+        Self { pos: [0.5, 0.5], down: false }
+    }
 }
 
 impl std::fmt::Debug for Command {
@@ -121,6 +142,8 @@ impl Renderer {
         let (ready_tx, ready_rx) = channel();
         let counters = Arc::new(Counters::default());
         let thread_counters = counters.clone();
+        let pointer = Arc::new(Mutex::new(Pointer::default()));
+        let thread_pointer = pointer.clone();
         let _ = std::thread::Builder::new()
             .name("scene-renderer".into())
             .spawn(move || {
@@ -129,7 +152,7 @@ impl Renderer {
                 match engine {
                     Ok(engine) => {
                         let _ = ready_tx.send(Ok(engine.warnings.clone()));
-                        run(engine, rx, thread_counters);
+                        run(engine, rx, thread_counters, thread_pointer);
                     }
                     Err(e) => {
                         let _ = ready_tx.send(Err(e));
@@ -146,6 +169,7 @@ impl Renderer {
             errors,
             audio: Mutex::new((false, 1.0)),
             counters,
+            pointer,
         }))
     }
 
@@ -229,13 +253,21 @@ impl Renderer {
     pub fn set_muted(&self, muted: bool) {
         if let Ok(mut a) = self.audio.lock() {
             a.0 = muted;
+            self.send(Command::Sound(a.0, a.1));
         }
     }
 
     pub fn set_volume(&self, volume: f32) {
         if let Ok(mut a) = self.audio.lock() {
             a.1 = volume.clamp(0.0, 1.0);
+            self.send(Command::Sound(a.0, a.1));
         }
+    }
+
+    /// Latest system audio spectrum, 0...1 per band, low to high, for each channel. Shaders and
+    /// scripts that respond to audio read it; it is ignored while audio response is off.
+    pub fn set_audio_spectrum(&self, left: Vec<f32>, right: Vec<f32>) {
+        self.send(Command::Spectrum(left, right));
     }
 
     /// Frames per second; 0 means the display's rate.
@@ -255,7 +287,17 @@ impl Renderer {
 
     /// Pointer in 0...1 screen coordinates (origin top-left), for parallax and cursor effects.
     pub fn set_pointer(&self, x: f32, y: f32) {
-        self.send(Command::Pointer(x, y));
+        if let Ok(mut pointer) = self.pointer.lock() {
+            pointer.pos = [x, y];
+        }
+    }
+
+    /// Left button pressed on the desktop, for scripts that react to clicks and drags.
+    pub fn set_pointer_down(&self, down: bool) {
+        if let Ok(mut pointer) = self.pointer.lock() {
+            pointer.down = down;
+        }
+        self.send(Command::Wake);
     }
 
     /// Frames drawn to the screen so far and their average GPU cost.
@@ -298,7 +340,9 @@ struct Loop {
     playing: bool,
     visible: bool,
     fps: f32,
-    pointer: [f32; 2],
+    pointer: Arc<Mutex<Pointer>>,
+    /// The pointer eased toward its latest position, for parallax.
+    parallax: [f32; 2],
     /// Scene clock while playing.
     time: f32,
     last: Instant,
@@ -309,6 +353,8 @@ struct Loop {
     render_scale: f32,
     /// Whether the scene may read an audio spectrum.
     audio_response: bool,
+    muted: bool,
+    volume: f32,
     counters: Arc<Counters>,
 }
 
@@ -318,7 +364,7 @@ struct Target {
     size: (u32, u32),
 }
 
-fn run(engine: Engine, rx: Receiver<Command>, counters: Arc<Counters>) {
+fn run(engine: Engine, rx: Receiver<Command>, counters: Arc<Counters>, pointer: Arc<Mutex<Pointer>>) {
     let animated = engine.is_animated();
     let mut s = Loop {
         engine,
@@ -327,18 +373,23 @@ fn run(engine: Engine, rx: Receiver<Command>, counters: Arc<Counters>) {
         playing: false,
         visible: true,
         fps: 30.0,
-        pointer: [0.5, 0.5],
+        pointer,
+        parallax: [0.5, 0.5],
         time: 0.0,
         last: Instant::now(),
         dirty: true,
         animated,
         render_scale: 1.0,
         audio_response: false,
+        muted: false,
+        volume: 1.0,
         counters,
     };
     let mut next = Instant::now();
     loop {
-        let drawing = s.playing && s.visible && !s.targets.is_empty() && (s.animated || s.dirty);
+        // While the button is held, scripts may be dragging something: keep drawing.
+        let held = s.pointer.lock().is_ok_and(|p| p.down);
+        let drawing = s.playing && s.visible && !s.targets.is_empty() && (s.animated || s.dirty || held);
         let cmd = if drawing {
             rx.recv_timeout(next.saturating_duration_since(Instant::now()))
         } else {
@@ -366,6 +417,7 @@ fn run(engine: Engine, rx: Receiver<Command>, counters: Arc<Counters>) {
 
 impl Loop {
     fn handle(&mut self, c: Command) {
+        let was_dirty = self.dirty;
         self.dirty = true;
         match c {
             Command::Play => {
@@ -381,6 +433,7 @@ impl Loop {
             Command::Property(name, value) => {
                 let _ = self.engine.props.insert(name, value);
                 self.engine.rebuild();
+                self.engine.sync_script_layers();
                 self.animated = self.engine.is_animated();
             }
             Command::Antialiasing(n) => self.engine.set_samples(n as usize),
@@ -401,9 +454,6 @@ impl Loop {
                 if !v {
                     self.engine.trim();
                 }
-            }
-            Command::Pointer(x, y) => {
-                self.pointer = [x, y];
             }
             Command::Attach(id, ptr, w, h) => {
                 // SAFETY: the caller passes a live CAMetalLayer; retaining keeps it alive here.
@@ -448,6 +498,21 @@ impl Loop {
             }
             Command::AudioResponse(enabled) => {
                 self.audio_response = enabled;
+                if !enabled {
+                    self.engine.audio = [vec![0.0; 64], vec![0.0; 64]];
+                }
+            }
+            Command::Sound(muted, volume) => {
+                self.muted = muted;
+                self.volume = volume;
+            }
+            Command::Spectrum(left, right) => {
+                // A new spectrum alone does not make a still scene redraw.
+                self.dirty = was_dirty;
+                if self.audio_response {
+                    self.engine.audio = [left, right];
+                }
+                return;
             }
             Command::RenderScale(scale) => {
                 self.render_scale = scale.clamp(0.1, 1.0);
@@ -458,58 +523,107 @@ impl Loop {
                     ));
                 }
             }
+            Command::Wake => {}
             Command::RenderFrame(time, reply) => {
                 let _ = reply.send(self.offscreen(time as f32));
             }
         }
+        let audible = self.playing && self.visible && !self.muted;
+        self.engine.sounds.set(audible, self.volume);
     }
 
     fn frame(&mut self) {
+        // After a stall (a Space switch, a busy window server) frames back up behind the
+        // minimum-duration presents and stay queued, so the picture lags the pointer for good.
+        // Skipping a tick lets the queue drain; the clock catches up on the next frame.
         let now = Instant::now();
-        let dt = (now - self.last).as_secs_f32().min(0.25);
+        if self.counters.waiting.load(Ordering::Relaxed) >= 2 {
+            // A frame that is never shown must not stop drawing for good.
+            if now - self.last < Duration::from_millis(250) {
+                return;
+            }
+            self.counters.waiting.store(0, Ordering::Relaxed);
+        }
+        let period = if self.fps > 0.0 { 1.0 / self.fps } else { 0.0 };
+        let mut dt = (now - self.last).as_secs_f32().min(0.25);
+        // Frames are shown on a steady cadence (see the present below), so on-time frames advance
+        // the clock by exactly one period; wake-up jitter would otherwise show as uneven motion.
+        if (0.5 * period..1.5 * period).contains(&dt) {
+            dt = period;
+        }
         self.last = now;
         self.time += dt;
         if self.targets.is_empty() {
             return;
         }
+        let pointer = self.pointer.lock().map(|p| *p).unwrap_or_default();
+        // Parallax follows the pointer with the scene's delay instead of jumping with it.
+        let delay = self.engine.scene.parallax.as_ref().map_or(0.1, |p| p.delay);
+        let ease = if delay > 0.0 { (dt / delay).min(1.0) } else { 1.0 };
+        for i in 0..2 {
+            self.parallax[i] += (pointer.pos[i] - self.parallax[i]) * ease;
+        }
         let input = FrameInput {
             time: self.time,
             frame_time: dt,
-            pointer: self.pointer,
+            pointer: pointer.pos,
+            pointer_down: pointer.down,
+            parallax: self.parallax,
         };
         objc2::rc::autoreleasepool(|_| {
+            // All displays share one command buffer per frame. Transient targets come from a
+            // pool whose memory is reused within a frame; two buffers in flight at once would
+            // let the second one write memory the first is still reading.
+            let Some(cb) = self.engine.gpu.queue.commandBuffer() else {
+                return;
+            };
+            let mut drawables = Vec::new();
             for (_, target) in self.targets.iter() {
                 let Some(drawable) = target.layer.nextDrawable() else {
                     continue;
                 };
-                let Some(cb) = self.engine.gpu.queue.commandBuffer() else {
-                    continue;
-                };
-                match self.engine.encode(&cb, &drawable.texture(), input) {
-                    Ok(()) => {
-                        let counters = self.counters.clone();
-                        let done = block2::RcBlock::new(
-                            move |cb: std::ptr::NonNull<ProtocolObject<dyn MTLCommandBuffer>>| {
-                                // SAFETY: Metal passes the completed command buffer, valid for this call.
-                                let cb = unsafe { cb.as_ref() };
-                                let ns =
-                                    ((cb.GPUEndTime() - cb.GPUStartTime()).max(0.0) * 1e9) as u64;
-                                let _ = counters.gpu_ns.fetch_add(ns, Ordering::Relaxed);
-                                let _ = counters.frames.fetch_add(1, Ordering::Relaxed);
-                            },
-                        );
-                        // SAFETY: the block is retained by the command buffer until it runs.
-                        unsafe { cb.addCompletedHandler(block2::RcBlock::as_ptr(&done)) };
-                        cb.presentDrawable(drawable.as_ref());
-                        cb.commit();
-                        self.dirty = false;
-                    }
-                    Err(e) => {
-                        self.engine.warnings.push(e.to_string());
-                        self.playing = false;
-                    }
+                if let Err(e) = self.engine.encode(&cb, &drawable.texture(), input) {
+                    self.engine.warnings.push(e.to_string());
+                    self.playing = false;
+                    return;
+                }
+                drawables.push(drawable);
+            }
+            if drawables.is_empty() {
+                return;
+            }
+            let counters = self.counters.clone();
+            let done = block2::RcBlock::new(
+                move |cb: std::ptr::NonNull<ProtocolObject<dyn MTLCommandBuffer>>| {
+                    // SAFETY: Metal passes the completed command buffer, valid for this call.
+                    let cb = unsafe { cb.as_ref() };
+                    let ns = ((cb.GPUEndTime() - cb.GPUStartTime()).max(0.0) * 1e9) as u64;
+                    let _ = counters.gpu_ns.fetch_add(ns, Ordering::Relaxed);
+                    let _ = counters.frames.fetch_add(1, Ordering::Relaxed);
+                },
+            );
+            // SAFETY: the block is retained by the command buffer until it runs.
+            unsafe { cb.addCompletedHandler(block2::RcBlock::as_ptr(&done)) };
+            let _ = self.counters.waiting.fetch_add(1, Ordering::Relaxed);
+            let counters = self.counters.clone();
+            let shown = block2::RcBlock::new(move |_: std::ptr::NonNull<ProtocolObject<dyn MTLDrawable>>| {
+                let _ = counters.waiting.fetch_sub(1, Ordering::Relaxed);
+            });
+            // SAFETY: the block is retained by the drawable until it runs; it runs once, also
+            // when the drawable is dropped without being shown.
+            unsafe { drawables[0].addPresentedHandler(block2::RcBlock::as_ptr(&shown)) };
+            for drawable in &drawables {
+                if period > 0.0 {
+                    // The window server keeps each frame up for at least this long, which gives
+                    // an even frame rate below the display's; the margin keeps it from slipping a
+                    // whole refresh when a frame is a little early.
+                    cb.presentDrawable_afterMinimumDuration(drawable.as_ref(), period as f64 * 0.9);
+                } else {
+                    cb.presentDrawable(drawable.as_ref());
                 }
             }
+            cb.commit();
+            self.dirty = false;
         });
     }
 
@@ -540,10 +654,14 @@ impl Loop {
                 .queue
                 .commandBuffer()
                 .ok_or_else(|| Error::Metal("command buffer".into()))?;
+            let pointer = self.pointer.lock().map(|p| p.pos).unwrap_or([0.5, 0.5]);
             let input = FrameInput {
                 time,
                 frame_time: 1.0 / 30.0,
-                pointer: [0.5, 0.5],
+                // Centred unless someone set a pointer.
+                pointer,
+                pointer_down: false,
+                parallax: pointer,
             };
             self.engine.encode(&cb, &target, input)?;
             cb.commit();
