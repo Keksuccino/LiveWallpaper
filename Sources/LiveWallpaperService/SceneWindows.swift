@@ -46,6 +46,7 @@ struct SceneDisplay {
 
     /// Creates the windows if needed and returns the layer of every screen.
     func displays() -> [SceneDisplay] {
+        if observers.isEmpty { installObservers() }
         if windows.isEmpty { rebuildWindows() }
         return windows.compactMap { entry -> SceneDisplay? in
             guard let layer = entry.view.metalLayer else { return nil }
@@ -59,13 +60,6 @@ struct SceneDisplay {
                 pixelWidth: Int((size.width * scale).rounded()),
                 pixelHeight: Int((size.height * scale).rounded())
             )
-        }
-    }
-
-    /// Tells the layers to stop drawing; the windows stay (the desktop keeps its last picture).
-    func setVisible(_ visible: Bool) {
-        for entry in windows {
-            if visible { entry.window.orderFrontRegardless() } else { entry.window.orderOut(nil) }
         }
     }
 
@@ -101,7 +95,6 @@ struct SceneDisplay {
             window.orderFrontRegardless()
             return (window, view)
         }
-        installObservers()
     }
 
     private func installObservers() {
