@@ -24,12 +24,10 @@ enum ServiceEntry {
     private var statusItem: NSStatusItem?
     private let menu = NSMenu()
     private let statusLine = NSMenuItem()
-    private let lockLine = NSMenuItem()
     private let messageItem = NSMenuItem()
     private let toggleItem = NSMenuItem()
     private let pauseItem = NSMenuItem()
     private let nextItem = NSMenuItem()
-    private let nextLockItem = NSMenuItem()
     private let muteItem = NSMenuItem()
     private var signalSources: [DispatchSourceSignal] = []
     private var isActive = false
@@ -78,7 +76,7 @@ enum ServiceEntry {
             .contains { $0.processIdentifier < me && !$0.isTerminated }
     }
 
-    // SIGTERM and SIGINT take the normal quit path, so Apple's wallpapers are restored.
+    // SIGTERM and SIGINT take the normal quit path, so playback stops cleanly.
     private func installTerminationSignals() {
         for number in [SIGTERM, SIGINT] {
             signal(number, SIG_IGN)
@@ -101,12 +99,12 @@ enum ServiceEntry {
         switch command {
         case .commit(let state):
             if !orchestrator.commit(state) { error = "Couldn’t save your library." }
-        case .start(let itemID, let target):
-            if let itemID { orchestrator.play(itemID, target: target) } else { orchestrator.start(at: nil, target: target) }
+        case .start(let itemID):
+            if let itemID { orchestrator.play(itemID) } else { orchestrator.start(at: nil) }
         case .stop: orchestrator.stop()
         case .pause: orchestrator.setPaused(true)
         case .resume: orchestrator.setPaused(false)
-        case .next(let target): orchestrator.next(target: target)
+        case .next: orchestrator.next()
         case .setMuted(let muted): orchestrator.setMuted(muted)
         case .status: break
         case .quit:
@@ -135,22 +133,20 @@ enum ServiceEntry {
         statusItem = item
         menu.autoenablesItems = false
         statusLine.isEnabled = false
-        lockLine.isEnabled = false
         messageItem.isEnabled = false
         messageItem.isHidden = true
         configure(toggleItem, title: "Start Wallpaper", action: #selector(toggleRunning))
         configure(pauseItem, title: "Pause Wallpaper", action: #selector(togglePause))
-        configure(nextItem, title: "Next Wallpaper", action: #selector(nextDesktopWallpaper))
+        configure(nextItem, title: "Next Wallpaper", action: #selector(nextWallpaper))
         nextItem.keyEquivalent = String(Character(UnicodeScalar(NSRightArrowFunctionKey)!))
-        configure(nextLockItem, title: "Next Lock Screen Wallpaper", action: #selector(nextLockWallpaper))
         configure(muteItem, title: "Mute Sound", action: #selector(toggleMute))
         let settings = NSMenuItem(title: "Open Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         let quit = NSMenuItem(title: "Quit Wallpaper", action: #selector(quitFromMenu), keyEquivalent: "q")
         quit.target = self
-        quit.toolTip = "Stops the wallpaper, restores your original wallpapers and quits this helper."
-        [statusLine, lockLine, messageItem, .separator(), settings, .separator(),
-         toggleItem, pauseItem, nextItem, nextLockItem, muteItem, .separator(), quit].forEach(menu.addItem)
+        quit.toolTip = "Stops the wallpaper and quits this helper."
+        [statusLine, messageItem, .separator(), settings, .separator(),
+         toggleItem, pauseItem, nextItem, muteItem, .separator(), quit].forEach(menu.addItem)
         item.menu = menu
     }
 
@@ -167,10 +163,7 @@ enum ServiceEntry {
         image?.isTemplate = true
         statusItem?.button?.image = image
 
-        let together = showsOneWallpaper
-        statusLine.title = together ? sharedStatusText : statusText(for: .desktop)
-        lockLine.title = statusText(for: .lock)
-        lockLine.isHidden = together
+        statusLine.title = statusText
         let message = orchestrator.message
         messageItem.isHidden = message == nil
         messageItem.toolTip = message
@@ -184,35 +177,19 @@ enum ServiceEntry {
         toggleItem.title = running ? "Stop Wallpaper" : "Start Wallpaper"
         toggleItem.isEnabled = running || orchestrator.canStart
         toggleItem.toolTip = toggleItem.isEnabled ? nil
-            : "Add a video and turn on Desktop or Lock Screen in Settings to start."
+            : "Add a wallpaper in Settings to start."
         pauseItem.title = orchestrator.isPaused ? "Resume Wallpaper" : "Pause Wallpaper"
         pauseItem.isEnabled = running
-        nextItem.title = together ? "Next Wallpaper" : "Next Desktop Wallpaper"
-        nextItem.isEnabled = orchestrator.canRotate(.desktop) || (together && orchestrator.canRotate(.lock))
-        nextLockItem.isHidden = together
-        nextLockItem.isEnabled = orchestrator.canRotate(.lock)
+        nextItem.isEnabled = orchestrator.canRotate
         muteItem.state = orchestrator.muted ? .on : .off
     }
 
-    // One wallpaper for both targets and both on: one status line and one Next item.
-    private var showsOneWallpaper: Bool {
-        let state = orchestrator.state
-        return state.sameForBoth && state.isEnabled(.desktop) && state.isEnabled(.lock)
-    }
-
-    private var sharedStatusText: String {
+    private var statusText: String {
+        guard orchestrator.state.desktop.enabled else { return "Off" }
         guard orchestrator.isRunning else { return "Stopped" }
-        let name = "“\(orchestrator.currentItem(for: .desktop)?.name ?? "")”"
-        return orchestrator.isPaused ? "Paused · \(name)" : "Playing \(name) on desktop and lock screen"
-    }
-
-    private func statusText(for target: WallpaperTarget) -> String {
-        let label = target.label
-        guard orchestrator.state.isEnabled(target) else { return "\(label): Off" }
-        guard orchestrator.isRunning else { return "\(label): Stopped" }
-        guard let item = orchestrator.currentItem(for: target) else { return "\(label): Off" }
+        guard let item = orchestrator.currentItem else { return "Off" }
         let name = "“\(item.name)”"
-        return target == .desktop && orchestrator.isPaused ? "\(label): Paused · \(name)" : "\(label): Playing \(name)"
+        return orchestrator.isPaused ? "Paused · \(name)" : "Playing \(name)"
     }
 
     @objc private func toggleRunning() {
@@ -220,8 +197,7 @@ enum ServiceEntry {
     }
 
     @objc private func togglePause() { orchestrator.setPaused(!orchestrator.isPaused) }
-    @objc private func nextDesktopWallpaper() { orchestrator.next(target: showsOneWallpaper ? nil : .desktop) }
-    @objc private func nextLockWallpaper() { orchestrator.next(target: .lock) }
+    @objc private func nextWallpaper() { orchestrator.next() }
     @objc private func toggleMute() { orchestrator.setMuted(!orchestrator.muted) }
     @objc private func quitFromMenu() { quitWallpaper() }
 

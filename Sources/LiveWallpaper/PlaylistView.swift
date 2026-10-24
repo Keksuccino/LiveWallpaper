@@ -3,134 +3,36 @@ import AppKit
 import Core
 import UniformTypeIdentifiers
 
-// The Playlists page. Each screen (Desktop, Lock Screen) gets its own ordered list of wallpapers plus
-// its rotation settings. The storage is TargetConfig.playlist in state.json (nil = the whole library in
-// library order); every edit goes through SettingsModel.setPlaylist, so the service stays the only writer.
+// The Playlists page: the ordered list of wallpapers the desktop rotates through, plus its rotation settings. The
+// storage is PlaybackConfig.playlist in state.json (nil = the whole library in library order); every edit goes
+// through SettingsModel.setPlaylist, so the service stays the only writer.
 
 @MainActor
 struct PlaylistView: View {
     @ObservedObject var model: SettingsModel
-    @State private var tab: WallpaperTarget = .desktop
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: LWTheme.sectionSpacing) {
                 LWPageHeader(title: "Playlists",
-                             subtitle: "Choose the wallpapers that rotate on each screen, and in what order.")
-                PlaylistSegmentedControl(selection: $tab)
-                PlaylistTargetPane(model: model, target: tab)
+                             subtitle: "Choose the wallpapers that rotate on your desktop, and in what order.")
+                VStack(alignment: .leading, spacing: 18) {
+                    PlaylistEditorCard(model: model)
+                    rotationCard
+                }
             }
             .padding(LWTheme.contentPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.visible)
         .background(LWBackground())
-        .animation(LWMotion.content, value: tab)
-    }
-}
-
-// MARK: - Segmented control
-
-/// Two-option capsule segmented control with a sliding selection. Native accent, nothing else.
-@MainActor
-private struct PlaylistSegmentedControl: View {
-    @Binding var selection: WallpaperTarget
-    @Namespace private var indicator
-
-    var body: some View {
-        HStack(spacing: 4) {
-            segment(.desktop, title: "Desktop", icon: "display")
-            segment(.lock, title: "Lock Screen", icon: "lock.display")
-        }
-        .padding(4)
-        .background {
-            Capsule()
-                .fill(.regularMaterial)
-                .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
-        }
-        .fixedSize()
-    }
-
-    private func segment(_ target: WallpaperTarget, title: String, icon: String) -> some View {
-        Button {
-            withAnimation(LWMotion.select) { selection = target }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: icon).font(.system(size: 11, weight: .semibold))
-                Text(title).font(.callout.weight(.semibold))
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 7)
-            .foregroundStyle(selection == target ? Color.white : Color.secondary)
-            .background {
-                if selection == target {
-                    Capsule()
-                        .fill(Color.accentColor)
-                        .matchedGeometryEffect(id: "selection", in: indicator)
-                }
-            }
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(title)
-        .accessibilityAddTraits(selection == target ? .isSelected : [])
-    }
-}
-
-// MARK: - Per-target pane
-
-@MainActor
-private struct PlaylistTargetPane: View {
-    @ObservedObject var model: SettingsModel
-    let target: WallpaperTarget
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            if target == .lock, model.sameForBoth {
-                followCard
-            } else {
-                PlaylistEditorCard(model: model, target: target)
-                rotationCard
-                if target == .desktop, model.sameForBoth {
-                    Label("The lock screen follows this playlist while “Same wallpaper for both” is on.",
-                          systemImage: "info.circle")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-        }
-    }
-
-    /// While the two screens share one config, the lock screen has nothing of its own to edit.
-    private var followCard: some View {
-        HStack(spacing: 14) {
-            Image(systemName: "rectangle.on.rectangle")
-                .font(.system(size: 20, weight: .light))
-                .foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("The lock screen plays the desktop playlist.")
-                    .font(.callout.weight(.medium))
-                Text("Make it separate to choose its own wallpapers.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 8)
-            Button("Use Separate Playlist") {
-                let current = model.playlistItems(for: .lock).map(\.id)
-                model.setPlaylist(current, for: .lock)
-            }
-            .controlSize(.small)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background { glassShape(radius: LWTheme.cardRadius) }
     }
 
     /// Rotation is a property of a curated playlist; without one there is nothing to show but the hint.
     @ViewBuilder private var rotationCard: some View {
-        if model.playlistIDs(for: target) != nil {
+        if model.playlistIDs != nil {
             InspectorSection(title: "Rotation") {
-                RotationBlock(model: model, target: target, title: nil)
+                RotationBlock(model: model)
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -157,21 +59,20 @@ private struct PlaylistTargetPane: View {
 @MainActor
 private struct PlaylistEditorCard: View {
     @ObservedObject var model: SettingsModel
-    let target: WallpaperTarget
     @State private var addSheet = false
     @State private var dragID: UUID?
     @State private var ids: [UUID] = []          // live copy, committed on drop
 
-    private var storedIDs: [UUID]? { model.playlistIDs(for: target) }
+    private var storedIDs: [UUID]? { model.playlistIDs }
     private var isCustom: Bool { storedIDs != nil }
-    private var items: [VideoItem] { model.playlistItems(for: target) }
-    private var playingID: UUID? { model.isRunning ? model.currentID(for: target) : nil }
+    private var items: [VideoItem] { model.playlistItems }
+    private var playingID: UUID? { model.isRunning ? model.currentID : nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(target == .desktop ? "Desktop playlist" : "Lock Screen playlist")
+                    Text("Desktop playlist")
                         .font(.title3.weight(.semibold))
                     Text(subtitle)
                         .font(.caption)
@@ -204,8 +105,8 @@ private struct PlaylistEditorCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background { glassShape(radius: LWTheme.cardRadius) }
         .sheet(isPresented: $addSheet) {
-            PlaylistAddSheet(model: model, target: target) { added in
-                model.setPlaylist((storedIDs ?? []) + added, for: target)
+            PlaylistAddSheet(model: model) { added in
+                model.setPlaylist((storedIDs ?? []) + added)
             }
         }
         .onAppear { ids = storedIDs ?? [] }
@@ -224,7 +125,7 @@ private struct PlaylistEditorCard: View {
         Binding(
             get: { isCustom },
             set: { on in
-                model.setPlaylist(on ? items.map(\.id) : nil, for: target)
+                model.setPlaylist(on ? items.map(\.id) : nil)
             })
     }
 
@@ -241,7 +142,7 @@ private struct PlaylistEditorCard: View {
                         }
                         .onDrop(of: [.text],
                                 delegate: PlaylistDropDelegate(targetID: id, ids: $ids, dragID: $dragID) {
-                                    model.setPlaylist($0, for: target)
+                                    model.setPlaylist($0)
                                 })
                 }
             }
@@ -284,7 +185,7 @@ private struct PlaylistEditorCard: View {
                 .foregroundStyle(.tertiary)
 
             Button {
-                model.setPlaylist(ids.filter { $0 != item.id }, for: target)
+                model.setPlaylist(ids.filter { $0 != item.id })
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 13))
@@ -356,13 +257,12 @@ private struct PlaylistDropDelegate: DropDelegate {
 @MainActor
 private struct PlaylistAddSheet: View {
     @ObservedObject var model: SettingsModel
-    let target: WallpaperTarget
     let onAdd: ([UUID]) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
     @State private var selected: Set<UUID> = []
 
-    private var inPlaylist: Set<UUID> { Set(model.playlistIDs(for: target) ?? []) }
+    private var inPlaylist: Set<UUID> { Set(model.playlistIDs ?? []) }
 
     private var candidates: [VideoItem] {
         model.videos
@@ -373,7 +273,7 @@ private struct PlaylistAddSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Add to \(target == .desktop ? "Desktop" : "Lock Screen") Playlist")
+                Text("Add to Desktop Playlist")
                     .font(.headline)
                 LWSearchField(prompt: "Search your library", text: $searchText)
             }

@@ -6,7 +6,7 @@ Each entry: what to test, where, and why it was skipped.
 - UI/ServiceClient: with the service not registered, the app shows the Login Items banner and no state.json write happens from the UI.
 - UI/SettingsModel: rapid library edits arrive at the service as ordered `.commit`s; a pushed status with a different `muted` updates the toggle without sending `.setMuted` back.
 - Service: `.commit(state)` keeps the service's `muted` and bumps state.json revision (Orchestrator.commit + StateStore). Skipped: needs a temp AppPaths.
-- Service: a scene that fails to load reports the error in Slot.error, skips to the next item, and stops cleanly when only broken scenes exist.
+- Service: a scene that fails to load reports the error in ServiceStatus.error, skips to the next item, and stops cleanly when only broken scenes exist.
 - Service: a scene on the lock screen renders `lock-<W>x<H>.mov` once, reuses it while the stamp matches, and cancels the render when another item is chosen.
 - Service: SystemAudioTap delivers moving band levels while music plays and stops when audio response is turned off.
 - Service: XPC round trip — a client connection gets a reply ServiceStatus for every ServiceCommand and a statusChanged push on rotation. Skipped: needs launchd-registered mach service.

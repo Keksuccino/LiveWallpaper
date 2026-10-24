@@ -7,23 +7,22 @@ import Core
 // The Library: a gallery-first wall of wallpapers, with a large live preview and a context inspector.
 
 enum LibraryFilter: String, CaseIterable, Identifiable, Equatable {
-    case all, desktop, lock, scenes
+    case all, desktop, scenes
 
     var id: String { rawValue }
     var title: String {
         switch self {
         case .all: return "All Wallpapers"
         case .desktop: return "Desktop"
-        case .lock: return "Lock Screen"
         case .scenes: return "Scenes"
         }
     }
 
-    func includes(_ item: VideoItem, targets: Set<WallpaperTarget>) -> Bool {
+    /// `selected`: the item is the selected desktop wallpaper.
+    func includes(_ item: VideoItem, selected: Bool) -> Bool {
         switch self {
         case .all: return true
-        case .desktop: return targets.contains(.desktop)
-        case .lock: return targets.contains(.lock)
+        case .desktop: return selected
         case .scenes: return item.isScene
         }
     }
@@ -137,7 +136,7 @@ struct LibraryView: View {
     private var items: [VideoItem] {
         let state = state
         return model.videos.filter { item in
-            filter.includes(item, targets: state.targets(of: item.id)) &&
+            filter.includes(item, selected: state.isSelected(item.id)) &&
             (searchText.isEmpty ||
              item.name.localizedCaseInsensitiveContains(searchText) ||
              (item.author ?? "").localizedCaseInsensitiveContains(searchText))
@@ -214,16 +213,6 @@ struct LibraryView: View {
         model.failedIDs.contains(item.id) || !FileManager.default.fileExists(atPath: item.path)
     }
 
-    private func playingTargets(of item: VideoItem) -> Set<WallpaperTarget> {
-        guard model.isRunning else { return [] }
-        return Set(WallpaperTarget.allCases.filter { model.currentID(for: $0) == item.id })
-    }
-
-    private func renderStatus(of item: VideoItem) -> LockRenderStatus? {
-        guard let render = model.lockRender, render.itemID == item.id, render.state != .finished else { return nil }
-        return render
-    }
-
     // MARK: Content
 
     private var gallery: some View {
@@ -232,7 +221,7 @@ struct LibraryView: View {
                 heading
                 if let item = focused {
                     LibraryHero(model: model, item: item, broken: isBroken(item),
-                                playing: playingTargets(of: item), render: renderStatus(of: item),
+                                playing: model.isPlaying(item.id),
                                 openSteamSetup: openSteamSetup,
                                 remove: { remove([item.id]) })
                         .transition(.opacity)
@@ -284,7 +273,6 @@ struct LibraryView: View {
         switch filter {
         case .all: return "\(items.count) \(items.count == 1 ? "wallpaper" : "wallpapers")"
         case .desktop: return "\(items.count) set for your desktop"
-        case .lock: return "\(items.count) set for the lock screen"
         case .scenes: return "\(items.count) Wallpaper Engine \(items.count == 1 ? "scene" : "scenes")"
         }
     }
@@ -323,17 +311,16 @@ struct LibraryView: View {
                     ForEach(items) { item in
                         LibraryCard(item: item,
                                     broken: isBroken(item),
-                                    roles: state.targets(of: item.id),
-                                    playing: playingTargets(of: item),
+                                    isDesktop: state.isSelected(item.id),
+                                    playing: model.isPlaying(item.id),
                                     paused: model.isPaused,
                                     focused: item.id == focused?.id,
                                     selected: selectedIDs.contains(item.id),
                                     selectionMode: selectionMode,
-                                    render: renderStatus(of: item),
                                     onSelect: { select(item) },
                                     onToggleSelect: { toggleSelection(item.id) },
                                     onActivate: { model.play(item.id) },
-                                    assign: { model.assign(item.id, to: $0) },
+                                    assign: { model.assign(item.id) },
                                     remove: { remove([item.id]) })
                             .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     }
@@ -343,8 +330,8 @@ struct LibraryView: View {
                     ForEach(items) { item in
                         LibraryListRow(item: item,
                                        broken: isBroken(item),
-                                       roles: state.targets(of: item.id),
-                                       playing: playingTargets(of: item),
+                                       isDesktop: state.isSelected(item.id),
+                                       playing: model.isPlaying(item.id),
                                        paused: model.isPaused,
                                        focused: item.id == focused?.id,
                                        selected: selectedIDs.contains(item.id),
@@ -352,7 +339,7 @@ struct LibraryView: View {
                                        onSelect: { select(item) },
                                        onToggleSelect: { toggleSelection(item.id) },
                                        onActivate: { model.play(item.id) },
-                                       assign: { model.assign(item.id, to: $0) },
+                                       assign: { model.assign(item.id) },
                                        remove: { remove([item.id]) })
                     }
                 }
@@ -445,12 +432,11 @@ private struct LibraryHero: View {
     @ObservedObject var model: SettingsModel
     let item: VideoItem
     let broken: Bool
-    let playing: Set<WallpaperTarget>
-    let render: LockRenderStatus?
+    let playing: Bool
     let openSteamSetup: () -> Void
     let remove: () -> Void
 
-    private var isPlaying: Bool { model.isPlaying(item.id) }
+    private var isDesktop: Bool { model.isSelected(item.id) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -470,7 +456,7 @@ private struct LibraryHero: View {
                     .clipShape(RoundedRectangle(cornerRadius: LWTheme.panelRadius, style: .continuous))
 
                 HStack(alignment: .bottom, spacing: 10) {
-                    if !playing.isEmpty {
+                    if playing {
                         HStack(spacing: 6) {
                             ActivityBars(playing: true, paused: model.isPaused, tint: .white)
                             Text(model.isPaused ? "Paused" : "Playing")
@@ -494,37 +480,34 @@ private struct LibraryHero: View {
                         .lineLimit(2)
                         .truncationMode(.middle)
                     HStack(spacing: 6) {
-                        ForEach(WallpaperTarget.allCases) { target in
-                            if playing.contains(target) {
-                                LWChip(text: target.label, tint: .accentColor, filled: true, icon: "checkmark")
-                            }
+                        if playing {
+                            LWChip(text: "Desktop", tint: .accentColor, filled: true, icon: "checkmark")
                         }
                         if item.isScene, let info = item.scene { SceneSupportBadge(info: info) }
                         Text(meta)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    if let render { LockRenderLine(status: render) }
                 }
                 Spacer(minLength: 8)
                 HStack(spacing: 8) {
-                    Menu {
-                        SetAsItems(roles: model.roles(of: item.id), isScene: item.isScene,
-                                   assign: { model.assign(item.id, to: $0) })
+                    Button {
+                        model.assign(item.id)
                     } label: {
-                        Label("Set as", systemImage: "rectangle.on.rectangle.angled")
+                        Label("Set as Desktop", systemImage: isDesktop ? "checkmark" : "display")
                     }
+                    .disabled(isDesktop)
                     .fixedSize()
 
                     Button {
                         model.clearStatus()
-                        if isPlaying { model.stop() } else { model.startOnly(item.id) }
+                        if playing { model.stop() } else { model.play(item.id) }
                     } label: {
-                        Label(isPlaying ? "Stop" : "Play",
-                              systemImage: isPlaying ? "stop.fill" : "play.fill")
+                        Label(playing ? "Stop" : "Play",
+                              systemImage: playing ? "stop.fill" : "play.fill")
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(isPlaying ? .red : nil)
+                    .tint(playing ? .red : nil)
                 }
                 .controlSize(.large)
             }
@@ -534,10 +517,10 @@ private struct LibraryHero: View {
     private var transport: some View {
         GlassPanel(radius: 13) {
             HStack(spacing: 2) {
-                iconButton(isPlaying ? "stop.fill" : "play.fill",
-                           help: isPlaying ? "Stop wallpaper" : "Play wallpaper") {
+                iconButton(playing ? "stop.fill" : "play.fill",
+                           help: playing ? "Stop wallpaper" : "Play wallpaper") {
                     model.clearStatus()
-                    if isPlaying { model.stop() } else { model.startOnly(item.id) }
+                    if playing { model.stop() } else { model.play(item.id) }
                 }
                 iconButton(model.muted ? "speaker.slash.fill" : "speaker.wave.2.fill",
                            help: model.muted ? "Unmute" : "Mute") {
@@ -580,17 +563,17 @@ private struct LibraryHero: View {
 private struct LibraryCard: View {
     let item: VideoItem
     let broken: Bool
-    let roles: Set<WallpaperTarget>
-    let playing: Set<WallpaperTarget>
+    /// The selected desktop wallpaper.
+    let isDesktop: Bool
+    let playing: Bool
     let paused: Bool
     let focused: Bool
     let selected: Bool
     let selectionMode: Bool
-    let render: LockRenderStatus?
     let onSelect: () -> Void
     let onToggleSelect: () -> Void
     let onActivate: () -> Void
-    let assign: (Set<WallpaperTarget>) -> Void
+    let assign: () -> Void
     let remove: () -> Void
     @State private var hovering = false
 
@@ -607,24 +590,13 @@ private struct LibraryCard: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                     HStack(spacing: 4) {
-                        ForEach(WallpaperTarget.allCases) { target in
-                            if roles.contains(target) {
-                                LWChip(text: target == .desktop ? "Desktop" : "Lock",
-                                       tint: .accentColor,
-                                       filled: playing.contains(target),
-                                       icon: playing.contains(target) ? "waveform" : nil)
-                            }
+                        if isDesktop {
+                            LWChip(text: "Desktop", tint: .accentColor, filled: playing,
+                                   icon: playing ? "waveform" : nil)
                         }
                         if let info = item.scene { SceneSupportBadge(info: info) }
                     }
                     .padding(7)
-
-                    if let render, render.state == .rendering || render.state == .queued {
-                        ProgressRing(progress: render.state == .rendering ? render.progress : 0,
-                                     size: 30, lineWidth: 2.5, tint: .white)
-                            .padding(9)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    }
 
                     if hovering && !broken && !selectionMode {
                         HStack(spacing: 5) {
@@ -639,7 +611,7 @@ private struct LibraryCard: View {
                             .help("Play wallpaper")
 
                             Menu {
-                                SetAsItems(roles: roles, isScene: item.isScene, assign: assign)
+                                SetAsItems(isDesktop: isDesktop, assign: assign)
                                 Divider()
                                 Button("Remove…", role: .destructive, action: remove)
                             } label: {
@@ -674,7 +646,7 @@ private struct LibraryCard: View {
                         .truncationMode(.middle)
                         .opacity(broken ? 0.6 : 1)
                     Spacer(minLength: 0)
-                    if !playing.isEmpty {
+                    if playing {
                         ActivityBars(playing: true, paused: paused)
                     }
                 }
@@ -697,7 +669,7 @@ private struct LibraryCard: View {
             withAnimation(LWMotion.hover) { hovering = inside }
         }
         .contextMenu {
-            SetAsItems(roles: roles, isScene: item.isScene, assign: assign)
+            SetAsItems(isDesktop: isDesktop, assign: assign)
             Divider()
             Button("Remove…", role: .destructive, action: remove)
         }
@@ -725,10 +697,6 @@ private struct LibraryCard: View {
 
     private var cardMeta: String {
         if broken { return "Missing or unreadable" }
-        if let render {
-            if render.state == .rendering { return "Rendering for lock screen…" }
-            if render.state == .queued { return "Waiting to render…" }
-        }
         if item.isWorkshop { return "Workshop" }
         return item.isScene ? "Scene" : "Video"
     }
@@ -738,8 +706,9 @@ private struct LibraryCard: View {
 private struct LibraryListRow: View {
     let item: VideoItem
     let broken: Bool
-    let roles: Set<WallpaperTarget>
-    let playing: Set<WallpaperTarget>
+    /// The selected desktop wallpaper.
+    let isDesktop: Bool
+    let playing: Bool
     let paused: Bool
     let focused: Bool
     let selected: Bool
@@ -747,7 +716,7 @@ private struct LibraryListRow: View {
     let onSelect: () -> Void
     let onToggleSelect: () -> Void
     let onActivate: () -> Void
-    let assign: (Set<WallpaperTarget>) -> Void
+    let assign: () -> Void
     let remove: () -> Void
     @State private var hovering = false
 
@@ -776,18 +745,16 @@ private struct LibraryListRow: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.name).font(.callout.weight(.medium)).lineLimit(1).truncationMode(.middle)
                     HStack(spacing: 5) {
-                        ForEach(WallpaperTarget.allCases) { target in
-                            if roles.contains(target) {
-                                LWChip(text: target.label, tint: .accentColor, filled: playing.contains(target))
-                            }
+                        if isDesktop {
+                            LWChip(text: "Desktop", tint: .accentColor, filled: playing)
                         }
                         if item.isScene, let info = item.scene { SceneSupportBadge(info: info) }
                     }
                 }
                 Spacer(minLength: 8)
-                if !playing.isEmpty { ActivityBars(playing: true, paused: paused) }
+                if playing { ActivityBars(playing: true, paused: paused) }
                 Menu {
-                    SetAsItems(roles: roles, isScene: item.isScene, assign: assign)
+                    SetAsItems(isDesktop: isDesktop, assign: assign)
                     Divider()
                     Button("Remove…", role: .destructive, action: remove)
                 } label: {
@@ -814,7 +781,7 @@ private struct LibraryListRow: View {
         }
         .onHover { inside in withAnimation(LWMotion.hover) { hovering = inside } }
         .contextMenu {
-            SetAsItems(roles: roles, isScene: item.isScene, assign: assign)
+            SetAsItems(isDesktop: isDesktop, assign: assign)
             Divider()
             Button("Remove…", role: .destructive, action: remove)
         }
@@ -877,37 +844,27 @@ struct LibraryInspectorView: View {
     }
 
     private func setAsSection(_ item: VideoItem) -> some View {
-        let roles = model.roles(of: item.id)
+        let selected = model.isSelected(item.id)
         return InspectorSection(title: "Set as") {
-            VStack(spacing: 6) {
-                assignButton("Desktop", icon: "display", item: item, targets: [.desktop], roles: roles)
-                assignButton("Lock Screen", icon: "lock.display", item: item, targets: [.lock], roles: roles)
-                assignButton("Both", icon: "rectangle.on.rectangle", item: item, targets: [.desktop, .lock], roles: roles)
+            Button {
+                model.assign(item.id)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "display").frame(width: 16)
+                    Text("Desktop")
+                    Spacer()
+                    if selected { Image(systemName: "checkmark.circle.fill").foregroundStyle(.tint) }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(selected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.035))
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
         }
-    }
-
-    private func assignButton(_ title: String, icon: String, item: VideoItem,
-                              targets: Set<WallpaperTarget>, roles: Set<WallpaperTarget>) -> some View {
-        let selected = roles == targets
-        return Button {
-            model.assign(item.id, to: targets)
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: icon).frame(width: 16)
-                Text(title)
-                Spacer()
-                if selected { Image(systemName: "checkmark.circle.fill").foregroundStyle(.tint) }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(selected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.035))
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     private func removeSection(_ item: VideoItem) -> some View {
@@ -928,23 +885,12 @@ struct LibraryInspectorView: View {
 
 @MainActor
 fileprivate struct SetAsItems: View {
-    let roles: Set<WallpaperTarget>
-    var isScene = false
-    let assign: (Set<WallpaperTarget>) -> Void
+    let isDesktop: Bool
+    let assign: () -> Void
 
     var body: some View {
-        entry("Set as Desktop", [.desktop], checked: roles.contains(.desktop))
-        entry("Set as Lock Screen", [.lock], checked: roles.contains(.lock))
-        entry("Set as Both", [.desktop, .lock], checked: roles.count == WallpaperTarget.allCases.count)
-        if isScene {
-            Divider()
-            Text("On the lock screen a scene plays as a\n10-second loop, made once per screen size.")
-        }
-    }
-
-    @ViewBuilder private func entry(_ title: String, _ targets: Set<WallpaperTarget>, checked: Bool) -> some View {
-        Button { assign(targets) } label: {
-            if checked { Label(title, systemImage: "checkmark") } else { Text(title) }
+        Button(action: assign) {
+            if isDesktop { Label("Set as Desktop", systemImage: "checkmark") } else { Text("Set as Desktop") }
         }
     }
 }
@@ -971,33 +917,9 @@ struct SceneSupportBadge: View {
     }
 }
 
-@MainActor
-fileprivate struct LockRenderLine: View {
-    let status: LockRenderStatus
-
-    var body: some View {
-        switch status.state {
-        case .rendering:
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Rendering for lock screen… \(Int((min(max(status.progress, 0), 1) * 100).rounded()))%")
-                    .font(.caption).foregroundStyle(.secondary)
-                ProgressView(value: min(max(status.progress, 0), 1))
-                    .controlSize(.small)
-            }
-        case .queued:
-            Text("Waiting to render for lock screen…").font(.caption).foregroundStyle(.secondary)
-        case .failed:
-            Text("Couldn’t render this for the lock screen.").font(.caption).foregroundStyle(.orange)
-                .help(status.message ?? "")
-        case .finished:
-            EmptyView()
-        }
-    }
-}
-
 // MARK: - Settings card
 
-/// Same-for-both switch, the rotation settings per target, and mute.
+/// Mute, rotation and the scene settings.
 @MainActor
 struct LibrarySettingsCard: View {
     @ObservedObject var model: SettingsModel
@@ -1006,26 +928,13 @@ struct LibrarySettingsCard: View {
         VStack(alignment: .leading, spacing: 18) {
             InspectorSection(title: "Playback") {
                 Toggle("Mute sound", isOn: $model.muted)
-                    .help("Videos play silently. The lock screen never has sound.")
+                    .help("Videos play silently.")
             }
 
             Divider()
 
             InspectorSection(title: "Rotation", subtitle: "Runs on a playlist you curate in Playlists.") {
-                VStack(alignment: .leading, spacing: 12) {
-                    Toggle("Same wallpaper for both", isOn: Binding(
-                        get: { model.sameForBoth },
-                        set: { model.setSameForBoth($0) }))
-
-                    if model.sameForBoth {
-                        RotationBlock(model: model, target: .desktop, title: nil)
-                    } else {
-                        if model.applyToDesktop { RotationBlock(model: model, target: .desktop, title: "Desktop") }
-                        if model.applyToDesktop && model.applyToLockScreen { Divider() }
-                        if model.applyToLockScreen { RotationBlock(model: model, target: .lock, title: "Lock Screen") }
-                    }
-                }
-                .animation(LWMotion.panel, value: model.sameForBoth)
+                RotationBlock(model: model)
             }
 
             Divider()
@@ -1042,21 +951,6 @@ struct LibrarySettingsCard: View {
                     ScenePowerRows(model: model)
                 }
             }
-
-            Divider()
-
-            lockNote
-        }
-    }
-
-    private var lockNote: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Label("The lock screen uses an Apple Aerial wallpaper on macOS 26. Download and select any Aerial in Wallpaper settings once, and turn on “Show as screen saver” there.",
-                  systemImage: "info.circle")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Link("Open Wallpaper Settings", destination: URL(string: "x-apple.systempreferences:com.apple.Wallpaper-Settings.extension")!)
-                .font(.caption)
         }
     }
 }
@@ -1064,29 +958,22 @@ struct LibrarySettingsCard: View {
 @MainActor
 struct RotationBlock: View {
     @ObservedObject var model: SettingsModel
-    let target: WallpaperTarget
-    let title: String?
     @State private var intervalText: String
     @FocusState private var intervalFocused: Bool
 
-    init(model: SettingsModel, target: WallpaperTarget, title: String?) {
+    init(model: SettingsModel) {
         self._model = ObservedObject(wrappedValue: model)
-        self.target = target
-        self.title = title
-        self._intervalText = State(initialValue: String(model.snapshot.config(for: target).intervalValue))
+        self._intervalText = State(initialValue: String(model.snapshot.desktop.intervalValue))
     }
 
-    private var config: TargetConfig { model.snapshot.config(for: target) }
+    private var config: PlaybackConfig { model.snapshot.desktop }
     private var hasPlaylist: Bool { config.playlist != nil }
-    private var canRotate: Bool { hasPlaylist && model.snapshot.hasMultipleItems(target) }
-    private var itemCount: Int { model.snapshot.items(for: target).count }
+    private var canRotate: Bool { hasPlaylist && model.snapshot.hasMultipleItems }
+    private var itemCount: Int { model.snapshot.items.count }
     private var enteredValue: Int? { Int(intervalText).flatMap { $0 > 0 ? min($0, 999) : nil } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            if let title {
-                Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            }
             HStack {
                 Text("Rotate wallpaper")
                 Spacer()
@@ -1099,9 +986,6 @@ struct RotationBlock: View {
                 Text(helper.text)
                     .font(.caption)
                     .foregroundStyle(helper.warning ? Color.orange : Color.secondary)
-            }
-            if title != nil, let name = playingName {
-                Text("Playing now: “\(name)”").font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
         }
         .animation(LWMotion.panel, value: config.rotateEnabled && canRotate)
@@ -1139,25 +1023,18 @@ struct RotationBlock: View {
         return ("Cycles through \(itemCount) wallpapers in playlist order.", false)
     }
 
-    private var playingName: String? {
-        guard model.isRunning, let id = model.currentID(for: target) else { return nil }
-        return model.videos.first { $0.id == id }?.name
-    }
-
     private var rotateBinding: Binding<Bool> {
         Binding(get: { config.rotateEnabled && canRotate },
-                set: { if target == .desktop { model.rotateEnabled = $0 } else { model.lockConfig.rotateEnabled = $0 } })
+                set: { model.rotateEnabled = $0 })
     }
 
     private var unitBinding: Binding<IntervalUnit> {
         Binding(get: { config.intervalUnit },
-                set: { if target == .desktop { model.intervalUnit = $0 } else { model.lockConfig.intervalUnit = $0 } })
+                set: { model.intervalUnit = $0 })
     }
 
     private func commitInterval() {
-        if let value = enteredValue {
-            if target == .desktop { model.intervalValue = value } else { model.lockConfig.intervalValue = value }
-        }
+        if let value = enteredValue { model.intervalValue = value }
         intervalText = String(config.intervalValue)
     }
 }

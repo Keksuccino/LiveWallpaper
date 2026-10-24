@@ -82,15 +82,7 @@ public enum IntervalUnit: String, CaseIterable, Identifiable, Codable, Sendable 
     }
 }
 
-// MARK: - Targets and scenes (schema v2)
-
-/// The two places a wallpaper can be shown. The agent runs one channel per target.
-public enum WallpaperTarget: String, Codable, CaseIterable, Identifiable, Sendable {
-    case desktop, lock
-
-    public var id: String { rawValue }
-    public var label: String { self == .desktop ? "Desktop" : "Lock Screen" }
-}
+// MARK: - Scenes (schema v2)
 
 public enum ItemKind: String, Codable, Sendable {
     case video, scene
@@ -127,9 +119,9 @@ public struct SceneInfo: Codable, Hashable, Sendable {
 
 // MARK: - Library + settings (state.json, written only by the Settings app)
 
-/// What one target plays and how it rotates.
-public struct TargetConfig: Codable, Equatable, Sendable {
-    public var enabled: Bool              // false = this target is left alone (Apple's wallpaper stays)
+/// What the desktop plays and how it rotates. The lock screen shows the system wallpaper.
+public struct PlaybackConfig: Codable, Equatable, Sendable {
+    public var enabled: Bool              // false = the desktop is left alone (Apple's wallpaper stays)
     public var selectedID: UUID?          // starting / current choice
     public var playlist: [UUID]?          // nil = every library item in library order; else this order
     public var rotateEnabled: Bool
@@ -164,36 +156,33 @@ public struct LibraryState: Codable, Equatable, Sendable {
     public var muted: Bool            // default true; changed only through StateStore.setMuted
     public var sceneFPS: Int          // frame rate cap for live scenes; the agent lowers it on battery
     public var sceneZoom: Double      // 1 = as authored; below 1 shows more of the scene (edges go black), above crops in
-    public var sameForBoth: Bool      // default true: the lock screen follows the desktop config (except `enabled`)
-    public var desktop: TargetConfig
-    public var lock: TargetConfig     // ignored apart from `enabled` while sameForBoth
+    public var desktop: PlaybackConfig
     public var sceneOptions: [String: SceneOptions] = [:]   // per scene, keyed by VideoItem.id.uuidString
     public var power: PowerOptions = PowerOptions()           // global scene settings
 
     public init(schema: Int = LibraryState.currentSchema, revision: Int = 0, videos: [VideoItem] = [],
-                muted: Bool = true, sceneFPS: Int = LibraryState.defaultSceneFPS, sceneZoom: Double = 1.0, sameForBoth: Bool = true,
-                desktop: TargetConfig = TargetConfig(), lock: TargetConfig = TargetConfig()) {
+                muted: Bool = true, sceneFPS: Int = LibraryState.defaultSceneFPS, sceneZoom: Double = 1.0,
+                desktop: PlaybackConfig = PlaybackConfig()) {
         self.schema = schema
         self.revision = revision
         self.videos = videos
         self.muted = muted
         self.sceneFPS = LibraryState.clampedSceneFPS(sceneFPS)
         self.sceneZoom = LibraryState.clampedSceneZoom(sceneZoom)
-        self.sameForBoth = sameForBoth
         self.desktop = desktop
-        self.lock = lock
     }
 
     public static let defaultSceneFPS = 30
     public static func clampedSceneFPS(_ fps: Int) -> Int { min(max(fps, 10), 120) }
     public static func clampedSceneZoom(_ zoom: Double) -> Double { min(max(zoom, 0.5), 2.0) }
 
-    // MARK: Codable with v1 migration (schema 1 files have no desktop/lock sections)
+    // MARK: Codable with v1 migration (schema 1 files have no desktop section)
+    // Files written by older versions also hold `sameForBoth` and a `lock` section; both are ignored.
 
     private enum CodingKeys: String, CodingKey {
-        case schema, revision, videos, muted, sceneFPS, sceneZoom, sameForBoth, desktop, lock, sceneOptions, power
+        case schema, revision, videos, muted, sceneFPS, sceneZoom, desktop, sceneOptions, power
         // schema 1 only
-        case selectedID, rotateEnabled, intervalValue, intervalUnit, applyToDesktop, applyToLockScreen
+        case selectedID, rotateEnabled, intervalValue, intervalUnit, applyToDesktop
     }
 
     public init(from decoder: Decoder) throws {
@@ -208,27 +197,19 @@ public struct LibraryState: Codable, Equatable, Sendable {
         power = try c.decodeIfPresent(PowerOptions.self, forKey: .power) ?? PowerOptions()
         if diskSchema >= 2 || c.contains(.desktop) {
             muted = try c.decodeIfPresent(Bool.self, forKey: .muted) ?? true
-            sameForBoth = try c.decodeIfPresent(Bool.self, forKey: .sameForBoth) ?? true
-            desktop = try c.decodeIfPresent(TargetConfig.self, forKey: .desktop) ?? TargetConfig()
-            lock = try c.decodeIfPresent(TargetConfig.self, forKey: .lock) ?? TargetConfig()
+            desktop = try c.decodeIfPresent(PlaybackConfig.self, forKey: .desktop) ?? PlaybackConfig()
         } else {
-            // v1: one selection / rotation setting and two "apply to" flags become a shared config.
+            // v1: one selection / rotation setting and an "apply to desktop" flag.
             let selected = try c.decodeIfPresent(UUID.self, forKey: .selectedID)
             let rotate = try c.decodeIfPresent(Bool.self, forKey: .rotateEnabled) ?? true
             let value = try c.decodeIfPresent(Int.self, forKey: .intervalValue) ?? 5
             let unit = try c.decodeIfPresent(IntervalUnit.self, forKey: .intervalUnit) ?? .minutes
             let onDesktop = try c.decodeIfPresent(Bool.self, forKey: .applyToDesktop) ?? true
-            let onLock = try c.decodeIfPresent(Bool.self, forKey: .applyToLockScreen) ?? true
             muted = true
-            sameForBoth = true
-            desktop = TargetConfig(enabled: onDesktop, selectedID: selected, rotateEnabled: rotate,
-                                   intervalValue: value, intervalUnit: unit)
-            lock = TargetConfig(enabled: onLock, selectedID: selected, rotateEnabled: rotate,
-                                intervalValue: value, intervalUnit: unit)
+            desktop = PlaybackConfig(enabled: onDesktop, selectedID: selected, rotateEnabled: rotate,
+                                     intervalValue: value, intervalUnit: unit)
         }
         desktop.intervalValue = LibraryState.clampedInterval(desktop.intervalValue)
-        lock.intervalValue = LibraryState.clampedInterval(lock.intervalValue)
-        normalize()
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -241,26 +222,10 @@ public struct LibraryState: Codable, Equatable, Sendable {
         try c.encode(sceneZoom, forKey: .sceneZoom)
         try c.encode(sceneOptions, forKey: .sceneOptions)
         try c.encode(power, forKey: .power)
-        try c.encode(sameForBoth, forKey: .sameForBoth)
         try c.encode(desktop, forKey: .desktop)
-        try c.encode(lock, forKey: .lock)
     }
 
-    // MARK: Per-target reads
-
-    /// The config that actually applies to `target` (the lock screen mirrors the desktop while sameForBoth,
-    /// but keeps its own `enabled`).
-    public func config(for target: WallpaperTarget) -> TargetConfig {
-        switch target {
-        case .desktop:
-            return desktop
-        case .lock:
-            guard sameForBoth else { return lock }
-            var shared = desktop
-            shared.enabled = lock.enabled
-            return shared
-        }
-    }
+    // MARK: Reads
 
     /// True when `id` is a library scene (a live-rendered Wallpaper Engine wallpaper).
     public func isScene(_ id: UUID?) -> Bool {
@@ -268,105 +233,56 @@ public struct LibraryState: Codable, Equatable, Sendable {
         return videos.first { $0.id == id }?.isScene == true
     }
 
-    /// The items `target` rotates through: the playlist (ids that no longer exist are skipped) or the library.
-    /// A scene on the lock screen is rendered into a video loop by the service first.
-    public func items(for target: WallpaperTarget) -> [VideoItem] {
-        guard let ids = config(for: target).playlist else { return videos }
+    /// The items the desktop rotates through: the playlist (ids that no longer exist are skipped) or the library.
+    public var items: [VideoItem] {
+        guard let ids = desktop.playlist else { return videos }
         return ids.compactMap { id in videos.first { $0.id == id } }
     }
 
-    public func selectedItem(for target: WallpaperTarget) -> VideoItem? {
-        let id = config(for: target).selectedID
-        return items(for: target).first { $0.id == id }
-    }
-
-    public func isEnabled(_ target: WallpaperTarget) -> Bool { config(for: target).enabled }
-    /// The target is enabled and has something to play.
-    public func canPlay(_ target: WallpaperTarget) -> Bool { isEnabled(target) && !items(for: target).isEmpty }
-    public func hasMultipleItems(_ target: WallpaperTarget) -> Bool { items(for: target).count > 1 }
+    public var selectedItem: VideoItem? { items.first { $0.id == desktop.selectedID } }
+    /// The desktop is enabled and has something to play.
+    public var canPlay: Bool { desktop.enabled && !items.isEmpty }
+    public var hasMultipleItems: Bool { items.count > 1 }
     /// Rotation only ever cycles a playlist the user curated. Without one, the selected wallpaper stays.
-    public func rotates(_ target: WallpaperTarget) -> Bool {
-        let config = config(for: target)
-        return config.playlist != nil && config.rotateEnabled && hasMultipleItems(target)
-    }
-    public func interval(for target: WallpaperTarget) -> TimeInterval { config(for: target).intervalSeconds }
+    public var rotates: Bool { desktop.playlist != nil && desktop.rotateEnabled && hasMultipleItems }
 
-    /// The targets for which `id` is the selected item and the target is enabled (drives the role badges).
-    public func targets(of id: UUID) -> Set<WallpaperTarget> {
-        Set(WallpaperTarget.allCases.filter {
-            isEnabled($0) && config(for: $0).selectedID == id
-        })
-    }
+    /// True when `id` is the selected wallpaper and the desktop is enabled (drives the role badges).
+    public func isSelected(_ id: UUID) -> Bool { desktop.enabled && desktop.selectedID == id }
 
-    /// Something can be played: a non-empty library and at least one enabled target.
-    public var canStart: Bool { !videos.isEmpty && (desktop.enabled || lock.enabled) }
-    /// True when any startable target has a scene as its selected item (the scene host is needed).
-    public var usesScenes: Bool {
-        WallpaperTarget.allCases.contains { canPlay($0) && selectedItem(for: $0)?.isScene == true }
+    /// Something can be played: a non-empty library and the desktop enabled.
+    public var canStart: Bool { !videos.isEmpty && desktop.enabled }
+
+    // MARK: Writes
+
+    /// "Set as Desktop": selects `id` and turns the desktop on. An id that is not in the library is ignored.
+    public mutating func assign(_ id: UUID) {
+        guard videos.contains(where: { $0.id == id }) else { return }
+        desktop.selectedID = id
+        desktop.enabled = true
     }
 
-    // MARK: Per-target writes
-
-    /// Makes `lock` mirror `desktop` (keeping its own `enabled`) while sameForBoth. Idempotent.
-    public mutating func normalize() {
-        guard sameForBoth else { return }
-        let enabled = lock.enabled
-        lock = desktop
-        lock.enabled = enabled
-    }
-
-    /// "Set as Desktop / Lock Screen / Both". Selecting the item for one target only turns "same for both" off
-    /// (the other target keeps what it had); selecting it for both turns it on. The chosen
-    /// targets are enabled. An id that is not in the library is ignored.
-    public mutating func assign(_ id: UUID, to requested: Set<WallpaperTarget>) {
-        let targets = requested
-        guard !targets.isEmpty, videos.contains(where: { $0.id == id }) else { return }
-        if targets.count == 1, sameForBoth {
-            normalize()
-            sameForBoth = false      // lock now keeps its own copy of the shared config
-        }
-        if targets.count == WallpaperTarget.allCases.count { sameForBoth = true }
-        if targets.contains(.desktop) {
-            desktop.selectedID = id
-            desktop.enabled = true
-        }
-        if targets.contains(.lock) {
-            lock.selectedID = id
-            lock.enabled = true
-        }
-        normalize()
-    }
-
-    // MARK: Phase-2 accessors (the desktop config, shared with the lock screen while sameForBoth)
-    // Kept so the phase-2 call sites compile unchanged; new code uses config(for:) and assign(_:to:).
+    // MARK: Shortcuts to the desktop config (the Settings app binds to these)
 
     public var selectedID: UUID? {
         get { desktop.selectedID }
-        set { desktop.selectedID = newValue; if sameForBoth { lock.selectedID = newValue } }
+        set { desktop.selectedID = newValue }
     }
     public var rotateEnabled: Bool {
         get { desktop.rotateEnabled }
-        set { desktop.rotateEnabled = newValue; if sameForBoth { lock.rotateEnabled = newValue } }
+        set { desktop.rotateEnabled = newValue }
     }
     public var intervalValue: Int {
         get { desktop.intervalValue }
-        set { desktop.intervalValue = newValue; if sameForBoth { lock.intervalValue = newValue } }
+        set { desktop.intervalValue = newValue }
     }
     public var intervalUnit: IntervalUnit {
         get { desktop.intervalUnit }
-        set { desktop.intervalUnit = newValue; if sameForBoth { lock.intervalUnit = newValue } }
+        set { desktop.intervalUnit = newValue }
     }
     public var applyToDesktop: Bool {
         get { desktop.enabled }
         set { desktop.enabled = newValue }
     }
-    public var applyToLockScreen: Bool {
-        get { lock.enabled }
-        set { lock.enabled = newValue }
-    }
-    public var selectedItem: VideoItem? { selectedItem(for: .desktop) }
-    public var canRotate: Bool { hasMultipleItems(.desktop) }
-    public var rotationActive: Bool { rotates(.desktop) }
     public var intervalSeconds: TimeInterval { desktop.intervalSeconds }
     public var intervalIsClamped: Bool { desktop.intervalIsClamped }
 
@@ -388,9 +304,11 @@ public enum AppPaths {
     public static let agentFile = supportDirectory.appendingPathComponent("agent.json")
     /// Imported Workshop items: Library/<workshop id>/<video, preview, project.json>.
     public static let libraryDirectory = supportDirectory.appendingPathComponent("Library", isDirectory: true)
-    /// Apple's original Aerial files while ours stand in for them.
+    /// Apple's original Aerial files, set aside by older versions for their lock-screen video. The service puts
+    /// them back at launch (LegacyLockScreen).
     public static let backupsDirectory = supportDirectory.appendingPathComponent("Backups", isDirectory: true)
-    public static let stillsDirectory = supportDirectory.appendingPathComponent("Stills", isDirectory: true)
+    /// Lock-screen stills of older versions; deleted at launch.
+    public static let legacyStillsDirectory = supportDirectory.appendingPathComponent("Stills", isDirectory: true)
     /// Where Apple keeps downloaded Aerial videos.
     public static let aerialVideosDirectory = applicationSupport
         .appendingPathComponent("com.apple.wallpaper/aerials/videos", isDirectory: true)
@@ -451,7 +369,6 @@ public enum StateStore {
         if let onDisk { state.muted = onDisk.muted }
         state.revision = max(state.revision, onDisk?.revision ?? 0) + 1
         state.schema = LibraryState.currentSchema
-        state.normalize()
         return write(state)
     }
 
@@ -501,12 +418,9 @@ public enum StateStore {
             let value = LibraryState.clampedInterval(old.intervalValue)
             state = LibraryState(
                 videos: old.videos,
-                desktop: TargetConfig(enabled: old.applyToDesktop, selectedID: old.selectedID,
-                                      rotateEnabled: old.rotateEnabled, intervalValue: value,
-                                      intervalUnit: old.intervalUnit),
-                lock: TargetConfig(enabled: old.applyToLockScreen, selectedID: old.selectedID,
-                                   rotateEnabled: old.rotateEnabled, intervalValue: value,
-                                   intervalUnit: old.intervalUnit))
+                desktop: PlaybackConfig(enabled: old.applyToDesktop, selectedID: old.selectedID,
+                                        rotateEnabled: old.rotateEnabled, intervalValue: value,
+                                        intervalUnit: old.intervalUnit))
             imported = old.videos.count
         }
         defaults.set(true, forKey: importedFlagKey)
@@ -522,36 +436,20 @@ public enum StateStore {
         var intervalValue: Int
         var intervalUnit: IntervalUnit
         var applyToDesktop: Bool
-        var applyToLockScreen: Bool
     }
 }
 
 // MARK: - Agent record (agent.json, written only by the agent)
 
-/// A desktop picture the agent replaced with a still (macOS 13 to 15 lock screen path).
-public struct OriginalWallpaper: Codable, Equatable, Sendable {
-    public var url: String
-    public var scaling: UInt
-    public var allowClipping: Bool
-
-    public init(url: String, scaling: UInt, allowClipping: Bool) {
-        self.url = url
-        self.scaling = scaling
-        self.allowClipping = allowClipping
-    }
-}
-
 public struct AgentRecord: Codable, Equatable, Sendable {
-    public var wantsRunning: Bool                      // resume playing when the agent launches
-    public var aerialSlots: [String]                   // Aerial files our video stands in for
-    public var originals: [String: OriginalWallpaper]  // display id -> desktop picture before a still
+    public var wantsRunning: Bool    // resume playing when the agent launches
+    /// Aerial files an older version swapped for its lock-screen video; LegacyLockScreen puts Apple's back.
+    public var aerialSlots: [String]
     public var legacyImported: Bool
 
-    public init(wantsRunning: Bool = false, aerialSlots: [String] = [],
-                originals: [String: OriginalWallpaper] = [:], legacyImported: Bool = false) {
+    public init(wantsRunning: Bool = false, aerialSlots: [String] = [], legacyImported: Bool = false) {
         self.wantsRunning = wantsRunning
         self.aerialSlots = aerialSlots
-        self.originals = originals
         self.legacyImported = legacyImported
     }
 }
@@ -559,8 +457,8 @@ public struct AgentRecord: Codable, Equatable, Sendable {
 public enum AgentRecordStore {
     private static let legacyDomain = "com.noob3301.LiveWallpaper"
 
-    /// Never fails. The first call without agent.json imports the phase-1 records (wasRunning, aerial backup,
-    /// originals) from the old app's preferences domain, which the old app never clears on its own.
+    /// Never fails. The first call without agent.json imports the phase-1 records (wasRunning, aerial backup)
+    /// from the old app's preferences domain, which the old app never clears on its own.
     public static func load() -> AgentRecord {
         if let data = try? Data(contentsOf: AppPaths.agentFile) {
             if let record = try? JSONDecoder().decode(AgentRecord.self, from: data) { return record }
@@ -573,10 +471,6 @@ public enum AgentRecordStore {
         if let data = legacyData("LiveWallpaper.aerialBackup.v1"),
            let backup = try? JSONDecoder().decode(LegacyBackup.self, from: data) {
             record.aerialSlots = backup.slots
-        }
-        if let data = legacyData("LiveWallpaper.originals.v1"),
-           let originals = try? JSONDecoder().decode([String: OriginalWallpaper].self, from: data) {
-            record.originals = originals
         }
         if let data = legacyData("LiveWallpaper.state.v1"),
            let running = try? JSONDecoder().decode(LegacyRunning.self, from: data) {

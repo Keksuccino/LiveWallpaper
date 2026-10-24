@@ -37,8 +37,6 @@ Fill one row per feature. "Source" is where the idea came from. "Ours" is how we
 | Shader combos | `[COMBO]` values select variants | designer docs, our own shaders | `shader.rs` preprocessor, own evaluator | yes |
 | Effect passes | Multi-pass chain, named FBOs | designer docs, our own scene files | `engine.rs` `encode` | yes |
 | Colour blend modes | Blend mode per layer | our own scene files | combo `BLENDMODE` plus final composite | yes (angelblindfold) |
-| Lock screen | Swap a video into an Aerial slot | vlzuiev/animated (MIT) | the app's `LockScreenWallpaper`; scenes are first rendered to a loop by `LockSceneRecorder` (AVAssetWriter, our own) | yes, Nier loop 1280×720 |
-| Lock screen | Alternative approach considered | kageroumado/phosphene (MIT) | not used | n/a |
 | Shader macros | `texSample2D`, `texSample2DLod`, `ApplyBlending` are names the engine's own shaders use | our own asset shaders in `WallpaperEngineAssets` | prelude `#define`s in `shader.rs` | yes, grep in the asset tree |
 | Engine uniforms | Runtime uniform names (`g_Time`, `g_Screen`, `g_PointerPosition`, `g_ParallaxPosition`, `g_TexelSize`, ...) | our own asset shaders; names are the engine-shader contract | `engine.rs` `engine_uniform` maps name to a value kind | yes, every name we use was found in our own asset shaders |
 | Reserved words | Words that are legal in 1.20/HLSL but reserved in GLSL 4.50 | GLSL 4.50 spec keyword list | nine-word table in `shader.rs`, renamed with a `lw_` prefix | yes, compared with the GPL translator's tables (see audit) |

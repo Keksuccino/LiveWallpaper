@@ -67,12 +67,8 @@ struct AppCommands: Commands {
             Divider()
 
             if let id = model.focusedID ?? model.selectedID {
-                Button("Set as Desktop") { model.assign(id, to: [.desktop]) }
+                Button("Set as Desktop") { model.assign(id) }
                     .keyboardShortcut("d", modifiers: [.option, .command])
-                Button("Set as Lock Screen") { model.assign(id, to: [.lock]) }
-                    .keyboardShortcut("l", modifiers: [.option, .command])
-                Button("Set as Both") { model.assign(id, to: [.desktop, .lock]) }
-                    .keyboardShortcut("b", modifiers: [.option, .command])
             } else {
                 Button("Select a wallpaper first") {}
                     .disabled(true)

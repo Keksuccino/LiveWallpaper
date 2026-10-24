@@ -247,9 +247,7 @@ struct WorkshopDetailView: View {
 
     private func librarySection(_ video: VideoItem) -> some View {
         WrappingRows {
-            Button("Set as Desktop") { model.assign(video.id, to: [.desktop]) }
-            Button("Set as Lock Screen") { model.assign(video.id, to: [.lock]) }
-            Button("Set as Both") { model.assign(video.id, to: [.desktop, .lock]) }
+            Button("Set as Desktop") { model.assign(video.id) }
             Button("Show in Library", action: showInLibrary)
         }
         .controlSize(.small)

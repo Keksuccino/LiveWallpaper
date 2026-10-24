@@ -1,17 +1,15 @@
 import AppKit
 import Core
 
-// Copied from LiveWallpaperAgent/Orchestrator.swift and adapted for the service: the desktop is drawn by a
-// WallpaperService (VideoRenderService or SceneRenderService) instead of the agent's windows + the old scene host,
-// and the service is the only writer of state.json (StateStore.commit / setMuted). Two channels, one per
-// WallpaperTarget (SPEC3.md section 1.2): a changed config of one target never restarts the other.
+// Decides what the desktop shows: the selected wallpaper, rotation through the playlist and the next item when one
+// cannot play. The desktop is drawn by a WallpaperService (VideoRenderService or SceneRenderService). The service is
+// the only writer of state.json (StateStore.commit / setMuted).
 
 @MainActor final class Orchestrator {
     private static let unreadableLibrary = "Couldn’t read your library. Using the previous list."
     private static let nothingPlayable = "None of your wallpapers can be played."
-    private static let screenDebounce: UInt64 = 3_000_000_000
 
-    /// Fired after any change of the observable properties below (status item and XPC status listen).
+    /// Fired after any change of the observable properties below (status item and socket status listen).
     var onChange: (@MainActor () -> Void)?
 
     /// Library + settings as last read from state.json.
@@ -21,31 +19,22 @@ import Core
     private(set) var failedIDs: Set<UUID> = []
     /// User-facing problem (orange line in the menu, `message` in ServiceStatus). nil = fine.
     private(set) var statusMessage: String?
-    /// Why the last item on a target could not play (ServiceStatus.Slot.error); cleared by start and play.
-    private(set) var slotErrors: [WallpaperTarget: String] = [:]
+    /// Why the last item could not play (ServiceStatus.error); cleared by start and play.
+    private(set) var itemError: String?
 
-    var lockBusy: Bool { lockApplies > 0 }
     var muted: Bool { state.muted }
-    var canStart: Bool { hasPlayableTarget }
+    var canStart: Bool { state.canPlay }
     var message: String? { statusMessage }
-
-    func currentID(for target: WallpaperTarget) -> UUID? { current[target] }
-    func currentItem(for target: WallpaperTarget) -> VideoItem? { state.videos.first { $0.id == current[target] } }
-    func canRotate(_ target: WallpaperTarget) -> Bool { isRunning && current[target] != nil && state.hasMultipleItems(target) }
-
-    private var hasPlayableTarget: Bool { WallpaperTarget.allCases.contains { state.canPlay($0) } }
+    var currentItem: VideoItem? { state.videos.first { $0.id == current } }
+    var canRotate: Bool { isRunning && current != nil && state.hasMultipleItems }
 
     private let video = VideoRenderService()
     private let scene = SceneRenderService()
-    private let lock = LockScreenWallpaper()
-    private var current: [WallpaperTarget: UUID] = [:]
-    private var rotationTimers: [WallpaperTarget: Timer] = [:]
+    private var current: UUID?
+    private var rotationTimer: Timer?
     private var activity: NSObjectProtocol?
-    private var lockApplies = 0
-    private var lockRender: Task<Void, Never>?
+    private var screenLock: ScreenLockObserver?
     private var showDepth = 0  // > 0 while show() runs: a render service may report a failure synchronously
-    private var screenTask: Task<Void, Never>?
-    private var screenObserver: NSObjectProtocol?
 
     init() {
         // The scene is on screen: the previous (video) wallpaper can go.
@@ -54,20 +43,20 @@ import Core
 
     // MARK: Lifecycle
 
-    /// Once at launch: loads state.json and agent.json; resumes when `wantsRunning` (and canStart), otherwise
-    /// `lock.restore()` so a crashed run cannot leave Apple's Aerials swapped.
+    /// Once at launch: loads state.json and agent.json, clears what older versions left for their lock screen and
+    /// resumes when `wantsRunning` (and canStart).
     func bootstrap() {
         for service in [video, scene] as [WallpaperService] {
-            service.onFailure = { [weak self] item, message in self?.desktopFailed(item, message) }
+            service.onFailure = { [weak self] item, message in self?.failed(item, message) }
         }
         state = StateStore.load() ?? LibraryState()
+        LegacyLockScreen.cleanUp(library: state.videos)
         video.setMuted(state.muted)
         scene.setMuted(state.muted)
-        if AgentRecordStore.load().wantsRunning, hasPlayableTarget {
+        if AgentRecordStore.load().wantsRunning, canStart {
             start(at: nil)
         } else {
             setWantsRunning(false)
-            lock.restore()
         }
     }
 
@@ -93,67 +82,60 @@ import Core
         changed()
     }
 
-    /// Begins at `id` (on `target` only, or on both channels when nil), else each target's selected item, else its
-    /// first. No-op when already running or nothing can be played. Persists `wantsRunning = true`.
-    func start(at id: UUID?, target: WallpaperTarget? = nil) {
+    /// Begins at `id`, else the selected item, else the first. No-op when already running or nothing can be played.
+    /// Persists `wantsRunning = true`.
+    func start(at id: UUID?) {
         guard !isRunning, canStart else { return }
         statusMessage = nil
         failedIDs = []
-        slotErrors = [:]
+        itemError = nil
         isRunning = true
         activity = ProcessInfo.processInfo.beginActivity(
             options: .userInitiatedAllowingIdleSystemSleep, reason: "Playing live wallpaper")
         setWantsRunning(true)
         observeSystem()
-        // A start for one target starts only that target; nil starts every playable one.
-        for channel in WallpaperTarget.allCases where state.canPlay(channel) && (target == nil || target == channel) {
-            let items = state.items(for: channel)
-            applyItem(on: channel, startingAt: items.firstIndex { $0.id == id } ?? selectedIndex(of: channel))
-        }
+        applyItem(startingAt: state.items.firstIndex { $0.id == id } ?? selectedIndex)
         changed()
     }
 
-    /// Hides the windows, restores originals, persists `wantsRunning = false`. The service stays alive.
+    /// Stops playback and persists `wantsRunning = false`. The service stays alive.
     func stop() {
         guard isRunning else { return }
         halt()
         changed()
     }
 
-    /// Jumps to `id` on `target` (nil = both), starting playback if needed.
-    func play(_ id: UUID, target: WallpaperTarget? = nil) {
+    /// Jumps to `id`, starting playback if needed.
+    func play(_ id: UUID) {
         guard state.videos.contains(where: { $0.id == id }) else { return }
         guard isRunning else {
-            start(at: id, target: target)
+            start(at: id)
             return
         }
         failedIDs.remove(id)  // asking for it by name is worth another try
-        for channel in channels(target) where state.canPlay(channel) {
-            if let index = state.items(for: channel).firstIndex(where: { $0.id == id }) {
-                slotErrors[channel] = nil
-                applyItem(on: channel, startingAt: index)
-            }
+        if state.canPlay, let index = state.items.firstIndex(where: { $0.id == id }) {
+            itemError = nil
+            applyItem(startingAt: index)
         }
         changed()
     }
 
-    /// Moves `target` (nil = both) on; a channel with fewer than two items stays where it is.
-    func next(target: WallpaperTarget? = nil) {
+    /// Moves on to the next item; with fewer than two items the desktop stays where it is.
+    func next() {
         guard isRunning else { return }
-        for channel in channels(target) where current[channel] != nil && state.hasMultipleItems(channel) {
-            let items = state.items(for: channel)
-            applyItem(on: channel, startingAt: (items.firstIndex { $0.id == current[channel] } ?? -1) + 1)
+        if current != nil, state.hasMultipleItems {
+            applyItem(startingAt: (state.items.firstIndex { $0.id == current } ?? -1) + 1)
         }
         changed()
     }
 
-    /// Pauses/resumes the desktop AND the rotation timers.
+    /// Pauses/resumes the desktop AND the rotation timer.
     func setPaused(_ paused: Bool) {
         guard isRunning, paused != isPaused else { return }
         isPaused = paused
         video.setPaused(paused)
         scene.setPaused(paused)
-        WallpaperTarget.allCases.forEach(scheduleRotation)
+        scheduleRotation()
         changed()
     }
 
@@ -163,8 +145,8 @@ import Core
         reload()
     }
 
-    /// Tears everything down and restores originals. Idempotent. `userQuit` true also persists
-    /// `wantsRunning = false`; false (logout, SIGTERM) leaves it so the next launch resumes.
+    /// Tears everything down. Idempotent. `userQuit` true also persists `wantsRunning = false`; false (logout,
+    /// SIGTERM) leaves it so the next launch resumes.
     func shutdown(userQuit: Bool) {
         if userQuit { setWantsRunning(false) }
         if isRunning { teardown() }
@@ -173,14 +155,12 @@ import Core
     func status() -> ServiceStatus {
         ServiceStatus(
             playback: isRunning ? (isPaused ? .paused : .playing) : .stopped,
-            slots: WallpaperTarget.allCases.map { ServiceStatus.Slot(target: $0, itemID: current[$0], error: slotErrors[$0]) },
-            stateRevision: state.revision, muted: state.muted, message: message, lockBusy: lockBusy)
+            itemID: current, error: itemError, stateRevision: state.revision, muted: state.muted, message: message)
     }
 
     // MARK: Library changes
 
-    // Runs once for a whole new state: each channel compares its own config, so one target's change never
-    // touches the other. Adding videos never changes what is playing.
+    // Adding videos never changes what is playing.
     private func apply(_ fresh: LibraryState) {
         let old = state
         state = fresh  // first, so canPlay and friends read the new values
@@ -191,50 +171,46 @@ import Core
         }
         scene.update(fresh)  // diffs itself; no restart
         guard isRunning else { return }
-        guard hasPlayableTarget else {
+        guard canStart else {
             halt()
             return
         }
-        WallpaperTarget.allCases.forEach { reconcile($0, from: old) }
+        reconcile(from: old)
     }
 
-    private func reconcile(_ channel: WallpaperTarget, from old: LibraryState) {
-        guard state.canPlay(channel) else {
-            deactivate(channel)
+    private func reconcile(from old: LibraryState) {
+        guard let playing = current else {
+            if !old.canPlay { applyItem(startingAt: selectedIndex) }
             return
         }
-        guard let playing = current[channel] else {
-            if !old.canPlay(channel) { applyItem(on: channel, startingAt: selectedIndex(of: channel)) }
-            return
-        }
-        let items = state.items(for: channel)
-        let selected = state.config(for: channel).selectedID
+        let items = state.items
+        let selected = state.desktop.selectedID
         if !items.contains(where: { $0.id == playing }) {
             // The current item was removed: continue with whatever now sits at its index.
-            let oldIndex = old.items(for: channel).firstIndex { $0.id == playing } ?? 0
-            applyItem(on: channel, startingAt: min(oldIndex, items.count))
-        } else if selected != old.config(for: channel).selectedID, let selected,
+            let oldIndex = old.items.firstIndex { $0.id == playing } ?? 0
+            applyItem(startingAt: min(oldIndex, items.count))
+        } else if selected != old.desktop.selectedID, let selected,
                   let index = items.firstIndex(where: { $0.id == selected }) {
             failedIDs.remove(selected)
-            slotErrors[channel] = nil
-            applyItem(on: channel, startingAt: index)
+            itemError = nil
+            applyItem(startingAt: index)
         }
-        if old.rotates(channel) != state.rotates(channel) || old.interval(for: channel) != state.interval(for: channel) {
-            scheduleRotation(channel)
+        if old.rotates != state.rotates || old.desktop.intervalSeconds != state.desktop.intervalSeconds {
+            scheduleRotation()
         }
     }
 
     // From a render service: only the item currently on the desktop counts.
-    private func desktopFailed(_ item: VideoItem, _ message: String?) {
-        guard isRunning, item.id == current[.desktop] else { return }
-        fail(item, on: .desktop, message)
+    private func failed(_ item: VideoItem, _ message: String?) {
+        guard isRunning, item.id == current else { return }
+        fail(item, message)
         if showDepth == 0 { changed() }  // inside show() the public entry point that called it ends with changed()
     }
 
-    // The status item reads `onChange`, so every public entry point ends here. A run whose channels all ran out of
-    // playable items stops, keeping the message that says why.
+    // The status item reads `onChange`, so every public entry point ends here. A run that ran out of playable items
+    // stops, keeping the message that says why.
     private func changed() {
-        if isRunning, current.isEmpty {
+        if isRunning, current == nil {
             let reason = statusMessage ?? Self.nothingPlayable
             halt()
             statusMessage = reason
@@ -244,31 +220,26 @@ import Core
 
     // MARK: Applying
 
-    private func channels(_ target: WallpaperTarget?) -> [WallpaperTarget] {
-        target.map { [$0] } ?? WallpaperTarget.allCases
+    private var selectedIndex: Int {
+        state.items.firstIndex { $0.id == state.desktop.selectedID } ?? 0
     }
 
-    private func selectedIndex(of channel: WallpaperTarget) -> Int {
-        let selected = state.config(for: channel).selectedID
-        return state.items(for: channel).firstIndex { $0.id == selected } ?? 0
-    }
-
-    // Applies the first playable item at or after `start` (wrapping), then restarts that channel's rotation timer.
-    private func applyItem(on channel: WallpaperTarget, startingAt start: Int) {
-        let items = state.items(for: channel)
+    // Shows the first playable item at or after `start` (wrapping), then restarts the rotation timer.
+    private func applyItem(startingAt start: Int) {
+        let items = state.items
         guard let index = firstPlayableIndex(in: items, from: start) else {
-            deactivate(channel)
+            clear()
             statusMessage = Self.nothingPlayable
             return
         }
         statusMessage = nil
         let item = items[index]
-        // The lock screen conversion is expensive, so the item that is already showing is left alone.
-        if item.id != current[channel] {
-            current[channel] = item.id
-            show(item, on: channel)
+        // The item that is already showing is left alone.
+        if item.id != current {
+            current = item.id
+            show(item)
         }
-        scheduleRotation(channel)
+        scheduleRotation()
     }
 
     private func firstPlayableIndex(in items: [VideoItem], from start: Int) -> Int? {
@@ -282,101 +253,37 @@ import Core
         return nil
     }
 
-    // Marks `item` failed on `channel`, moves that channel to the next item and keeps the reason.
-    private func fail(_ item: VideoItem, on channel: WallpaperTarget, _ message: String?) {
+    // Marks `item` failed, moves on to the next item and keeps the reason.
+    private func fail(_ item: VideoItem, _ message: String?) {
         failedIDs.insert(item.id)
-        slotErrors[channel] = message
-        let items = state.items(for: channel)
-        applyItem(on: channel, startingAt: (items.firstIndex { $0.id == item.id } ?? -1) + 1)
+        itemError = message
+        applyItem(startingAt: (state.items.firstIndex { $0.id == item.id } ?? -1) + 1)
         if let message { statusMessage = message }
     }
 
-    private func show(_ item: VideoItem, on channel: WallpaperTarget) {
+    private func show(_ item: VideoItem) {
         showDepth += 1
         defer { showDepth -= 1 }
-        switch (channel, item.isScene) {
-        case (.desktop, false):
-            scene.stop()
-            video.start(item)
-            video.setPaused(isPaused)
-        case (.desktop, true):
+        if item.isScene {
             // The video windows stay up (previous wallpaper) until the scene renderer shows its first frame.
             scene.update(state)
             scene.start(item)
             if scene.item?.id == item.id { scene.setPaused(isPaused) }
-        case (.lock, false):
-            applyLock(item.url)
-        case (.lock, true):
-            showLockScene(item)
-        }
-    }
-
-    // Stops one channel and gives its target back to Apple.
-    private func deactivate(_ channel: WallpaperTarget) {
-        rotationTimers[channel]?.invalidate()
-        rotationTimers[channel] = nil
-        guard current[channel] != nil else { return }
-        current[channel] = nil
-        switch channel {
-        case .desktop:
-            video.stop()
+        } else {
             scene.stop()
-            case .lock:
-            lockRender?.cancel()
-            lockRender = nil
-            lock.restore()
+            video.start(item)
+            video.setPaused(isPaused)
         }
     }
 
-    // MARK: Lock screen
-
-    private func applyLock(_ url: URL) {
-        // Overlapping applies are coalesced by the lock screen backend, so the flag tracks how many are in flight.
-        lockApplies += 1
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            var failure: String?
-            do { try await self.lock.apply(from: url) } catch { failure = error.localizedDescription }
-            self.lockApplies -= 1
-            if let failure, self.isRunning { self.statusMessage = failure }
-            self.onChange?()
-        }
-    }
-
-    private func lockPixelSize() -> (width: Int, height: Int) {
-        let size = LockScreenWallpaper.largestScreenPixelSize() ?? CGSize(width: 1920, height: 1080)
-        return (Int(size.width.rounded()) & ~1, Int(size.height.rounded()) & ~1)
-    }
-
-    // A scene on the lock screen is a video rendered once per resolution and cached next to the scene.
-    private func showLockScene(_ item: VideoItem) {
-        let size = lockPixelSize()
-        lockRender?.cancel()
-        lockRender = nil
-        if LockRenderCache.isValid(for: item, width: size.width, height: size.height) {
-            applyLock(LockRenderCache.videoURL(for: item, width: size.width, height: size.height))
-            return
-        }
-        lockApplies += 1
-        // Detached, so cancelling it (another item, lock screen turned off) stops the render itself.
-        lockRender = Task.detached(priority: .utility) { [weak self] in
-            let result: Result<URL, Error>
-            do {
-                result = .success(try await LockSceneRecorder.render(item, width: size.width, height: size.height))
-            } catch {
-                result = .failure(error)
-            }
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                self.lockApplies -= 1
-                guard !Task.isCancelled, self.current[.lock] == item.id else { return }
-                switch result {
-                case .success(let url): self.applyLock(url)
-                case .failure(let error): self.fail(item, on: .lock, error.localizedDescription)
-                }
-                self.onChange?()
-            }
-        }
+    // Nothing left to show.
+    private func clear() {
+        rotationTimer?.invalidate()
+        rotationTimer = nil
+        guard current != nil else { return }
+        current = nil
+        video.stop()
+        scene.stop()
     }
 
     // MARK: System events
@@ -384,67 +291,42 @@ import Core
     private func observeSystem() {
         video.setScreenLocked(false)
         scene.setScreenLocked(false)
-        lock.onScreenLock = { [weak self] locked in
+        guard screenLock == nil else { return }
+        screenLock = ScreenLockObserver { [weak self] locked in
             self?.video.setScreenLocked(locked)
             self?.scene.setScreenLocked(locked)
         }
-        lock.startObservingLock()
-        guard screenObserver == nil else { return }
-        screenObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.screensChanged() }
-        }
     }
 
-    // Debounced: a display change fires several notifications. A new size may have a different cached lock video.
-    private func screensChanged() {
-        screenTask?.cancel()
-        screenTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: Self.screenDebounce)
-            guard !Task.isCancelled, let self else { return }
-            self.screenTask = nil
-            if self.isRunning, let item = self.currentItem(for: .lock), item.isScene {
-                self.showLockScene(item)
-                self.changed()
-            }
-        }
-    }
-
-    private func scheduleRotation(_ channel: WallpaperTarget) {
-        rotationTimers[channel]?.invalidate()
-        rotationTimers[channel] = nil
-        guard isRunning, !isPaused, current[channel] != nil, state.rotates(channel) else { return }
-        let interval = state.interval(for: channel)
+    private func scheduleRotation() {
+        rotationTimer?.invalidate()
+        rotationTimer = nil
+        guard isRunning, !isPaused, current != nil, state.rotates else { return }
+        let interval = state.desktop.intervalSeconds
         let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.next(target: channel) }
+            Task { @MainActor [weak self] in self?.next() }
         }
         timer.tolerance = min(interval * 0.1, 5)
         RunLoop.main.add(timer, forMode: .common)
-        rotationTimers[channel] = timer
+        rotationTimer = timer
     }
 
     // MARK: Stopping
 
     private func teardown() {
-        rotationTimers.values.forEach { $0.invalidate() }
-        rotationTimers.removeAll()
-        screenTask?.cancel()
-        screenTask = nil
-        if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
-        screenObserver = nil
+        rotationTimer?.invalidate()
+        rotationTimer = nil
         video.stop()
         scene.stop()
-        lock.onScreenLock = nil
-        lock.restore()
+        screenLock = nil
         if let activity { ProcessInfo.processInfo.endActivity(activity) }
         activity = nil
         isRunning = false
         isPaused = false
-        current.removeAll()
+        current = nil
     }
 
-    // An explicit or automatic stop: back to Apple's wallpapers, and nothing to resume at the next launch.
+    // An explicit or automatic stop: nothing to resume at the next launch.
     private func halt() {
         teardown()
         statusMessage = nil

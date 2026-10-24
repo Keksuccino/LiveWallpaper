@@ -8,7 +8,7 @@ final class CoreTests: XCTestCase {
         try JSONDecoder().decode(LibraryState.self, from: Data(json.utf8))
     }
 
-    func testSchema1StateMigratesToSharedTargets() throws {
+    func testSchema1StateMigratesToTheDesktopConfig() throws {
         let a = UUID(), b = UUID()
         let state = try decode("""
         {"schema":1,"revision":7,
@@ -18,18 +18,14 @@ final class CoreTests: XCTestCase {
         """)
         XCTAssertEqual(state.schema, 2)
         XCTAssertEqual(state.revision, 7)
-        XCTAssertTrue(state.sameForBoth)
         XCTAssertTrue(state.muted)
         XCTAssertEqual(state.desktop.selectedID, b)
         XCTAssertFalse(state.desktop.rotateEnabled)
         XCTAssertEqual(state.desktop.intervalValue, 7)
         XCTAssertEqual(state.desktop.intervalUnit, .hours)
         XCTAssertTrue(state.desktop.enabled)
-        XCTAssertFalse(state.lock.enabled)
-        XCTAssertEqual(state.config(for: .lock).selectedID, b)
         XCTAssertEqual(state.videos.map(\.id), [a, b])
-        XCTAssertFalse(state.canPlay(.lock))
-        XCTAssertTrue(state.canPlay(.desktop))
+        XCTAssertTrue(state.canPlay)
     }
 
     func testPhase1RecordWithoutSchemaKeyDecodes() throws {
@@ -41,48 +37,44 @@ final class CoreTests: XCTestCase {
     func testSchema2RoundTripKeepsEverything() throws {
         let item = VideoItem(path: "/L/1/scene.pkg", title: "T", workshopID: "1",
                              scene: SceneInfo(support: .partial, notes: ["Particles are not supported yet."]))
-        var state = LibraryState(videos: [item], muted: false, sameForBoth: false,
-                                 desktop: TargetConfig(enabled: true, selectedID: item.id),
-                                 lock: TargetConfig(enabled: true, selectedID: nil, rotateEnabled: false))
+        var state = LibraryState(videos: [item], muted: false,
+                                 desktop: PlaybackConfig(enabled: true, selectedID: item.id, rotateEnabled: true))
         state.revision = 3
         let data = try JSONEncoder().encode(state)
         let back = try JSONDecoder().decode(LibraryState.self, from: data)
         XCTAssertEqual(back, state)
         XCTAssertEqual(back.videos[0].kind, .scene)
         XCTAssertFalse(back.muted)
-        XCTAssertFalse(back.lock.rotateEnabled)
+        XCTAssertTrue(back.desktop.rotateEnabled)
     }
 
-    func testAssignToOneTargetTurnsSameForBothOffAndKeepsTheOther() {
+    func testStateWithAnOlderLockScreenSectionKeepsTheDesktopAndDropsTheRest() throws {
+        let a = UUID(), b = UUID()
+        let state = try decode("""
+        {"schema":2,"revision":4,"muted":false,"sameForBoth":false,
+         "videos":[{"id":"\(a.uuidString)","path":"/v/a.mp4"},{"id":"\(b.uuidString)","path":"/v/b.mov"}],
+         "desktop":{"enabled":true,"selectedID":"\(a.uuidString)","rotateEnabled":false,"intervalValue":5,"intervalUnit":"minutes"},
+         "lock":{"enabled":true,"selectedID":"\(b.uuidString)","rotateEnabled":true,"intervalValue":9,"intervalUnit":"hours"}}
+        """)
+        XCTAssertEqual(state.desktop.selectedID, a)
+        XCTAssertFalse(state.desktop.rotateEnabled)
+        XCTAssertFalse(state.muted)
+        let written = try JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any]
+        XCTAssertNil(written?["lock"])
+        XCTAssertNil(written?["sameForBoth"])
+    }
+
+    func testAssignSelectsAndEnablesTheDesktop() {
         let a = VideoItem(path: "/a.mp4"), b = VideoItem(path: "/b.mp4")
-        var state = LibraryState(videos: [a, b], desktop: TargetConfig(selectedID: a.id))
-        state.normalize()
-        state.assign(b.id, to: [.lock])
-        XCTAssertFalse(state.sameForBoth)
-        XCTAssertEqual(state.config(for: .desktop).selectedID, a.id)
-        XCTAssertEqual(state.config(for: .lock).selectedID, b.id)
-        XCTAssertEqual(state.targets(of: b.id), [.lock])
-        state.assign(b.id, to: [.desktop, .lock])
-        XCTAssertEqual(state.targets(of: b.id), [.desktop, .lock])
-        XCTAssertTrue(state.sameForBoth, "assigning to both makes the lock screen follow the desktop again")
-    }
-
-    func testScenesCanBeTheLockScreen() {
-        let video = VideoItem(path: "/v.mp4"), other = VideoItem(path: "/w.mp4")
-        let scene = VideoItem(path: "/s/scene.pkg", scene: SceneInfo(support: .partial))
-        var state = LibraryState(videos: [video, other, scene], desktop: TargetConfig(selectedID: video.id))
-        state.normalize()
-        XCTAssertEqual(state.items(for: .lock).count, 3, "the service renders a scene into a lock screen loop")
-
-        var both = state
-        both.assign(scene.id, to: [.desktop, .lock])
-        XCTAssertEqual(both.config(for: .lock).selectedID, scene.id)
-        XCTAssertEqual(both.targets(of: scene.id), [.desktop, .lock])
-
-        var lockOnly = state
-        lockOnly.assign(scene.id, to: [.lock])
-        XCTAssertEqual(lockOnly.config(for: .lock).selectedID, scene.id)
-        XCTAssertEqual(lockOnly.config(for: .desktop).selectedID, video.id)
+        var state = LibraryState(videos: [a, b], desktop: PlaybackConfig(enabled: false, selectedID: a.id))
+        XCTAssertFalse(state.isSelected(a.id), "a disabled desktop has no selected wallpaper")
+        state.assign(b.id)
+        XCTAssertEqual(state.desktop.selectedID, b.id)
+        XCTAssertTrue(state.desktop.enabled)
+        XCTAssertTrue(state.isSelected(b.id))
+        XCTAssertFalse(state.isSelected(a.id))
+        state.assign(UUID())
+        XCTAssertEqual(state.desktop.selectedID, b.id, "an id that is not in the library is ignored")
     }
 
     func testSceneFrameRateDefaultsClampsAndRoundTrips() throws {
@@ -91,50 +83,24 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(LibraryState(sceneFPS: 1).sceneFPS, 10)
         let back = try JSONDecoder().decode(LibraryState.self, from: JSONEncoder().encode(LibraryState(sceneFPS: 45)))
         XCTAssertEqual(back.sceneFPS, 45)
-        let old = try decode(#"{"schema":2,"revision":1,"videos":[],"sameForBoth":true}"#)
+        let old = try decode(#"{"schema":2,"revision":1,"videos":[]}"#)
         XCTAssertEqual(old.sceneFPS, 30, "a state.json from before the setting exists defaults to 30")
-    }
-
-    func testSameForBothMirrorsEverythingButEnabled() {
-        let a = VideoItem(path: "/a.mp4")
-        var state = LibraryState(videos: [a], desktop: TargetConfig(selectedID: a.id, intervalValue: 9),
-                                 lock: TargetConfig(enabled: false))
-        state.normalize()
-        XCTAssertEqual(state.lock.selectedID, a.id)
-        XCTAssertEqual(state.lock.intervalValue, 9)
-        XCTAssertFalse(state.lock.enabled)
-        XCTAssertTrue(state.canStart)
-        state.selectedID = nil   // phase-2 accessor writes both while sameForBoth
-        XCTAssertNil(state.lock.selectedID)
     }
 
     func testPlaylistFiltersMissingIDs() {
         let a = VideoItem(path: "/a.mp4"), b = VideoItem(path: "/b.mp4")
-        let state = LibraryState(videos: [a, b], desktop: TargetConfig(playlist: [b.id, UUID()]))
-        XCTAssertEqual(state.items(for: .desktop).map(\.id), [b.id])
-        XCTAssertFalse(state.hasMultipleItems(.desktop))
+        let state = LibraryState(videos: [a, b], desktop: PlaybackConfig(playlist: [b.id, UUID()]))
+        XCTAssertEqual(state.items.map(\.id), [b.id])
+        XCTAssertFalse(state.hasMultipleItems)
     }
 
-    func testLockRenderCacheValidity() throws {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("lw-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let pkg = folder.appendingPathComponent("scene.pkg")
-        try Data("pkg".utf8).write(to: pkg)
-        let item = VideoItem(path: pkg.path, workshopID: "9", scene: SceneInfo(support: .full))
-        XCTAssertFalse(LockRenderCache.isValid(for: item, width: 3024, height: 1964))
-        try Data("mov".utf8).write(to: LockRenderCache.videoURL(for: item, width: 3024, height: 1964))
-        XCTAssertFalse(LockRenderCache.isValid(for: item, width: 3024, height: 1964), "no metadata yet")
-        let meta = LockRenderCache.Meta(width: 3024, height: 1964, fps: 30, loopSeconds: 20,
-                                        sourceStamp: LockRenderCache.sourceStamp(for: item))
-        try LockRenderCache.writeMeta(meta, for: item)
-        XCTAssertTrue(LockRenderCache.isValid(for: item, width: 3024, height: 1964))
-        XCTAssertFalse(LockRenderCache.isValid(for: item, width: 1920, height: 1080), "other size")
-        var stale = meta
-        stale.engineRevision = LockRenderCache.engineRevision + 1
-        try LockRenderCache.writeMeta(stale, for: item)
-        XCTAssertFalse(LockRenderCache.isValid(for: item, width: 3024, height: 1964), "engine revision changed")
-        LockRenderCache.removeStale(for: item, keepingWidth: 1920, height: 1080)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: LockRenderCache.videoURL(for: item, width: 3024, height: 1964).path))
+    func testRotationNeedsACuratedPlaylistOfTwo() {
+        let a = VideoItem(path: "/a.mp4"), b = VideoItem(path: "/b.mp4")
+        var state = LibraryState(videos: [a, b], desktop: PlaybackConfig(rotateEnabled: true))
+        XCTAssertFalse(state.rotates, "without a playlist the selected wallpaper stays")
+        state.desktop.playlist = [a.id, b.id]
+        XCTAssertTrue(state.rotates)
+        state.desktop.playlist = [a.id]
+        XCTAssertFalse(state.rotates)
     }
 }

@@ -78,11 +78,11 @@ struct LiveWallpaperApp: App {
 // MARK: - Navigation
 
 enum SidebarSelection: Hashable {
-    case all, desktop, lockScreen, scenes, playlists, workshop, downloads, steamSetup
+    case all, desktop, scenes, playlists, workshop, downloads, steamSetup
 
     var isLibrary: Bool {
         switch self {
-        case .all, .desktop, .lockScreen, .scenes: return true
+        case .all, .desktop, .scenes: return true
         default: return false
         }
     }
@@ -90,7 +90,6 @@ enum SidebarSelection: Hashable {
     var libraryFilter: LibraryFilter {
         switch self {
         case .desktop: return .desktop
-        case .lockScreen: return .lock
         case .scenes: return .scenes
         default: return .all
         }
@@ -100,7 +99,6 @@ enum SidebarSelection: Hashable {
         switch self {
         case .all: return "All Wallpapers"
         case .desktop: return "Desktop"
-        case .lockScreen: return "Lock Screen"
         case .scenes: return "Scenes"
         case .playlists: return "Playlists"
         case .workshop: return "Workshop"
@@ -113,7 +111,6 @@ enum SidebarSelection: Hashable {
         switch self {
         case .all: return "rectangle.on.rectangle"
         case .desktop: return "display"
-        case .lockScreen: return "lock.display"
         case .scenes: return "sparkles.rectangle.stack"
         case .playlists: return "list.bullet.rectangle"
         case .workshop: return "square.grid.2x2"
@@ -148,8 +145,7 @@ struct RootView: View {
         List(selection: $selection) {
             Section("Library") {
                 sidebarRow(.all, count: model.videos.count)
-                sidebarRow(.desktop, count: count(for: .desktop))
-                sidebarRow(.lockScreen, count: count(for: .lock))
+                sidebarRow(.desktop, count: desktopCount)
                 sidebarRow(.scenes, count: model.videos.filter(\.isScene).count)
                 sidebarRow(.playlists, count: nil)
             }
@@ -189,9 +185,9 @@ struct RootView: View {
         .tag(item)
     }
 
-    private func count(for target: WallpaperTarget) -> Int {
+    private var desktopCount: Int {
         let state = model.snapshot
-        return model.videos.filter { !state.targets(of: $0.id).isEmpty && state.targets(of: $0.id).contains(target) }.count
+        return model.videos.filter { state.isSelected($0.id) }.count
     }
 
     // MARK: Detail
@@ -254,7 +250,7 @@ struct RootView: View {
 
     @ViewBuilder private var content: some View {
         switch selection {
-        case .all, .desktop, .lockScreen, .scenes:
+        case .all, .desktop, .scenes:
             LibraryView(model: model,
                         filter: selection.libraryFilter,
                         showInspector: $showInspector,
@@ -285,7 +281,7 @@ struct RootView: View {
     private var focusedLibraryItem: VideoItem? {
         let state = model.snapshot
         let visible = model.videos.filter {
-            selection.libraryFilter.includes($0, targets: state.targets(of: $0.id))
+            selection.libraryFilter.includes($0, selected: state.isSelected($0.id))
         }
         return visible.first { $0.id == model.focusedID } ?? visible.first
     }
@@ -483,16 +479,12 @@ private struct ServicePopover: View {
                 Text(stateText).font(.caption).foregroundStyle(.secondary)
             }
 
-            VStack(spacing: 8) {
-                targetRow(.desktop)
-                Divider()
-                targetRow(.lock)
-            }
-            .padding(12)
-            .background {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.primary.opacity(0.045))
-            }
+            desktopRow
+                .padding(12)
+                .background {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.primary.opacity(0.045))
+                }
 
             HStack(spacing: 8) {
                 Button(model.isRunning ? "Stop Wallpaper" : "Start Wallpaper") {
@@ -537,15 +529,15 @@ private struct ServicePopover: View {
         }
     }
 
-    private func targetRow(_ target: WallpaperTarget) -> some View {
-        let id = model.currentID(for: target)
+    private var desktopRow: some View {
+        let id = model.currentID
         let item = model.videos.first { $0.id == id }
         return HStack(spacing: 9) {
-            Image(systemName: target == .desktop ? "display" : "lock.display")
+            Image(systemName: "display")
                 .foregroundStyle(.secondary)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 1) {
-                Text(target.label).font(.caption).foregroundStyle(.secondary)
+                Text("Desktop").font(.caption).foregroundStyle(.secondary)
                 Text(item?.name ?? "Off")
                     .font(.callout.weight(.medium))
                     .lineLimit(1)

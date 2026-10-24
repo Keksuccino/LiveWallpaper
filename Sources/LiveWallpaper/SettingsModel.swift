@@ -24,22 +24,10 @@ import SceneFormat
     }
     @Published var intervalUnit: IntervalUnit = .minutes { didSet { persist() } }
     @Published var applyToDesktop: Bool = true { didSet { persist() } }
-    @Published var applyToLockScreen: Bool = true { didSet { persist() } }
-    /// The desktop's curated playlist; nil = the whole library in library order (TargetConfig.playlist).
+    /// The desktop's curated playlist; nil = the whole library in library order (PlaybackConfig.playlist).
     @Published var desktopPlaylistIDs: [VideoItem.ID]? = nil { didSet { persist() } }
-    // Schema v2. `selectedID`, `rotateEnabled`, `intervalValue`, `intervalUnit` and `applyToDesktop` above are
-    // the DESKTOP config (shared with the lock screen while `sameForBoth`); `lockConfig` is the lock screen's own
-    // config, used only while !sameForBoth, and its `enabled` is always `applyToLockScreen`. `sameForBoth` is
-    // changed through `setSameForBoth` so the lock config starts from what the lock screen showed. `muted` is
-    // sent as `.setMuted`.
-    @Published private(set) var sameForBoth: Bool = true { didSet { persist() } }
-    @Published var lockConfig: TargetConfig = TargetConfig() {
-        didSet {
-            let clamped = LibraryState.clampedInterval(lockConfig.intervalValue)
-            if clamped != lockConfig.intervalValue { lockConfig.intervalValue = clamped }
-            persist()
-        }
-    }
+    // `selectedID`, `rotateEnabled`, `intervalValue`, `intervalUnit`, `applyToDesktop` and `desktopPlaylistIDs`
+    // above are the desktop config (LibraryState.desktop). `muted` is sent as `.setMuted`.
     @Published var sceneFPS: Int = LibraryState.defaultSceneFPS { didSet { persist() } }
     @Published var sceneOptions: [String: SceneOptions] = [:] { didSet { persist() } }
     @Published var power: PowerOptions = PowerOptions() { didSet { persist() } }
@@ -65,18 +53,15 @@ import SceneFormat
     private var serviceStatus: ServiceStatus? { client.status }
     var isRunning: Bool { serviceStatus.map { $0.playback != .stopped } ?? false }
     var isPaused: Bool { serviceStatus?.playback == .paused }
-    var currentID: VideoItem.ID? { serviceStatus?.slot(.desktop)?.itemID }
-    /// Items a slot reported an error for.
+    /// The item the service shows on the desktop.
+    var currentID: VideoItem.ID? { serviceStatus?.itemID }
+    /// Items the service reported an error for.
     var failedIDs: Set<VideoItem.ID> {
-        Set((serviceStatus?.slots ?? []).compactMap { $0.error == nil ? nil : $0.itemID })
+        guard let status = serviceStatus, status.error != nil, let id = status.itemID else { return [] }
+        return [id]
     }
-    /// The item the lock screen channel currently shows (the desktop one is `currentID`).
-    var lockID: VideoItem.ID? { serviceStatus?.slot(.lock)?.itemID }
-    // shortcut: ServiceStatus says only that a lock video is being made, not how far along; add progress if renders get slow.
-    var lockBusy: Bool { serviceStatus?.lockBusy ?? false }
-    var lockRender: LockRenderStatus? { nil }
     var statusMessage: String? {
-        localMessage ?? serviceStatus?.message ?? serviceStatus?.slots.compactMap(\.error).first
+        localMessage ?? serviceStatus?.message ?? serviceStatus?.error
     }
 
     /// The persisted fields as one value (what gets written to state.json).
@@ -84,18 +69,13 @@ import SceneFormat
         // Starts from what state.json last held so fields this model does not edit (muted) survive.
         var state = written
         state.videos = videos
-        state.sameForBoth = sameForBoth
-        state.desktop = TargetConfig(enabled: applyToDesktop, selectedID: selectedID, playlist: desktopPlaylistIDs,
-                                     rotateEnabled: rotateEnabled, intervalValue: intervalValue,
-                                     intervalUnit: intervalUnit)
-        var lock = lockConfig
-        lock.enabled = applyToLockScreen
-        state.lock = lock
+        state.desktop = PlaybackConfig(enabled: applyToDesktop, selectedID: selectedID, playlist: desktopPlaylistIDs,
+                                       rotateEnabled: rotateEnabled, intervalValue: intervalValue,
+                                       intervalUnit: intervalUnit)
         state.muted = muted
         state.sceneFPS = sceneFPS
         state.sceneOptions = sceneOptions
         state.power = power
-        state.normalize()
         return state
     }
 
@@ -108,66 +88,36 @@ import SceneFormat
         sceneOptions[id.uuidString] = options
     }
 
-    /// Roles of an item for the badges: the enabled targets it is currently selected for.
-    func roles(of id: VideoItem.ID) -> Set<WallpaperTarget> { snapshot.targets(of: id) }
+    /// Whether `id` is the selected desktop wallpaper (drives the role badges).
+    func isSelected(_ id: VideoItem.ID) -> Bool { snapshot.isSelected(id) }
 
-    /// The wallpaper source of `target` as the service reports it: the library item currently shown there.
-    func currentID(for target: WallpaperTarget) -> VideoItem.ID? {
-        target == .desktop ? currentID : lockID
-    }
-
-    /// The "Same wallpaper for desktop and lock screen" switch. Turning it off gives the lock screen its own copy
-    /// of what it showed so far; turning it on makes it follow the desktop again.
-    func setSameForBoth(_ value: Bool) {
-        guard value != sameForBoth else { return }
-        batch {
-            if !value { lockConfig = snapshot.config(for: .lock) }
-            sameForBoth = value
-        }
-    }
-
-    /// "Set as Desktop / Lock Screen / Both" (SPEC3.md 6.2). Commits through the service; starts nothing.
-    func assign(_ id: VideoItem.ID, to targets: Set<WallpaperTarget>) {
+    /// "Set as Desktop" (SPEC3.md 6.2). Commits through the service; starts nothing.
+    func assign(_ id: VideoItem.ID) {
         var state = snapshot
-        state.assign(id, to: targets)
+        state.assign(id)
         guard state != snapshot else { return }
         batch { apply(state) }
     }
 
     // MARK: Playlists
 
-    /// The target's stored playlist order; nil = the whole library in library order.
-    func playlistIDs(for target: WallpaperTarget) -> [VideoItem.ID]? {
-        snapshot.config(for: target).playlist
-    }
+    /// The stored playlist order; nil = the whole library in library order.
+    var playlistIDs: [VideoItem.ID]? { desktopPlaylistIDs }
 
-    /// The items the target actually rotates through, in playlist order.
-    func playlistItems(for target: WallpaperTarget) -> [VideoItem] {
-        snapshot.items(for: target)
-    }
+    /// The items the desktop actually rotates through, in playlist order.
+    var playlistItems: [VideoItem] { snapshot.items }
 
-    /// Writes the target's playlist (nil = use the entire library). Editing the lock screen's playlist
-    /// separates it from the desktop's; editing the desktop's keeps both in step while they are shared.
-    func setPlaylist(_ ids: [VideoItem.ID]?, for target: WallpaperTarget) {
-        var state = snapshot
-        let valid = Set(state.videos.map(\.id))
+    /// Writes the playlist (nil = use the entire library); ids no longer in the library are dropped.
+    func setPlaylist(_ ids: [VideoItem.ID]?) {
+        let valid = Set(videos.map(\.id))
         let pruned = ids.map { $0.filter { valid.contains($0) } }
-        if target == .lock, state.sameForBoth {
-            let lockEnabled = state.lock.enabled
-            state.lock = state.desktop          // the lock screen keeps what it showed so far…
-            state.lock.enabled = lockEnabled
-            state.sameForBoth = false           // …and from here on goes its own way
-        }
-        if target == .desktop { state.desktop.playlist = pruned } else { state.lock.playlist = pruned }
-        state.normalize()
-        guard state != snapshot else { return }
-        batch { apply(state) }
+        if pruned != desktopPlaylistIDs { desktopPlaylistIDs = pruned }
     }
 
     var selectedItem: VideoItem? { videos.first { $0.id == selectedID } }
     var currentIndex: Int? { videos.firstIndex { $0.id == currentID } }
     var canStart: Bool { snapshot.canStart }
-    var canRotate: Bool { snapshot.canRotate }
+    var canRotate: Bool { snapshot.hasMultipleItems }
     var intervalSeconds: TimeInterval { snapshot.intervalSeconds }
     var intervalIsClamped: Bool { snapshot.intervalIsClamped }
 
@@ -254,11 +204,9 @@ import SceneFormat
         batch {
             videos.removeAll { ids.contains($0.id) }
             desktopPlaylistIDs = desktopPlaylistIDs?.filter { !ids.contains($0) }
-            lockConfig.playlist = lockConfig.playlist?.filter { !ids.contains($0) }
             if selectedItem == nil {
                 selectedID = videos.isEmpty ? nil : videos[min(firstIndex, videos.count - 1)].id
             }
-            if !videos.contains(where: { $0.id == lockConfig.selectedID }) { lockConfig.selectedID = selectedID }
             if !videos.contains(where: { $0.id == focusedID }) { focusedID = selectedID }
         }
         for item in removed { Self.deleteDownloadedFiles(of: item) }
@@ -270,37 +218,27 @@ import SceneFormat
 
     // MARK: Playback intents (all go to the service)
 
-    func start() { send(.start(itemID: nil, target: nil)) }   // each target starts with its own selection
+    func start() { send(.start(itemID: nil)) }   // starts with the selection
 
     func stop() { send(.stop) }
 
-    /// Starts only `id`, on the targets it is assigned to (desktop, lock screen or both). A wallpaper that is not
-    /// assigned anywhere starts on the desktop.
-    func startOnly(_ id: VideoItem.ID) {
-        guard videos.contains(where: { $0.id == id }) else { return }
-        var targets = roles(of: id)
-        if targets.isEmpty { targets = [.desktop] }
-        play(id, target: targets.count == WallpaperTarget.allCases.count ? nil : targets.first)
-    }
-
-    /// True when `id` is what the service shows on the desktop or the lock screen right now.
+    /// True when `id` is what the service shows on the desktop right now.
     func isPlaying(_ id: VideoItem.ID) -> Bool {
-        isRunning && (currentID(for: .desktop) == id || currentID(for: .lock) == id)
+        isRunning && currentID == id
     }
 
     func toggleRunning() {
         if isRunning { stop() } else { start() }
     }
 
-    /// Selects `id` for `target` (nil = both) and jumps to it, starting playback if needed.
-    func play(_ id: VideoItem.ID, target: WallpaperTarget? = nil) {
+    /// Selects `id` and jumps to it, starting playback if needed.
+    func play(_ id: VideoItem.ID) {
         guard videos.contains(where: { $0.id == id }) else { return }
-        let targets: Set<WallpaperTarget> = target.map { Set([$0]) } ?? Set(WallpaperTarget.allCases)
-        assign(id, to: targets)
-        send(.start(itemID: id, target: target))
+        assign(id)
+        send(.start(itemID: id))
     }
 
-    /// Terminates the service (`.quit`: it restores Apple's wallpapers first).
+    /// Terminates the service (`.quit`).
     func quitService() { send(.quit) }
 
     func restartService() { Task { await client.restart() } }
@@ -361,10 +299,7 @@ import SceneFormat
         intervalValue = state.intervalValue
         intervalUnit = state.intervalUnit
         applyToDesktop = state.applyToDesktop
-        applyToLockScreen = state.applyToLockScreen
         desktopPlaylistIDs = state.desktop.playlist
-        sameForBoth = state.sameForBoth
-        lockConfig = state.lock
         sceneFPS = state.sceneFPS
         sceneOptions = state.sceneOptions
         power = state.power

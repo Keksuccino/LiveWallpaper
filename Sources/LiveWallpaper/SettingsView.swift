@@ -41,7 +41,7 @@ struct PlaybackSettingsView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                Text("Videos and Wallpaper Engine scenes for your desktop and lock screen. Settings never plays a wallpaper; the background service does.")
+                Text("Videos and Wallpaper Engine scenes for your desktop. Settings never plays a wallpaper; the background service does.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
