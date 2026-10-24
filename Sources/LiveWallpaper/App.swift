@@ -23,7 +23,7 @@ struct LiveWallpaperApp: App {
         .commands { AppCommands(model: model) }
 
         Settings {
-            PlaybackSettingsView(model: model)
+            AppSettingsView(model: model)
         }
     }
 }

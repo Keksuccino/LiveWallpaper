@@ -2,22 +2,16 @@ import SwiftUI
 import AppKit
 import Core
 
-/// The standard macOS Settings window (⌘,). Global playback and performance options live here so the
-/// Library inspector can stay focused on the selected wallpaper.
+/// The standard macOS Settings window (⌘,): settings about the app as a whole. Playback, rotation and the scene
+/// settings live in the Library inspector (LibrarySettingsCard).
 @MainActor
-struct PlaybackSettingsView: View {
+struct AppSettingsView: View {
     @ObservedObject var model: SettingsModel
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Playback").font(.system(size: 24, weight: .semibold))
-                    Text("These settings apply to every wallpaper.")
-                        .font(.callout).foregroundStyle(.secondary)
-                }
-
-                LibrarySettingsCard(model: model)
+                Text("General").font(.system(size: 24, weight: .semibold))
 
                 lockScreen
 
@@ -26,7 +20,7 @@ struct PlaybackSettingsView: View {
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(width: 520, height: 660)
+        .frame(width: 520, height: 326)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
