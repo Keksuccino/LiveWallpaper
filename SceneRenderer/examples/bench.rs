@@ -24,7 +24,6 @@ fn main() {
         w,
         h,
     );
-    r.resize(w, h);
     // `LW_PROPS="name=json,..."` sets user properties first, to time a scene with parts off.
     for pair in std::env::var("LW_PROPS").unwrap_or_default().split(',').filter(|p| !p.is_empty()) {
         if let Some((name, value)) = pair.split_once('=') {

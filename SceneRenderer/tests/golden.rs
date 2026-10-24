@@ -56,7 +56,7 @@ fn local_scenes(library: &Path) -> Vec<(String, PathBuf)> {
 fn render_rgba(path: &Path) -> Result<(Vec<u8>, Vec<String>), String> {
     let r = scene_renderer::Renderer::new(path.to_string_lossy().into_owned())
         .map_err(|e| format!("load: {e}"))?;
-    r.resize(WIDTH, HEIGHT);
+    r.set_frame_size(WIDTH, HEIGHT);
     let mut px = r.render_frame(TIME).map_err(|e| format!("render: {e}"))?;
     for p in px.chunks_mut(4) {
         p.swap(0, 2);

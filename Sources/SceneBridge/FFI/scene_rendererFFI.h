@@ -311,11 +311,6 @@ RustBuffer uniffi_scene_renderer_fn_method_renderer_properties(void*_Nonnull ptr
 RustBuffer uniffi_scene_renderer_fn_method_renderer_render_frame(void*_Nonnull ptr, double time, RustCallStatus *_Nonnull out_status
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_RESIZE
-#define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_RESIZE
-void uniffi_scene_renderer_fn_method_renderer_resize(void*_Nonnull ptr, uint32_t width, uint32_t height, RustCallStatus *_Nonnull out_status
-);
-#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_AUDIO_RESPONSE
 #define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_AUDIO_RESPONSE
 void uniffi_scene_renderer_fn_method_renderer_set_audio_response(void*_Nonnull ptr, int8_t enabled, RustCallStatus *_Nonnull out_status
@@ -334,6 +329,11 @@ void uniffi_scene_renderer_fn_method_renderer_set_fit_mode(void*_Nonnull ptr, Ru
 #ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_FPS_CAP
 #define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_FPS_CAP
 void uniffi_scene_renderer_fn_method_renderer_set_fps_cap(void*_Nonnull ptr, float fps, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_FRAME_SIZE
+#define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_FRAME_SIZE
+void uniffi_scene_renderer_fn_method_renderer_set_frame_size(void*_Nonnull ptr, uint32_t width, uint32_t height, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_HIDE_SCRIPTED_TEXT
@@ -720,12 +720,6 @@ uint16_t uniffi_scene_renderer_checksum_method_renderer_render_frame(void
     
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_RESIZE
-#define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_RESIZE
-uint16_t uniffi_scene_renderer_checksum_method_renderer_resize(void
-    
-);
-#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_AUDIO_RESPONSE
 #define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_AUDIO_RESPONSE
 uint16_t uniffi_scene_renderer_checksum_method_renderer_set_audio_response(void
@@ -747,6 +741,12 @@ uint16_t uniffi_scene_renderer_checksum_method_renderer_set_fit_mode(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_FPS_CAP
 #define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_FPS_CAP
 uint16_t uniffi_scene_renderer_checksum_method_renderer_set_fps_cap(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_FRAME_SIZE
+#define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_FRAME_SIZE
+uint16_t uniffi_scene_renderer_checksum_method_renderer_set_frame_size(void
     
 );
 #endif

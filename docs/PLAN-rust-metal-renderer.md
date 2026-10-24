@@ -80,11 +80,11 @@ load_errors() -> [String]               // warnings: unsupported objects, failed
 properties() -> [SceneProperty{name, kind, label, value_json}]
 set_muted(bool) / set_volume(f32)       // stored only; no audio yet
 set_fps_cap(f32)                        // 0 = display rate
-resize(w, h)                            // pixels
+set_frame_size(w, h)                    // pixels of render_frame's output
 set_visible(bool)                       // false: no frames, pool freed
 set_pointer(x, y)                       // 0..1, top-left origin
 stats() -> RenderStats{frames, gpu_ms_per_frame}
-render_frame(time: f64) -> [u8]         // BGRA8 at last resize size, offscreen, for lock-screen video
+render_frame(time: f64) -> [u8]         // BGRA8 at the set_frame_size size, offscreen, for lock-screen video
 ```
 Asset lookup: `Library/<id>/scene.pkg` → `../../WallpaperEngineAssets`.
 
@@ -349,7 +349,7 @@ Principle: the cheapest frame is the one not rendered. Measure before and after 
   2. Mipmaps: only generate/upload mips the shader samples at the drawn size; a 4444×3333 layer
      drawn at 1500 px wide never samples mip 0 → upload from the first mip ≥ drawn size
      (**this is visually lossless**: the GPU would sample the smaller mip anyway). Biggest single
-     win for Angel (60 MB texture). Handle `resize` growth by re-uploading.
+     win for Angel (60 MB texture). Handle drawn-size growth by re-uploading.
   3. `Pool` heap sizing: keep heap at max-of-frame high-water mark, shrink after N frames below.
   4. Release `Pkg` file handle data / JSON trees after load.
   5. Shader cache: `MTLBinaryArchive` for compiled pipelines to cut first-load CPU (heat at start).
@@ -417,7 +417,7 @@ Map old → new:
 - Create the renderer off the main actor (load takes ~0.3 s cached, up to several seconds cold):
   `Task.detached`, then hop back to attach.
 - Window layer: wallpaper windows must host a `CAMetalLayer` (`wantsLayer`, `makeBackingLayer`);
-  set `contentsScale` to the screen's backing scale; call `resize` on `viewDidChangeBackingProperties`
+  set `contentsScale` to the screen's backing scale; re-attach the layer with its new size (`attach_layer`) on `viewDidChangeBackingProperties`
   and frame changes; `set_visible` from occlusion notifications.
 - Pointer: global mouse position (NSEvent.mouseLocation, polled at frame rate or via a global
   monitor — monitor needs no extra permission for mouse moves) → `set_pointer` normalized per display.

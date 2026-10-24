@@ -47,7 +47,7 @@ fn main() {
     }) {
         r.set_pointer(x, y);
     }
-    r.resize(w, h);
+    r.set_frame_size(w, h);
     let started = std::time::Instant::now();
     let mut px = r.render_frame(time).expect("render");
     println!("frame in {:?}", started.elapsed());

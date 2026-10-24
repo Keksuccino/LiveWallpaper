@@ -561,6 +561,7 @@ public protocol RendererProtocol : AnyObject {
     /**
      * Hands over the `CAMetalLayer` to draw into (pointer from `Unmanaged.passUnretained(layer).toOpaque()`).
      * The renderer retains it. One layer per display; the scene is shared between them.
+     * Attaching a display again replaces its layer and size, which is how a display is resized.
      */
     func attachLayer(displayId: String, layerPtr: UInt64, width: UInt32, height: UInt32) 
     
@@ -578,15 +579,10 @@ public protocol RendererProtocol : AnyObject {
     func properties()  -> [SceneProperty]
     
     /**
-     * Renders the scene at `time` seconds into BGRA8 pixels at the last `resize` size (or the
+     * Renders the scene at `time` seconds into BGRA8 pixels at the `set_frame_size` size (or the
      * scene's design size), for the lock-screen video. Independent of play/pause.
      */
     func renderFrame(time: Double) throws  -> Data
-    
-    /**
-     * Drawable size in pixels.
-     */
-    func resize(width: UInt32, height: UInt32) 
     
     /**
      * Whether shaders that read an audio spectrum may do so. No audio yet, so the spectrum
@@ -609,6 +605,11 @@ public protocol RendererProtocol : AnyObject {
      * Frames per second; 0 means the display's rate.
      */
     func setFpsCap(fps: Float) 
+    
+    /**
+     * Size in pixels of the frames `render_frame` draws. Displays get their size from `attach_layer`.
+     */
+    func setFrameSize(width: UInt32, height: UInt32) 
     
     /**
      * Hides text layers that scripts compute (clocks and the like). The lock screen loop uses
@@ -744,6 +745,7 @@ open func applyProperty(name: String, valueJson: String) {try! rustCall() {
     /**
      * Hands over the `CAMetalLayer` to draw into (pointer from `Unmanaged.passUnretained(layer).toOpaque()`).
      * The renderer retains it. One layer per display; the scene is shared between them.
+     * Attaching a display again replaces its layer and size, which is how a display is resized.
      */
 open func attachLayer(displayId: String, layerPtr: UInt64, width: UInt32, height: UInt32) {try! rustCall() {
     uniffi_scene_renderer_fn_method_renderer_attach_layer(self.uniffiClonePointer(),
@@ -792,7 +794,7 @@ open func properties() -> [SceneProperty] {
 }
     
     /**
-     * Renders the scene at `time` seconds into BGRA8 pixels at the last `resize` size (or the
+     * Renders the scene at `time` seconds into BGRA8 pixels at the `set_frame_size` size (or the
      * scene's design size), for the lock-screen video. Independent of play/pause.
      */
 open func renderFrame(time: Double)throws  -> Data {
@@ -801,17 +803,6 @@ open func renderFrame(time: Double)throws  -> Data {
         FfiConverterDouble.lower(time),$0
     )
 })
-}
-    
-    /**
-     * Drawable size in pixels.
-     */
-open func resize(width: UInt32, height: UInt32) {try! rustCall() {
-    uniffi_scene_renderer_fn_method_renderer_resize(self.uniffiClonePointer(),
-        FfiConverterUInt32.lower(width),
-        FfiConverterUInt32.lower(height),$0
-    )
-}
 }
     
     /**
@@ -853,6 +844,17 @@ open func setFitMode(mode: FitMode) {try! rustCall() {
 open func setFpsCap(fps: Float) {try! rustCall() {
     uniffi_scene_renderer_fn_method_renderer_set_fps_cap(self.uniffiClonePointer(),
         FfiConverterFloat.lower(fps),$0
+    )
+}
+}
+    
+    /**
+     * Size in pixels of the frames `render_frame` draws. Displays get their size from `attach_layer`.
+     */
+open func setFrameSize(width: UInt32, height: UInt32) {try! rustCall() {
+    uniffi_scene_renderer_fn_method_renderer_set_frame_size(self.uniffiClonePointer(),
+        FfiConverterUInt32.lower(width),
+        FfiConverterUInt32.lower(height),$0
     )
 }
 }
@@ -1468,7 +1470,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_scene_renderer_checksum_method_renderer_apply_property() != 58524) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_scene_renderer_checksum_method_renderer_attach_layer() != 18692) {
+    if (uniffi_scene_renderer_checksum_method_renderer_attach_layer() != 52015) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_scene_renderer_checksum_method_renderer_detach_layer() != 33616) {
@@ -1486,10 +1488,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_scene_renderer_checksum_method_renderer_properties() != 20730) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_scene_renderer_checksum_method_renderer_render_frame() != 64090) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_scene_renderer_checksum_method_renderer_resize() != 36318) {
+    if (uniffi_scene_renderer_checksum_method_renderer_render_frame() != 53902) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_scene_renderer_checksum_method_renderer_set_audio_response() != 30273) {
@@ -1502,6 +1501,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_scene_renderer_checksum_method_renderer_set_fps_cap() != 60966) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_scene_renderer_checksum_method_renderer_set_frame_size() != 12791) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_scene_renderer_checksum_method_renderer_set_hide_scripted_text() != 59373) {

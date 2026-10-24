@@ -55,7 +55,7 @@ enum Command {
     Antialiasing(u32),
     FpsCap(f32),
     HideScriptedText(bool),
-    Resize(u32, u32),
+    FrameSize(u32, u32),
     Visible(bool),
     Attach(String, usize, u32, u32),
     Detach(String),
@@ -176,6 +176,7 @@ impl Renderer {
 
     /// Hands over the `CAMetalLayer` to draw into (pointer from `Unmanaged.passUnretained(layer).toOpaque()`).
     /// The renderer retains it. One layer per display; the scene is shared between them.
+    /// Attaching a display again replaces its layer and size, which is how a display is resized.
     pub fn attach_layer(&self, display_id: String, layer_ptr: u64, width: u32, height: u32) {
         self.send(Command::Attach(
             display_id,
@@ -282,9 +283,9 @@ impl Renderer {
         self.send(Command::FpsCap(fps));
     }
 
-    /// Drawable size in pixels.
-    pub fn resize(&self, width: u32, height: u32) {
-        self.send(Command::Resize(width, height));
+    /// Size in pixels of the frames `render_frame` draws. Displays get their size from `attach_layer`.
+    pub fn set_frame_size(&self, width: u32, height: u32) {
+        self.send(Command::FrameSize(width, height));
     }
 
     /// Hidden (covered, screen off, other space): no frames, intermediate buffers released.
@@ -321,7 +322,7 @@ impl Renderer {
         }
     }
 
-    /// Renders the scene at `time` seconds into BGRA8 pixels at the last `resize` size (or the
+    /// Renders the scene at `time` seconds into BGRA8 pixels at the `set_frame_size` size (or the
     /// scene's design size), for the lock-screen video. Independent of play/pause.
     pub fn render_frame(&self, time: f64) -> Result<Vec<u8>, Error> {
         let (tx, rx) = channel();
@@ -343,6 +344,7 @@ struct Loop {
     engine: Engine,
     /// One target per display; the scene's textures are shared between them.
     targets: Vec<(String, Target)>,
+    /// Size of the frames `render_frame` draws; None = the scene's design size.
     size: Option<(u32, u32)>,
     playing: bool,
     visible: bool,
@@ -445,16 +447,7 @@ impl Loop {
             }
             Command::Antialiasing(n) => self.engine.set_samples(n as usize),
             Command::FpsCap(f) => self.fps = f.max(0.0),
-            Command::Resize(w, h) => {
-                self.size = Some((w.max(1), h.max(1)));
-                for target in self.targets.iter_mut() {
-                    target.1.size = (w.max(1), h.max(1));
-                    target.1.layer.setDrawableSize(CGSize::new(
-                        w.max(1) as f64 * self.render_scale as f64,
-                        h.max(1) as f64 * self.render_scale as f64,
-                    ));
-                }
-            }
+            Command::FrameSize(w, h) => self.size = Some((w.max(1), h.max(1))),
             Command::Visible(v) => {
                 self.visible = v;
                 self.last = Instant::now();
