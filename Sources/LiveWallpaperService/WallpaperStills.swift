@@ -18,6 +18,9 @@ import SceneBridge
     private static let settleDelay: UInt64 = 2_000_000_000
     nonisolated private static let directory = AppPaths.wallpaperStillsDirectory
 
+    /// A display got a new system wallpaper; the live windows have to let it through once (see
+    /// DesktopWindows.revealSystemWallpaper) or the menu bar keeps showing the old one.
+    var onApplied: (() -> Void)?
     private var look: Look?
     /// The stills the displays should show, once they exist.
     private var targets: [Target] = []
@@ -74,6 +77,7 @@ import SceneBridge
 
     /// Sets each display's still as its system wallpaper, skipping displays that show it already.
     private func apply() {
+        var changed = false
         for screen in NSScreen.screens {
             guard let target = targets.first(where: { $0.displayID == screen.displayID }),
                   FileManager.default.fileExists(atPath: target.url.path),
@@ -86,10 +90,12 @@ import SceneBridge
             ]
             do {
                 try NSWorkspace.shared.setDesktopImageURL(target.url, for: screen, options: options)
+                changed = true
             } catch {
                 NSLog("LiveWallpaper: couldn’t set the wallpaper still: \(error.localizedDescription)")
             }
         }
+        if changed { onApplied?() }
     }
 
     // A Space shows its own wallpaper unless "Show on all Spaces" is on, so a Space the stills were never set on

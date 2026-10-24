@@ -193,6 +193,8 @@ final class RendererBox: @unchecked Sendable {
         renderer?.setVisible(visible: !locked)
     }
 
+    override func revealSystemWallpaper() { windows.revealSystemWallpaper() }
+
     /// Sends the settings that changed since the last push. Battery rules apply here: on battery
     /// (or in Low Power Mode) the scene pauses or runs slower and smaller, as the user chose.
     private func push(_ item: VideoItem) {

@@ -41,6 +41,11 @@ import Core
     init() {
         // The scene is on screen: the previous (video) wallpaper can go.
         scene.onReady = { [weak self] _ in self?.video.stop() }
+        // While a scene loads, the previous video's windows are still up, so both services let the new still through.
+        stills.onApplied = { [weak self] in
+            self?.video.revealSystemWallpaper()
+            self?.scene.revealSystemWallpaper()
+        }
     }
 
     // MARK: Lifecycle

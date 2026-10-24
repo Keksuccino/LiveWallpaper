@@ -27,6 +27,7 @@ private final class DesktopWindow: NSWindow {
     private(set) var entries: [Entry] = []
     private let makeView: () -> View
     private var observer: NSObjectProtocol?
+    private var reveal: Task<Void, Never>?
 
     init(makeView: @escaping () -> View) {
         self.makeView = makeView
@@ -44,8 +45,28 @@ private final class DesktopWindow: NSWindow {
     func close() {
         if let observer { NotificationCenter.default.removeObserver(observer) }
         observer = nil
+        reveal?.cancel()
+        reveal = nil
         entries.forEach { $0.window.close() }
         entries.removeAll()
+    }
+
+    /// Makes macOS draw the system wallpaper under the windows once, so the menu bar's background picks up a
+    /// wallpaper that was just set. The menu bar keeps its own copy of the wallpaper and refreshes it only when the
+    /// wallpaper is actually composited, which never happens while these opaque windows cover it completely: a new
+    /// wallpaper would reach the menu bar only when something else uncovers the desktop. Letting the wallpaper show
+    /// through at 1% for half a second is enough (measured: the menu bar follows within about 0.7 s, even when this
+    /// starts right after the wallpaper was set). The wallpaper is a still of what the windows show, so the blend is
+    /// invisible. Ordering the windows out and in works too, but flashes.
+    func revealSystemWallpaper() {
+        guard isOpen else { return }
+        entries.forEach { $0.window.alphaValue = 0.99 }
+        reveal?.cancel()
+        reveal = Task { @MainActor [weak self] in
+            do { try await Task.sleep(nanoseconds: 500_000_000) } catch { return }
+            self?.entries.forEach { $0.window.alphaValue = 1 }
+            self?.reveal = nil
+        }
     }
 
     /// Keeps the window of every screen that is still connected, makes windows for new screens and closes the rest.

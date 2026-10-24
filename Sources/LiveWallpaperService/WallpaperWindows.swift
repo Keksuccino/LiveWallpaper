@@ -122,6 +122,8 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
         applyPlayback()
     }
 
+    func revealSystemWallpaper() { windows.revealSystemWallpaper() }
+
     // MARK: Windows
 
     /// The windows opened or followed a screen change; a new window starts without the player.

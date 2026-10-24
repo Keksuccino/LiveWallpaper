@@ -25,6 +25,8 @@ struct RenderOptions: Equatable {
     func setPaused(_ paused: Bool) {}
     func setMuted(_ muted: Bool) {}
     func setScreenLocked(_ locked: Bool) {}
+    /// A new system wallpaper was set under the windows (DesktopWindows.revealSystemWallpaper).
+    func revealSystemWallpaper() {}
     func apply(_ options: RenderOptions) { self.options = options }
 }
 
@@ -53,4 +55,5 @@ struct RenderOptions: Equatable {
     override func setPaused(_ paused: Bool) { windows.setPaused(paused) }
     override func setMuted(_ muted: Bool) { windows.setMuted(muted) }
     override func setScreenLocked(_ locked: Bool) { windows.setScreenLocked(locked) }
+    override func revealSystemWallpaper() { windows.revealSystemWallpaper() }
 }
