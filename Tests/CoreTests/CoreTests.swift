@@ -87,6 +87,18 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(old.sceneFPS, 30, "a state.json from before the setting exists defaults to 30")
     }
 
+    func testStillDelayDefaultsClampsAndRoundTrips() throws {
+        XCTAssertEqual(LibraryState().stillDelay, LibraryState.defaultStillDelay)
+        XCTAssertTrue(LibraryState.stillDelayOptions.contains(LibraryState.defaultStillDelay))
+        XCTAssertEqual(try decode(#"{"schema":2,"revision":1,"videos":[]}"#).stillDelay, LibraryState.defaultStillDelay,
+                       "a state.json from before the setting exists gets the default")
+        XCTAssertEqual(try decode(#"{"schema":2,"videos":[],"stillDelay":60}"#).stillDelay, 5)
+        XCTAssertEqual(try decode(#"{"schema":2,"videos":[],"stillDelay":-1}"#).stillDelay, 0)
+        var state = LibraryState()
+        state.stillDelay = 0.5
+        XCTAssertEqual(try JSONDecoder().decode(LibraryState.self, from: JSONEncoder().encode(state)).stillDelay, 0.5)
+    }
+
     func testPlaylistFiltersMissingIDs() {
         let a = VideoItem(path: "/a.mp4"), b = VideoItem(path: "/b.mp4")
         let state = LibraryState(videos: [a, b], desktop: PlaybackConfig(playlist: [b.id, UUID()]))

@@ -169,6 +169,8 @@ public struct LibraryState: Codable, Equatable, Sendable {
     public var desktop: PlaybackConfig
     public var sceneOptions: [String: SceneOptions] = [:]   // per scene, keyed by VideoItem.id.uuidString
     public var power: PowerOptions = PowerOptions()           // global scene settings
+    /// Seconds the service waits before it makes a new still for the system wallpaper (see `stillDelayOptions`).
+    public var stillDelay: Double = LibraryState.defaultStillDelay
 
     public init(schema: Int = LibraryState.currentSchema, revision: Int = 0, videos: [VideoItem] = [],
                 muted: Bool = true, sceneFPS: Int = LibraryState.defaultSceneFPS, sceneZoom: Double = 1.0,
@@ -186,11 +188,18 @@ public struct LibraryState: Codable, Equatable, Sendable {
     public static func clampedSceneFPS(_ fps: Int) -> Int { min(max(fps, 10), 120) }
     public static func clampedSceneZoom(_ zoom: Double) -> Double { min(max(zoom, 0.5), 2.0) }
 
+    /// The choices for `stillDelay`. The wait exists because a slider in Settings sends a change for every step, and
+    /// a scene's still loads the whole scene a second time: waiting lets the drag finish before one still is made,
+    /// and gives a new wallpaper time to start before its still competes with it for the machine.
+    public static let stillDelayOptions: [Double] = [0, 0.5, 1, 2, 5]
+    public static let defaultStillDelay: Double = 2
+    public static func clampedStillDelay(_ seconds: Double) -> Double { min(max(seconds, 0), 5) }
+
     // MARK: Codable with v1 migration (schema 1 files have no desktop section)
     // Files written by older versions also hold `sameForBoth` and a `lock` section; both are ignored.
 
     private enum CodingKeys: String, CodingKey {
-        case schema, revision, videos, muted, sceneFPS, sceneZoom, desktop, sceneOptions, power
+        case schema, revision, videos, muted, sceneFPS, sceneZoom, desktop, sceneOptions, power, stillDelay
         // schema 1 only
         case selectedID, rotateEnabled, intervalValue, intervalUnit, applyToDesktop
     }
@@ -205,6 +214,8 @@ public struct LibraryState: Codable, Equatable, Sendable {
         sceneZoom = LibraryState.clampedSceneZoom(try c.decodeIfPresent(Double.self, forKey: .sceneZoom) ?? 1.0)
         sceneOptions = try c.decodeIfPresent([String: SceneOptions].self, forKey: .sceneOptions) ?? [:]
         power = try c.decodeIfPresent(PowerOptions.self, forKey: .power) ?? PowerOptions()
+        stillDelay = LibraryState.clampedStillDelay(
+            try c.decodeIfPresent(Double.self, forKey: .stillDelay) ?? Self.defaultStillDelay)
         if diskSchema >= 2 || c.contains(.desktop) {
             muted = try c.decodeIfPresent(Bool.self, forKey: .muted) ?? true
             desktop = try c.decodeIfPresent(PlaybackConfig.self, forKey: .desktop) ?? PlaybackConfig()
@@ -232,6 +243,7 @@ public struct LibraryState: Codable, Equatable, Sendable {
         try c.encode(sceneZoom, forKey: .sceneZoom)
         try c.encode(sceneOptions, forKey: .sceneOptions)
         try c.encode(power, forKey: .power)
+        try c.encode(stillDelay, forKey: .stillDelay)
         try c.encode(desktop, forKey: .desktop)
     }
 

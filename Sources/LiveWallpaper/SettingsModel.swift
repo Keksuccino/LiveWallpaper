@@ -31,6 +31,7 @@ import SceneFormat
     @Published var sceneFPS: Int = LibraryState.defaultSceneFPS { didSet { persist() } }
     @Published var sceneOptions: [String: SceneOptions] = [:] { didSet { persist() } }
     @Published var power: PowerOptions = PowerOptions() { didSet { persist() } }
+    @Published var stillDelay: Double = LibraryState.defaultStillDelay { didSet { persist() } }
     @Published var muted: Bool = true {
         didSet {
             guard !writesSuspended, muted != oldValue else { return }
@@ -76,6 +77,7 @@ import SceneFormat
         state.sceneFPS = sceneFPS
         state.sceneOptions = sceneOptions
         state.power = power
+        state.stillDelay = stillDelay
         return state
     }
 
@@ -303,6 +305,7 @@ import SceneFormat
         sceneFPS = state.sceneFPS
         sceneOptions = state.sceneOptions
         power = state.power
+        stillDelay = state.stillDelay
         muted = state.muted
     }
 

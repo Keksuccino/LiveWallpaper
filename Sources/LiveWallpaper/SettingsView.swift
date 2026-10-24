@@ -19,6 +19,8 @@ struct PlaybackSettingsView: View {
 
                 LibrarySettingsCard(model: model)
 
+                lockScreen
+
                 about
             }
             .padding(24)
@@ -26,6 +28,26 @@ struct PlaybackSettingsView: View {
         }
         .frame(width: 520, height: 660)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var lockScreen: some View {
+        InspectorSection(title: "Lock Screen & Menu Bar") {
+            VStack(alignment: .leading, spacing: 6) {
+                LWSettingRow(title: "Update delay") {
+                    Picker("Update delay", selection: $model.stillDelay) {
+                        ForEach(LibraryState.stillDelayOptions, id: \.self) { Text(Self.delayTitle($0)).tag($0) }
+                    }
+                    .labelsHidden().fixedSize()
+                }
+                Text("How long to wait before the picture on your lock screen and behind the menu bar is updated after you change your wallpaper or its settings. A short wait keeps your Mac smooth while a new wallpaper starts and while you adjust settings. Choose a shorter delay to see the change sooner.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private static func delayTitle(_ seconds: Double) -> String {
+        seconds == 0 ? "No delay" : "\(seconds.formatted()) s"
     }
 
     private var about: some View {

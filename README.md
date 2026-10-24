@@ -95,6 +95,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the process, IPC and bridge diagram.
 - Add videos by dropping them on the window or with Add Videos (⌘O). The first item is selected automatically.
 - The preview shows the selected item, muted and looping.
 - **Set as Desktop** assigns the selected item.
+- **Update delay** (Settings ⌘, → Lock Screen & Menu Bar) sets how long the app waits before the picture on your lock screen and behind the menu bar follows a wallpaper change (2 seconds by default).
 - Rotation cycles through the playlist, or the library when no playlist is set, in list order. Set how often it switches (minimum 5 seconds). Rotation needs at least two wallpapers.
 - **Start Wallpaper** (⌘↩) starts the service if needed and begins playback. **Stop Wallpaper** ends playback; the still of the last wallpaper stays your system wallpaper.
 - The service's menu bar item offers Open Settings, Start/Stop, Pause/Resume, Next Wallpaper, Mute and Quit.

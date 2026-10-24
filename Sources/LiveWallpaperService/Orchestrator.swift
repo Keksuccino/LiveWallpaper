@@ -57,6 +57,7 @@ import Core
             service.onFailure = { [weak self] item, message in self?.failed(item, message) }
         }
         state = StateStore.load() ?? LibraryState()
+        stills.delay = state.stillDelay
         LegacyLockScreen.cleanUp(library: state.videos)
         video.setMuted(state.muted)
         scene.setMuted(state.muted)
@@ -178,6 +179,7 @@ import Core
             scene.setMuted(fresh.muted)
         }
         scene.update(fresh)  // diffs itself; no restart
+        stills.delay = fresh.stillDelay
         guard isRunning else { return }
         guard canStart else {
             halt()

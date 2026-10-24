@@ -14,13 +14,14 @@ import SceneBridge
 @MainActor final class WallpaperStills {
     /// Bump when the still of an unchanged wallpaper would come out differently; every display gets a new one.
     private static let revision = 1
-    /// Edits come in bursts (a slider), and the live wallpaper should get the machine first.
-    private static let settleDelay: UInt64 = 2_000_000_000
     nonisolated private static let directory = AppPaths.wallpaperStillsDirectory
 
     /// A display got a new system wallpaper; the live windows have to let it through once (see
     /// DesktopWindows.revealSystemWallpaper) or the menu bar keeps showing the old one.
     var onApplied: (() -> Void)?
+    /// Seconds to wait before making stills (LibraryState.stillDelay): edits come in bursts (a slider sends every
+    /// step), and a new wallpaper should get the machine before its still loads the scene a second time.
+    var delay = LibraryState.defaultStillDelay
     private var look: Look?
     /// The stills the displays should show, once they exist.
     private var targets: [Target] = []
@@ -53,8 +54,11 @@ import SceneBridge
         work?.cancel()
         guard let look else { return }
         let targets = NSScreen.screens.map { Target(screen: $0, look: look) }
+        let delay = delay
         work = Task { @MainActor [weak self] in
-            do { try await Task.sleep(nanoseconds: Self.settleDelay) } catch { return }
+            if delay > 0 {
+                do { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) } catch { return }
+            }
             var jobs: [String: Target] = [:]
             for target in targets where !FileManager.default.fileExists(atPath: target.url.path) {
                 jobs[target.fileName] = target
