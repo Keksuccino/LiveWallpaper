@@ -124,6 +124,8 @@ update(LibraryState)
 
 It does not use the base `apply` path for scene settings; it pushes only changed values to the renderer, and applies the battery rule itself (on battery or in Low Power Mode: pause, or lower FPS and render scale). While the screen is locked the renderer draws nothing and its sounds stop. One scene runs at a time across all displays. When a playing scene has audio response on, it also runs `SystemAudioTap` (a Core Audio process tap, macOS 14.2+) and hands the spectrum to the renderer.
 
+Both render services draw into `DesktopWindows`: one desktop-level window per screen, kept for as long as the screen stays connected. A change of the screen parameters (resolution, arrangement, the menu bar's background) only moves or resizes the windows; `SceneRenderService` then attaches the layer of a new or resized display to the renderer again and detaches a removed one.
+
 `LockScreenWallpaper` is separate from the playback hierarchy. It applies and restores Aerial files, and on macOS 15 produces a still image instead of a live video. A scene chosen for the lock screen is first rendered by `LockSceneRecorder` (a second, off-screen `Renderer` at the screen's size, 10 s at 30 fps, HEVC) into `LockRenderCache`.
 
 `Orchestrator` owns one `VideoRenderService`, one `SceneRenderService` and one `LockScreenWallpaper`, with separate desktop and lock-screen channels. It decides which service shows which item, handles rotation and failure fallback, and is the normal writer of `state.json`.

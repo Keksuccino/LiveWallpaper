@@ -14,7 +14,7 @@ final class RendererBox: @unchecked Sendable {
 
 @MainActor final class SceneRenderService: WallpaperService {
     private var renderer: Renderer?
-    private let windows = SceneWindowManager()
+    private let windows = DesktopWindows { MetalView(frame: .zero) }
     private let power = PowerSource()
     private var audio: AnyObject?   // SystemAudioTap on macOS 14.2+
     private var pointerMonitor: Any?
@@ -27,11 +27,12 @@ final class RendererBox: @unchecked Sendable {
     private var appliedScale: Double?
     private var appliedPaused: Bool?
     private var paused = false
-    /// The displays the renderer draws on.
-    private var attached: [String] = []
+    /// The displays the renderer draws on, as they were attached.
+    private var attached: [SceneDisplay] = []
 
     override init() {
         super.init()
+        windows.onChange = { [weak self] in self?.attachDisplays() }
         power.onChange = { [weak self] in
             guard let self, let item = self.item, self.renderer != nil else { return }
             self.push(item)
@@ -77,12 +78,8 @@ final class RendererBox: @unchecked Sendable {
             for message in renderer.loadErrors() {
                 NSLog("LiveWallpaper: \(item.name): \(message)")
             }
-            for display in windows.displays() {
-                let pointer = UInt64(UInt(bitPattern: Unmanaged.passUnretained(display.layer).toOpaque()))
-                renderer.attachLayer(displayId: display.id, layerPtr: pointer,
-                                     width: UInt32(display.pixelWidth), height: UInt32(display.pixelHeight))
-                attached.append(display.id)
-            }
+            windows.open()
+            attachDisplays()
             renderer.setMuted(muted: muted)
             startPointer()
             push(item)
@@ -97,10 +94,26 @@ final class RendererBox: @unchecked Sendable {
         windows.close()
     }
 
+    /// Hands the renderer the layer of every screen. A display that is drawn on already is attached again only
+    /// when its layer or size changed (attaching again replaces it); a display that went away is detached.
+    private func attachDisplays() {
+        guard let renderer else { return }
+        let displays = windows.displays()
+        for old in attached where !displays.contains(where: { $0.id == old.id }) {
+            renderer.detachLayer(displayId: old.id)
+        }
+        for display in displays where !attached.contains(display) {
+            let pointer = UInt64(UInt(bitPattern: Unmanaged.passUnretained(display.layer).toOpaque()))
+            renderer.attachLayer(displayId: display.id, layerPtr: pointer,
+                                 width: UInt32(display.pixelWidth), height: UInt32(display.pixelHeight))
+        }
+        attached = displays
+    }
+
     private func stopRenderer() {
         stopPointer()
-        for id in attached {
-            renderer?.detachLayer(displayId: id)
+        for display in attached {
+            renderer?.detachLayer(displayId: display.id)
         }
         attached = []
         renderer?.stop()

@@ -1,12 +1,11 @@
 import AppKit
 import QuartzCore
 
-// The windows a scene is drawn in. The old renderer made its own windows; ours draws into a
-// CAMetalLayer that the app hands over, so the app keeps control of the window level, the
-// spaces and the occlusion state.
+// What a scene is drawn in. Our renderer draws into a CAMetalLayer that the app hands over, so the app keeps
+// control of the windows (DesktopWindows): their level, the spaces and the occlusion state.
 
 /// A view whose backing layer is a CAMetalLayer, so the renderer can draw into it.
-private final class MetalView: NSView {
+final class MetalView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true  // after super.init, so makeBackingLayer() is what creates the layer
@@ -21,16 +20,8 @@ private final class MetalView: NSView {
     var metalLayer: CAMetalLayer? { layer as? CAMetalLayer }
 }
 
-/// A borderless window that keeps its full screen frame. AppKit otherwise shrinks it to the visible
-/// frame, which leaves a strip under the menu bar undrawn.
-private final class SceneWindow: NSWindow {
-    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
-        frameRect
-    }
-}
-
 /// One display the scene is drawn on.
-struct SceneDisplay {
+struct SceneDisplay: Equatable {
     /// Stable id of the display, used to attach and detach the layer.
     let id: String
     let layer: CAMetalLayer
@@ -39,70 +30,20 @@ struct SceneDisplay {
     let pixelHeight: Int
 }
 
-/// One borderless window per screen, each with a CAMetalLayer in it.
-@MainActor final class SceneWindowManager {
-    private var windows: [(window: NSWindow, view: MetalView)] = []
-    private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
-
-    /// Creates the windows if needed and returns the layer of every screen.
+extension DesktopWindows where View == MetalView {
+    /// The layer of every screen with its size in pixels (the layer's scale follows the screen's).
     func displays() -> [SceneDisplay] {
-        if observers.isEmpty { installObservers() }
-        if windows.isEmpty { rebuildWindows() }
-        return windows.compactMap { entry -> SceneDisplay? in
+        entries.compactMap { entry -> SceneDisplay? in
             guard let layer = entry.view.metalLayer else { return nil }
-            let screen = entry.window.screen
-            let scale = screen?.backingScaleFactor ?? 1
+            let scale = entry.window.screen?.backingScaleFactor ?? 1
             layer.contentsScale = scale
             let size = entry.window.frame.size
             return SceneDisplay(
-                id: Self.displayID(entry.window.screen),
+                id: entry.id,
                 layer: layer,
                 pixelWidth: Int((size.width * scale).rounded()),
                 pixelHeight: Int((size.height * scale).rounded())
             )
         }
-    }
-
-    func close() {
-        for entry in windows { entry.window.close() }
-        windows.removeAll()
-        for (center, token) in observers { center.removeObserver(token) }
-        observers.removeAll()
-    }
-
-    /// The screen's number, which is stable while the display is connected.
-    private static func displayID(_ screen: NSScreen?) -> String {
-        let number = (screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.intValue ?? 0
-        return String(number)
-    }
-
-    private func rebuildWindows() {
-        windows.forEach { $0.window.close() }
-        windows = NSScreen.screens.map { screen in
-            let view = MetalView(frame: .zero)
-            let window = SceneWindow(contentRect: screen.frame, styleMask: .borderless,
-                                     backing: .buffered, defer: false)
-            window.setFrame(screen.frame, display: false)
-            window.isReleasedWhenClosed = false
-            window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) + 1)
-            window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
-            window.ignoresMouseEvents = true
-            window.hasShadow = false
-            window.canHide = false
-            window.isExcludedFromWindowsMenu = true
-            window.backgroundColor = .black
-            window.contentView = view
-            window.orderFrontRegardless()
-            return (window, view)
-        }
-    }
-
-    private func installObservers() {
-        let center = NotificationCenter.default
-        let token = center.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
-                                        object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.rebuildWindows() }
-        }
-        observers.append((center, token))
     }
 }

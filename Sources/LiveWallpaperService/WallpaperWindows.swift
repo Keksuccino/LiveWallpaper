@@ -51,7 +51,7 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
     private(set) var currentURL: URL?
     var isShowing: Bool { currentURL != nil }
 
-    private var windows: [NSWindow] = []
+    private let windows = DesktopWindows { PlayerView(frame: .zero) }
     private var player: AVQueuePlayer?
     private var looper: AVPlayerLooper?  // looping silently stops if this is released
     private var statusObservations: [NSKeyValueObservation] = []
@@ -68,7 +68,9 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
     private var screenLocked = false  // nothing plays under the lock screen, not even sound
     private var playerReleased = false  // the windows stay (black) while the player is gone
 
-    init() {}
+    init() {
+        windows.onChange = { [weak self] in self?.windowsChanged() }
+    }
 
     func show(url: URL) {
         if currentURL == url { return }
@@ -76,7 +78,10 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
         failureReported = false
         resumeTime = nil  // a new video starts from its beginning
         if observers.isEmpty { installObservers() }
-        if windows.isEmpty { rebuildWindows() }
+        if !windows.isOpen {
+            windows.open()
+            windowsChanged()
+        }
         // While the desktop is covered the new video only starts once it is uncovered (restorePlayerIfReleased).
         if !playerReleased { startPlayer(for: url) }
     }
@@ -90,8 +95,7 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
         observers.removeAll()
         tearDownPlayer()
         attachPlayer()  // detach from the layers so nothing keeps the old player alive
-        windows.forEach { $0.close() }
-        windows.removeAll()
+        windows.close()
         currentURL = nil
         // A stopped wallpaper is never user-paused, so the next show() starts playing.
         userPaused = false
@@ -120,25 +124,8 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
 
     // MARK: Windows
 
-    private static func makeWindow(on screen: NSScreen) -> NSWindow {
-        let window = NSWindow(contentRect: screen.frame, styleMask: .borderless,
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false  // ARC owns the window; the default would over-release on close()
-        window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) + 1)
-        window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
-        window.ignoresMouseEvents = true
-        window.hasShadow = false
-        window.canHide = false
-        window.isExcludedFromWindowsMenu = true
-        window.backgroundColor = .black
-        window.contentView = PlayerView(frame: .zero)
-        window.orderFrontRegardless()
-        return window
-    }
-
-    private func rebuildWindows() {
-        windows.forEach { $0.close() }
-        windows = NSScreen.screens.map { Self.makeWindow(on: $0) }
+    /// The windows opened or followed a screen change; a new window starts without the player.
+    private func windowsChanged() {
         occluded = false  // new windows report their real state through the occlusion notification
         attachPlayer()
         applyPlayback()
@@ -146,7 +133,7 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
     }
 
     private func attachPlayer() {
-        for window in windows { (window.contentView as? PlayerView)?.player = player }
+        for entry in windows.entries { entry.view.player = player }
     }
 
     // MARK: Player
@@ -248,7 +235,6 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
 
     private func installObservers() {
         let workspace = NSWorkspace.shared.notificationCenter
-        listen(NSApplication.didChangeScreenParametersNotification) { $0.rebuildWindows() }
         listen(NSWindow.didChangeOcclusionStateNotification) { $0.updateOcclusion() }
         for name in [NSWorkspace.screensDidSleepNotification, NSWorkspace.willSleepNotification] {
             listen(name, on: workspace) { $0.pauseForSleep() }
@@ -270,7 +256,7 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
     }
 
     private func updateOcclusion() {
-        occluded = !windows.isEmpty && windows.allSatisfy { !$0.occlusionState.contains(.visible) }
+        occluded = windows.isOpen && windows.entries.allSatisfy { !$0.window.occlusionState.contains(.visible) }
         if occluded { scheduleRelease() } else { restorePlayerIfReleased() }
         applyPlayback()
     }
