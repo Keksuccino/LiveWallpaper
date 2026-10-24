@@ -951,6 +951,13 @@ struct LibrarySettingsCard: View {
                     ScenePowerRows(model: model)
                 }
             }
+
+            Divider()
+
+            Label("Your system wallpaper becomes a still of the live wallpaper, so the lock screen and the menu bar match it. The still stays when the wallpaper stops.",
+                  systemImage: "info.circle")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 }

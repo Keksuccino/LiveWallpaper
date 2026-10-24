@@ -10,7 +10,7 @@ public enum ServiceCommand: Codable, Equatable, Sendable {
     /// (bumping the revision) and reconciles playback. Replaces today's "Settings writes state.json + .reload".
     case commit(LibraryState)
     case start(itemID: UUID?)   // begin playback (item, else the selection)
-    case stop                   // stop playback
+    case stop                   // stop playback; the system wallpaper keeps the last still
     case pause
     case resume
     case next

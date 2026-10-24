@@ -3,7 +3,7 @@
 Live Wallpaper is one app bundle with two running processes:
 
 - **LiveWallpaper.app** — the SwiftUI Settings app. It reads the library, edits settings, drives Steam Workshop downloads and sends commands to the service. It never plays a wallpaper and, after the one-time schema migration described below, never writes `state.json`.
-- **LiveWallpaperService.app** — the nested AppKit background service at `Contents/Library/LoginItems/`. It owns playback, the lock screen, rotation timers, the menu bar item, the Unix socket and `state.json`.
+- **LiveWallpaperService.app** — the nested AppKit background service at `Contents/Library/LoginItems/`. It owns playback, the system wallpaper stills, rotation timers, the menu bar item, the Unix socket and `state.json`.
 
 The Rust/C++ scene renderer is statically linked into the service and accessed in-process through UniFFI. There is no scene-host process, no XPC service and no per-scene subprocess.
 
@@ -24,7 +24,7 @@ flowchart TB
         direction TB
         ENTRY["ServiceEntry / ServiceDelegate<br/>NSApplicationDelegate"]
         SOCK["SocketServer"]
-        ORCH["Orchestrator<br/>bootstrap · commit · start · stop<br/>setPaused · setMuted<br/>owns video + scene + lock"]
+        ORCH["Orchestrator<br/>bootstrap · commit · start · stop<br/>setPaused · setMuted<br/>owns video + scene + stills"]
         MENU["Menu bar status item<br/>start/stop · pause · next · mute · quit"]
 
         subgraph PLAY["Wallpaper services"]
@@ -32,7 +32,7 @@ flowchart TB
             BASE["WallpaperService<br/>base class<br/>start · stop · setPaused<br/>setMuted · setScreenLocked · apply"]
             VIDEO["VideoRenderService<br/>start · stop · setPaused<br/>setMuted · setScreenLocked"]
             SCENE["SceneRenderService<br/>update(state) · start · stop<br/>setPaused · setMuted · setScreenLocked"]
-            LOCK["LockScreenWallpaper<br/>apply · restore · still fallback"]
+            STILLS["WallpaperStills<br/>show · stop<br/>a still per display as system wallpaper"]
         end
 
         subgraph RUST["SceneRenderer (Rust) · same process"]
@@ -49,7 +49,8 @@ flowchart TB
         SOCK --> ORCH
         ORCH --> VIDEO
         ORCH --> SCENE
-        ORCH --> LOCK
+        ORCH --> STILLS
+        STILLS -->|"scene stills"| FFI
         ORCH -->|"update(LibraryState)"| SCENE
         VIDEO -.->|extends| BASE
         SCENE -.->|extends| BASE
@@ -61,7 +62,7 @@ flowchart TB
 
     STATE[("state.json<br/>service writes · Settings reads")]
     PROJECT[("Library/{id}/project.json")]
-    AERIAL[("~/Library/.../aerials/videos")]
+    STILLFILES[("WallpaperStills/*.jpg<br/>system wallpaper of each display")]
     AV["AVPlayerLayer"]
 
     CLIENT -->|"Unix socket"| SOCK
@@ -71,7 +72,7 @@ flowchart TB
     STATE -.->|"load"| ORCH
     THREAD -.->|"reads scene.pkg"| PROJECT
     VIDEO --> AV
-    LOCK --> AERIAL
+    STILLS --> STILLFILES
 ```
 
 ## Processes and IPC
@@ -94,8 +95,8 @@ NSXPC was not used because launchd would not spawn the ad-hoc-signed nested serv
 | File | Owner | Purpose |
 |---|---|---|
 | `state.json` | Service (normal operation) | Library, selections, rotation, scene options and power settings. Settings reads it and sends `.commit`. |
-| `agent.json` | Service | Resume state, Aerial backup records and lock-screen restore state. |
-| `Library/{id}/lock-{W}x{H}.mov` + `.json` | Service (`LockSceneRecorder`) | A scene's lock-screen loop for one screen size, with the metadata that says when it is stale. |
+| `agent.json` | Service | Resume state, and the Aerial records older versions left (cleaned up at launch). |
+| `WallpaperStills/*.jpg` | Service (`WallpaperStills`) | The still each display shows as its system wallpaper, named after a digest of what it shows. |
 | `Library/{id}/project.json` | Workshop import / user library | Scene description read by both Settings and the renderer. |
 
 There is one deliberate exception to “the service writes `state.json`”: when the Settings app upgrades a schema-1 file, `StateStore.loadOrMigrate` copies it to `state.v1-backup.json` and performs the one-time schema-2 rewrite before connecting to the service. After that, all commits go through the service.
@@ -126,9 +127,9 @@ It does not use the base `apply` path for scene settings; it pushes only changed
 
 Both render services draw into `DesktopWindows`: one desktop-level window per screen, kept for as long as the screen stays connected. A change of the screen parameters (resolution, arrangement, the menu bar's background) only moves or resizes the windows; `SceneRenderService` then attaches the layer of a new or resized display to the renderer again and detaches a removed one.
 
-`LockScreenWallpaper` is separate from the playback hierarchy. It applies and restores Aerial files, and on macOS 15 produces a still image instead of a live video. A scene chosen for the lock screen is first rendered by `LockSceneRecorder` (a second, off-screen `Renderer` at the screen's size, 10 s at 30 fps, HEVC) into `LockRenderCache`.
+`WallpaperStills` is separate from the playback hierarchy. The menu bar's background, Mission Control and the lock screen show the system wallpaper, never our windows, so it sets every display's system wallpaper to a still of the live wallpaper at that display's pixel size: for a scene, a second, off-screen `Renderer` with the live scene's framing and properties; for a video, a frame filled and centred like the player's layer. A still is made only when the wallpaper, a display or the scene's framing changes, and it stays when playback stops. `LegacyLockScreen` puts back Apple's Aerial files that older versions swapped for their lock-screen video and deletes their lock-screen leftovers at launch.
 
-`Orchestrator` owns one `VideoRenderService`, one `SceneRenderService` and one `LockScreenWallpaper`, with separate desktop and lock-screen channels. It decides which service shows which item, handles rotation and failure fallback, and is the normal writer of `state.json`.
+`Orchestrator` owns one `VideoRenderService`, one `SceneRenderService` and one `WallpaperStills`. It decides which service shows which item, handles rotation and failure fallback, and is the normal writer of `state.json`.
 
 `ServiceDelegate` owns the socket server, the menu bar item and the orchestrator. Settings has no playback classes and never imports `SceneBridge`.
 

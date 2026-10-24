@@ -24,9 +24,9 @@ final class ScreenLockObserver: NSObject {
 }
 
 /// Older versions played a video on the lock screen by swapping it into Apple's downloaded Aerials, rendered scenes
-/// into video loops for it and set stills of their own. The lock screen now shows the system wallpaper. This puts
-/// Apple's Aerials back and deletes the leftovers. It finds nothing to do on a Mac that never ran such a version, so
-/// it runs at every launch.
+/// into video loops for it and set stills of their own. The lock screen now shows the system wallpaper, which
+/// WallpaperStills keeps a still of the desktop. This puts Apple's Aerials back and deletes the leftovers. It finds
+/// nothing to do on a Mac that never ran such a version, so it runs at every launch.
 enum LegacyLockScreen {
     private static let temporaryPrefix = "livewallpaper-lockscreen-"
 

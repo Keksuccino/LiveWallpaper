@@ -2,7 +2,8 @@ import AppKit
 import Core
 
 // Decides what the desktop shows: the selected wallpaper, rotation through the playlist and the next item when one
-// cannot play. The desktop is drawn by a WallpaperService (VideoRenderService or SceneRenderService). The service is
+// cannot play. The desktop is drawn by a WallpaperService (VideoRenderService or SceneRenderService); WallpaperStills
+// keeps every display's system wallpaper a still of it, which is also what the lock screen shows. The service is
 // the only writer of state.json (StateStore.commit / setMuted).
 
 @MainActor final class Orchestrator {
@@ -30,6 +31,7 @@ import Core
 
     private let video = VideoRenderService()
     private let scene = SceneRenderService()
+    private let stills = WallpaperStills()
     private var current: UUID?
     private var rotationTimer: Timer?
     private var activity: NSObjectProtocol?
@@ -98,7 +100,8 @@ import Core
         changed()
     }
 
-    /// Stops playback and persists `wantsRunning = false`. The service stays alive.
+    /// Stops playback and persists `wantsRunning = false`. The service stays alive, and the stills stay the system
+    /// wallpaper.
     func stop() {
         guard isRunning else { return }
         halt()
@@ -176,6 +179,8 @@ import Core
             return
         }
         reconcile(from: old)
+        // A scene framed differently needs new stills; anything else leaves them as they are.
+        if let item = currentItem { stills.show(item, options: sceneOptions(of: item)) }
     }
 
     private func reconcile(from old: LibraryState) {
@@ -264,6 +269,8 @@ import Core
     private func show(_ item: VideoItem) {
         showDepth += 1
         defer { showDepth -= 1 }
+        // Before the render service starts: if it fails at once, the item after it asks for its own stills last.
+        stills.show(item, options: sceneOptions(of: item))
         if item.isScene {
             // The video windows stay up (previous wallpaper) until the scene renderer shows its first frame.
             scene.update(state)
@@ -276,7 +283,11 @@ import Core
         }
     }
 
-    // Nothing left to show.
+    private func sceneOptions(of item: VideoItem) -> SceneOptions? {
+        item.isScene ? state.sceneOptions[item.id.uuidString] ?? .standard : nil
+    }
+
+    // Nothing left to show. The stills stay the system wallpaper.
     private func clear() {
         rotationTimer?.invalidate()
         rotationTimer = nil
@@ -284,6 +295,7 @@ import Core
         current = nil
         video.stop()
         scene.stop()
+        stills.stop()
     }
 
     // MARK: System events
@@ -318,6 +330,7 @@ import Core
         rotationTimer = nil
         video.stop()
         scene.stop()
+        stills.stop()
         screenLock = nil
         if let activity { ProcessInfo.processInfo.endActivity(activity) }
         activity = nil

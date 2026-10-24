@@ -103,4 +103,15 @@ final class CoreTests: XCTestCase {
         state.desktop.playlist = [a.id]
         XCTAssertFalse(state.rotates)
     }
+
+    func testContentStampFollowsTheFile() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("lw-\(UUID().uuidString).pkg")
+        defer { try? FileManager.default.removeItem(at: file) }
+        try Data("one".utf8).write(to: file)
+        let item = VideoItem(path: file.path)
+        let first = item.contentStamp
+        XCTAssertEqual(item.contentStamp, first)
+        try Data("longer content".utf8).write(to: file)
+        XCTAssertNotEqual(item.contentStamp, first)
+    }
 }

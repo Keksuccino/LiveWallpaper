@@ -10,17 +10,17 @@
 ![Rust](https://img.shields.io/badge/renderer-Rust%20%2B%20Metal-orange)
 ![Swift](https://img.shields.io/badge/app-Swift%20%2B%20SwiftUI-F05138)
 
-**Live Wallpaper** is a free, open-source animated wallpaper app for macOS. It plays videos and **Wallpaper Engine scenes** as your desktop wallpaper, rotates through a playlist on a timer, plays video on the lock screen (macOS 26+), and downloads wallpapers from the **Steam Workshop** with your own Steam account. Scenes are drawn by our own Rust + Metal renderer that sleeps when nothing is moving, so it stays light on battery.
+**Live Wallpaper** is a free, open-source animated wallpaper app for macOS. It plays videos and **Wallpaper Engine scenes** as your desktop wallpaper, rotates through a playlist on a timer, keeps the lock screen and menu bar in step with a still of it, and downloads wallpapers from the **Steam Workshop** with your own Steam account. Scenes are drawn by our own Rust + Metal renderer that sleeps when nothing is moving, so it stays light on battery.
 
-![Live Wallpaper settings window: a video wallpaper selected, with Set as Desktop / Lock Screen, rotation and scene frame-rate options](assets/screenshots/library-detail.png)
+![Live Wallpaper settings window: a video wallpaper selected, with Set as Desktop, rotation and scene frame-rate options](assets/screenshots/library-detail.png)
 
 ## Features
 
 - **Video wallpapers**: drop in MP4, MOV or M4V files; they play muted (or with sound) and loop on every display.
 - **Wallpaper Engine scenes on a Mac**: a from-scratch renderer for `.pkg` scene packages: layers, effects, bloom, particles, puppet animation, text, parallax, SceneScript (QuickJS) and audio-reactive properties.
 - **Steam Workshop browser**: browse Trending wallpapers, search, or paste a Workshop link; download with Valve's official SteamCMD and your own account.
-- **Desktop and lock screen**: set them separately or together. Live lock-screen video on macOS 26; on macOS 15 a still frame of the current video.
-- **Rotation**: cycle a playlist or your whole library every N seconds (minimum 5), independently for desktop and lock screen.
+- **Lock screen and menu bar to match**: each display's system wallpaper becomes a still of the live wallpaper, framed the same way, so the lock screen, the menu bar background and Mission Control show it too.
+- **Rotation**: cycle a playlist or your whole library every N seconds (minimum 5).
 - **Battery-friendly**: frame-rate cap, render scale, "pause on battery", "skip repeated frames", "update only when the scene changes", pause while the screen is locked or the desktop is covered.
 - **Menu bar control**: start/stop, pause, next wallpaper, mute and quit from a background service that keeps running after Settings closes.
 - **Native and small**: SwiftUI settings app plus an AppKit background service. No Electron, no web view, no Homebrew libraries.
@@ -32,7 +32,7 @@
 | ![Steam Workshop grid showing trending video and scene wallpapers with download buttons](assets/screenshots/workshop-browse.png) | ![Steam Workshop link lookup showing a scene wallpaper's tags, resolution, size and download button](assets/screenshots/workshop-lookup.png) |
 | **Workshop browser.** Trending, search and a Mature filter. Web wallpapers are flagged as unsupported instead of failing after download. | **Paste a link.** Any Workshop URL or item number is looked up automatically and shows type, resolution, rating and size before you download. |
 | ![Steam Setup wizard: install SteamCMD, sign in to Steam, check Wallpaper Engine](assets/screenshots/steam-setup.png) | ![Empty wallpaper library with Choose Videos and Browse the Workshop buttons](assets/screenshots/library-empty.png) |
-| **Steam Setup.** Three steps: install SteamCMD (about 3 MB), sign in, check Wallpaper Engine. | **Library.** Drop videos anywhere on the window. Sidebar filters: All, Desktop, Lock Screen, Scenes. |
+| **Steam Setup.** Three steps: install SteamCMD (about 3 MB), sign in, check Wallpaper Engine. | **Library.** Drop videos anywhere on the window. Sidebar filters: All, Desktop, Scenes. |
 
 ## How the renderer works
 
@@ -57,7 +57,7 @@ Swift service ──commands──▶ channel ──▶ render thread
 - **One command buffer for all displays.** Every screen is encoded into one buffer per frame, with transient targets pooled and reused inside the frame.
 - **Parallax with the scene's own delay.** The pointer is eased toward its position using the scene's configured delay rather than jumping.
 - **Power rules in the service.** The effective frame rate is the smallest of the scene setting, the frame-rate cap and the battery FPS; render scale and pause-on-battery apply the same way. Only changed values reach the renderer. While the screen is locked, nothing is drawn and sounds stop.
-- **Lock screen scenes.** A second off-screen renderer records a 10 s, 30 fps HEVC loop at the screen's size and caches it, so the lock screen plays a video instead of a live GPU scene.
+- **Stills for the system wallpaper.** A second, off-screen renderer draws one frame of the scene at each display's size, framed like the live one, and the service sets it as that display's system wallpaper. It is drawn again only when the wallpaper, a display or the framing changes.
 
 ### Shader pipeline: GLSL 1.20 to Metal
 
@@ -94,19 +94,17 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the process, IPC and bridge diagram.
 
 - Add videos by dropping them on the window or with Add Videos (⌘O). The first item is selected automatically.
 - The preview shows the selected item, muted and looping.
-- **Set as Desktop**, **Set as Lock Screen** or **Set as Both** assigns the selected item. Scenes can only be used on the Desktop; the lock screen needs a video.
+- **Set as Desktop** assigns the selected item.
 - Rotation cycles through the playlist, or the library when no playlist is set, in list order. Set how often it switches (minimum 5 seconds). Rotation needs at least two wallpapers.
-- **Same for both** (on by default) shares the selection and rotation settings between Desktop and Lock Screen. Turn it off to configure them separately.
-- **Start Wallpaper** (⌘↩) starts the service if needed and begins playback. **Stop Wallpaper** ends playback and restores your original wallpapers.
-- The service's menu bar item offers Open Settings, Start/Stop, Pause/Resume, Next Desktop Wallpaper, Next Lock Screen Wallpaper, Mute and Quit.
-- Closing the Settings window quits Settings; the service keeps playing. Choosing Quit Wallpaper restores Apple's wallpapers and stops the service.
+- **Start Wallpaper** (⌘↩) starts the service if needed and begins playback. **Stop Wallpaper** ends playback; the still of the last wallpaper stays your system wallpaper.
+- The service's menu bar item offers Open Settings, Start/Stop, Pause/Resume, Next Wallpaper, Mute and Quit.
+- Closing the Settings window quits Settings; the service keeps playing. Choosing Quit Wallpaper stops the service.
 
-Everything the app installs stays in `~/Library/Application Support/LiveWallpaper/` and `~/Library/Caches/LiveWallpaperSteam/`. Remove the app and those folders to uninstall; choose **Quit Wallpaper** in the menu bar first so Apple's original wallpapers are restored.
+Everything the app installs stays in `~/Library/Application Support/LiveWallpaper/` and `~/Library/Caches/LiveWallpaperSteam/`. Remove the app and those folders to uninstall; choose **Quit Wallpaper** in the menu bar first, and pick another wallpaper in System Settings → Wallpaper, since the current one is a still stored in that folder.
 
 ## Requirements
 
 - macOS 15 or later on Apple silicon.
-- Live lock-screen video on macOS 26 or later. On macOS 15 the lock screen uses a still frame of the current video instead.
 - To build from source: macOS 26 with Xcode 26 or matching Command Line Tools, and Rust stable (rustup). No Homebrew libraries are needed.
 
 Release builds are arm64. `UNIVERSAL=1 ./build.sh` adds an x86_64 slice (it needs `rustup target add x86_64-apple-darwin`).
@@ -134,7 +132,7 @@ The build checks that Settings never links the old scene engine and that the ser
 
 ## Architecture
 
-Two processes: the SwiftUI **LiveWallpaper** (Settings) app, which plays nothing, and the nested AppKit **LiveWallpaperService**, which owns playback, the lock screen, rotation timers, the Unix socket and `state.json`. Settings sends commands to the service over the socket and never imports `SceneBridge`. The Rust renderer is statically linked into the service, not a separate process. Full diagram, state ownership and option mapping: [ARCHITECTURE.md](ARCHITECTURE.md).
+Two processes: the SwiftUI **LiveWallpaper** (Settings) app, which plays nothing, and the nested AppKit **LiveWallpaperService**, which owns playback, the system wallpaper stills, rotation timers, the Unix socket and `state.json`. Settings sends commands to the service over the socket and never imports `SceneBridge`. The Rust renderer is statically linked into the service, not a separate process. Full diagram, state ownership and option mapping: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## FAQ
 
@@ -144,7 +142,7 @@ Two processes: the SwiftUI **LiveWallpaper** (Settings) app, which plays nothing
 
 **Does it drain the battery?** Videos use `AVPlayer`. Scenes only render while something changes, and you can cap FPS, lower render scale or pause on battery.
 
-**Can I use a live wallpaper on the lock screen?** Yes, with a video on macOS 26 or later. Scenes are baked into a short looping video first. On macOS 15 you get a still frame.
+**Can I use a live wallpaper on the lock screen?** The lock screen shows a still of it. macOS draws the lock screen from the system wallpaper, which the app sets to a still of the live wallpaper on every display.
 
 **Why does macOS warn about the app?** It is signed ad hoc, not notarized. See [Install](#install).
 

@@ -214,8 +214,7 @@ final class RendererBox: @unchecked Sendable {
             renderer.setFitMode(mode: new.fitMode.renderer)
         }
         if new.panX != old?.panX || new.panY != old?.panY || new.zoom != old?.zoom {
-            // The sliders are 0...1 with 0.5 in the middle; the renderer wants the offset.
-            renderer.setPanZoom(panX: Float(new.panX - 0.5), panY: Float(new.panY - 0.5), zoom: Float(new.zoom))
+            renderer.setPanZoom(of: new)
         }
         if scale != appliedScale {
             renderer.setRenderScale(scale: Float(scale))
@@ -298,7 +297,14 @@ final class RendererBox: @unchecked Sendable {
     }
 }
 
-private extension SceneFitMode {
+extension Renderer {
+    /// The sliders are 0...1 with 0.5 in the middle; the renderer wants the offset.
+    func setPanZoom(of options: SceneOptions) {
+        setPanZoom(panX: Float(options.panX - 0.5), panY: Float(options.panY - 0.5), zoom: Float(options.zoom))
+    }
+}
+
+extension SceneFitMode {
     var renderer: FitMode {
         switch self {
         case .fill: return .fill

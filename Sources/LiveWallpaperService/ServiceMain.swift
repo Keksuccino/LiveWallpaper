@@ -144,7 +144,7 @@ enum ServiceEntry {
         settings.target = self
         let quit = NSMenuItem(title: "Quit Wallpaper", action: #selector(quitFromMenu), keyEquivalent: "q")
         quit.target = self
-        quit.toolTip = "Stops the wallpaper and quits this helper."
+        quit.toolTip = "Stops the wallpaper and quits this helper. Its still stays your system wallpaper."
         [statusLine, messageItem, .separator(), settings, .separator(),
          toggleItem, pauseItem, nextItem, muteItem, .separator(), quit].forEach(menu.addItem)
         item.menu = menu

@@ -50,6 +50,15 @@ public struct VideoItem: Identifiable, Codable, Hashable, Sendable {
     public var kind: ItemKind { scene == nil ? .video : .scene }
     public var isScene: Bool { scene != nil }
 
+    /// Identifies the file's content: its size and modification time. Changes when a Workshop item is re-downloaded
+    /// with new content.
+    public var contentStamp: String {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+        let size = (attributes?[.size] as? NSNumber)?.int64Value ?? -1
+        let modified = (attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? -1
+        return "\(size)-\(Int(modified))"
+    }
+
     public static func isVideo(_ url: URL) -> Bool {
         guard url.isFileURL else { return false }
         let ext = url.pathExtension.lowercased()
@@ -119,7 +128,8 @@ public struct SceneInfo: Codable, Hashable, Sendable {
 
 // MARK: - Library + settings (state.json, written only by the Settings app)
 
-/// What the desktop plays and how it rotates. The lock screen shows the system wallpaper.
+/// What the desktop plays and how it rotates. The lock screen shows the system wallpaper, which the service sets to
+/// a still of the desktop's wallpaper.
 public struct PlaybackConfig: Codable, Equatable, Sendable {
     public var enabled: Bool              // false = the desktop is left alone (Apple's wallpaper stays)
     public var selectedID: UUID?          // starting / current choice
@@ -304,6 +314,9 @@ public enum AppPaths {
     public static let agentFile = supportDirectory.appendingPathComponent("agent.json")
     /// Imported Workshop items: Library/<workshop id>/<video, preview, project.json>.
     public static let libraryDirectory = supportDirectory.appendingPathComponent("Library", isDirectory: true)
+    /// The stills the service sets as each display's system wallpaper (WallpaperStills in the service).
+    public static let wallpaperStillsDirectory = supportDirectory
+        .appendingPathComponent("WallpaperStills", isDirectory: true)
     /// Apple's original Aerial files, set aside by older versions for their lock-screen video. The service puts
     /// them back at launch (LegacyLockScreen).
     public static let backupsDirectory = supportDirectory.appendingPathComponent("Backups", isDirectory: true)
