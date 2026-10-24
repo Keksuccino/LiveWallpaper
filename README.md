@@ -12,7 +12,7 @@
 
 **Live Wallpaper** is a free, open-source animated wallpaper app for macOS. It plays videos and **Wallpaper Engine scenes** as your desktop wallpaper, rotates through a playlist on a timer, keeps the lock screen and menu bar in step with a still of it, and downloads wallpapers from the **Steam Workshop** with your own Steam account. Scenes are drawn by our own Rust + Metal renderer that sleeps when nothing is moving, so it stays light on battery.
 
-![Live Wallpaper settings window: a video wallpaper selected, with Set as Desktop, rotation and scene frame-rate options](assets/screenshots/library-detail.png)
+![Live Wallpaper settings window: a video wallpaper selected, with rotation and scene frame-rate options](assets/screenshots/library-detail.png)
 
 ## Features
 
@@ -32,7 +32,7 @@
 | ![Steam Workshop grid showing trending video and scene wallpapers with download buttons](assets/screenshots/workshop-browse.png) | ![Steam Workshop link lookup showing a scene wallpaper's tags, resolution, size and download button](assets/screenshots/workshop-lookup.png) |
 | **Workshop browser.** Trending, search and a Mature filter. Web wallpapers are flagged as unsupported instead of failing after download. | **Paste a link.** Any Workshop URL or item number is looked up automatically and shows type, resolution, rating and size before you download. |
 | ![Steam Setup wizard: install SteamCMD, sign in to Steam, check Wallpaper Engine](assets/screenshots/steam-setup.png) | ![Empty wallpaper library with Choose Videos and Browse the Workshop buttons](assets/screenshots/library-empty.png) |
-| **Steam Setup.** Three steps: install SteamCMD (about 3 MB), sign in, check Wallpaper Engine. | **Library.** Drop videos anywhere on the window. Sidebar filters: All, Desktop, Scenes. |
+| **Steam Setup.** Three steps: install SteamCMD (about 3 MB), sign in, check Wallpaper Engine. | **Library.** Drop videos anywhere on the window. Sidebar filters: All, Scenes. |
 
 ## How the renderer works
 
@@ -94,7 +94,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the process, IPC and bridge diagram.
 
 - Add videos by dropping them on the window or with Add Videos (⌘O). The first item is selected automatically.
 - The preview shows the selected item, muted and looping.
-- **Set as Desktop** assigns the selected item.
+- **Play** (or a double-click) shows a wallpaper.
 - **Update delay** (Settings ⌘, → Lock Screen & Menu Bar) sets how long the app waits before the picture on your lock screen and behind the menu bar follows a wallpaper change (2 seconds by default).
 - Rotation cycles through the playlist, or the library when no playlist is set, in list order. Set how often it switches (minimum 5 seconds). Rotation needs at least two wallpapers.
 - **Start Wallpaper** (⌘↩) starts the service if needed and begins playback. **Stop Wallpaper** ends playback; the still of the last wallpaper stays your system wallpaper.

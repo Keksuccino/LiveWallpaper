@@ -90,11 +90,8 @@ import SceneFormat
         sceneOptions[id.uuidString] = options
     }
 
-    /// Whether `id` is the selected desktop wallpaper (drives the role badges).
-    func isSelected(_ id: VideoItem.ID) -> Bool { snapshot.isSelected(id) }
-
-    /// "Set as Desktop" (SPEC3.md 6.2). Commits through the service; starts nothing.
-    func assign(_ id: VideoItem.ID) {
+    /// Makes `id` the selected wallpaper. Commits through the service; starts nothing.
+    private func assign(_ id: VideoItem.ID) {
         var state = snapshot
         state.assign(id)
         guard state != snapshot else { return }

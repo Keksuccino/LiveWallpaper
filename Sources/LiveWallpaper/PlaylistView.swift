@@ -3,7 +3,7 @@ import AppKit
 import Core
 import UniformTypeIdentifiers
 
-// The Playlists page: the ordered list of wallpapers the desktop rotates through, plus its rotation settings. The
+// The Playlists page: the ordered list of wallpapers that rotate, plus its rotation settings. The
 // storage is PlaybackConfig.playlist in state.json (nil = the whole library in library order); every edit goes
 // through SettingsModel.setPlaylist, so the service stays the only writer.
 
@@ -15,7 +15,7 @@ struct PlaylistView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: LWTheme.sectionSpacing) {
                 LWPageHeader(title: "Playlists",
-                             subtitle: "Choose the wallpapers that rotate on your desktop, and in what order.")
+                             subtitle: "Choose the wallpapers that rotate, and in what order.")
                 VStack(alignment: .leading, spacing: 18) {
                     PlaylistEditorCard(model: model)
                     rotationCard
@@ -72,7 +72,7 @@ private struct PlaylistEditorCard: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Desktop playlist")
+                    Text("Playlist")
                         .font(.title3.weight(.semibold))
                     Text(subtitle)
                         .font(.caption)
@@ -273,7 +273,7 @@ private struct PlaylistAddSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Add to Desktop Playlist")
+                Text("Add to Playlist")
                     .font(.headline)
                 LWSearchField(prompt: "Search your library", text: $searchText)
             }

@@ -63,16 +63,6 @@ struct AppCommands: Commands {
             }
             .keyboardShortcut(.return, modifiers: .command)
             .disabled(!model.isRunning && !model.canStart)
-
-            Divider()
-
-            if let id = model.focusedID ?? model.selectedID {
-                Button("Set as Desktop") { model.assign(id) }
-                    .keyboardShortcut("d", modifiers: [.option, .command])
-            } else {
-                Button("Select a wallpaper first") {}
-                    .disabled(true)
-            }
         }
     }
 }

@@ -7,22 +7,19 @@ import Core
 // The Library: a gallery-first wall of wallpapers, with a large live preview and a context inspector.
 
 enum LibraryFilter: String, CaseIterable, Identifiable, Equatable {
-    case all, desktop, scenes
+    case all, scenes
 
     var id: String { rawValue }
     var title: String {
         switch self {
         case .all: return "All Wallpapers"
-        case .desktop: return "Desktop"
         case .scenes: return "Scenes"
         }
     }
 
-    /// `selected`: the item is the selected desktop wallpaper.
-    func includes(_ item: VideoItem, selected: Bool) -> Bool {
+    func includes(_ item: VideoItem) -> Bool {
         switch self {
         case .all: return true
-        case .desktop: return selected
         case .scenes: return item.isScene
         }
     }
@@ -131,12 +128,9 @@ struct LibraryView: View {
 
     // MARK: Data
 
-    private var state: LibraryState { model.snapshot }
-
     private var items: [VideoItem] {
-        let state = state
-        return model.videos.filter { item in
-            filter.includes(item, selected: state.isSelected(item.id)) &&
+        model.videos.filter { item in
+            filter.includes(item) &&
             (searchText.isEmpty ||
              item.name.localizedCaseInsensitiveContains(searchText) ||
              (item.author ?? "").localizedCaseInsensitiveContains(searchText))
@@ -272,7 +266,6 @@ struct LibraryView: View {
         }
         switch filter {
         case .all: return "\(items.count) \(items.count == 1 ? "wallpaper" : "wallpapers")"
-        case .desktop: return "\(items.count) set for your desktop"
         case .scenes: return "\(items.count) Wallpaper Engine \(items.count == 1 ? "scene" : "scenes")"
         }
     }
@@ -311,7 +304,6 @@ struct LibraryView: View {
                     ForEach(items) { item in
                         LibraryCard(item: item,
                                     broken: isBroken(item),
-                                    isDesktop: state.isSelected(item.id),
                                     playing: model.isPlaying(item.id),
                                     paused: model.isPaused,
                                     focused: item.id == focused?.id,
@@ -320,7 +312,6 @@ struct LibraryView: View {
                                     onSelect: { select(item) },
                                     onToggleSelect: { toggleSelection(item.id) },
                                     onActivate: { model.play(item.id) },
-                                    assign: { model.assign(item.id) },
                                     remove: { remove([item.id]) })
                             .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     }
@@ -330,7 +321,6 @@ struct LibraryView: View {
                     ForEach(items) { item in
                         LibraryListRow(item: item,
                                        broken: isBroken(item),
-                                       isDesktop: state.isSelected(item.id),
                                        playing: model.isPlaying(item.id),
                                        paused: model.isPaused,
                                        focused: item.id == focused?.id,
@@ -339,7 +329,6 @@ struct LibraryView: View {
                                        onSelect: { select(item) },
                                        onToggleSelect: { toggleSelection(item.id) },
                                        onActivate: { model.play(item.id) },
-                                       assign: { model.assign(item.id) },
                                        remove: { remove([item.id]) })
                     }
                 }
@@ -436,8 +425,6 @@ private struct LibraryHero: View {
     let openSteamSetup: () -> Void
     let remove: () -> Void
 
-    private var isDesktop: Bool { model.isSelected(item.id) }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             ZStack(alignment: .bottom) {
@@ -480,9 +467,6 @@ private struct LibraryHero: View {
                         .lineLimit(2)
                         .truncationMode(.middle)
                     HStack(spacing: 6) {
-                        if playing {
-                            LWChip(text: "Desktop", tint: .accentColor, filled: true, icon: "checkmark")
-                        }
                         if item.isScene, let info = item.scene { SceneSupportBadge(info: info) }
                         Text(meta)
                             .font(.caption)
@@ -491,14 +475,6 @@ private struct LibraryHero: View {
                 }
                 Spacer(minLength: 8)
                 HStack(spacing: 8) {
-                    Button {
-                        model.assign(item.id)
-                    } label: {
-                        Label("Set as Desktop", systemImage: isDesktop ? "checkmark" : "display")
-                    }
-                    .disabled(isDesktop)
-                    .fixedSize()
-
                     Button {
                         model.clearStatus()
                         if playing { model.stop() } else { model.play(item.id) }
@@ -563,8 +539,6 @@ private struct LibraryHero: View {
 private struct LibraryCard: View {
     let item: VideoItem
     let broken: Bool
-    /// The selected desktop wallpaper.
-    let isDesktop: Bool
     let playing: Bool
     let paused: Bool
     let focused: Bool
@@ -573,7 +547,6 @@ private struct LibraryCard: View {
     let onSelect: () -> Void
     let onToggleSelect: () -> Void
     let onActivate: () -> Void
-    let assign: () -> Void
     let remove: () -> Void
     @State private var hovering = false
 
@@ -590,10 +563,6 @@ private struct LibraryCard: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                     HStack(spacing: 4) {
-                        if isDesktop {
-                            LWChip(text: "Desktop", tint: .accentColor, filled: playing,
-                                   icon: playing ? "waveform" : nil)
-                        }
                         if let info = item.scene { SceneSupportBadge(info: info) }
                     }
                     .padding(7)
@@ -611,8 +580,6 @@ private struct LibraryCard: View {
                             .help("Play wallpaper")
 
                             Menu {
-                                SetAsItems(isDesktop: isDesktop, assign: assign)
-                                Divider()
                                 Button("Remove…", role: .destructive, action: remove)
                             } label: {
                                 Image(systemName: "ellipsis")
@@ -669,8 +636,6 @@ private struct LibraryCard: View {
             withAnimation(LWMotion.hover) { hovering = inside }
         }
         .contextMenu {
-            SetAsItems(isDesktop: isDesktop, assign: assign)
-            Divider()
             Button("Remove…", role: .destructive, action: remove)
         }
         .help(broken ? "This file was moved, deleted, or can’t be played." : item.name)
@@ -706,8 +671,6 @@ private struct LibraryCard: View {
 private struct LibraryListRow: View {
     let item: VideoItem
     let broken: Bool
-    /// The selected desktop wallpaper.
-    let isDesktop: Bool
     let playing: Bool
     let paused: Bool
     let focused: Bool
@@ -716,7 +679,6 @@ private struct LibraryListRow: View {
     let onSelect: () -> Void
     let onToggleSelect: () -> Void
     let onActivate: () -> Void
-    let assign: () -> Void
     let remove: () -> Void
     @State private var hovering = false
 
@@ -744,18 +706,11 @@ private struct LibraryListRow: View {
                     .frame(width: 96, height: 54)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.name).font(.callout.weight(.medium)).lineLimit(1).truncationMode(.middle)
-                    HStack(spacing: 5) {
-                        if isDesktop {
-                            LWChip(text: "Desktop", tint: .accentColor, filled: playing)
-                        }
-                        if item.isScene, let info = item.scene { SceneSupportBadge(info: info) }
-                    }
+                    if let info = item.scene { SceneSupportBadge(info: info) }
                 }
                 Spacer(minLength: 8)
                 if playing { ActivityBars(playing: true, paused: paused) }
                 Menu {
-                    SetAsItems(isDesktop: isDesktop, assign: assign)
-                    Divider()
                     Button("Remove…", role: .destructive, action: remove)
                 } label: {
                     Image(systemName: "ellipsis")
@@ -781,8 +736,6 @@ private struct LibraryListRow: View {
         }
         .onHover { inside in withAnimation(LWMotion.hover) { hovering = inside } }
         .contextMenu {
-            SetAsItems(isDesktop: isDesktop, assign: assign)
-            Divider()
             Button("Remove…", role: .destructive, action: remove)
         }
         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -804,7 +757,6 @@ struct LibraryInspectorView: View {
             VStack(alignment: .leading, spacing: 20) {
                 if let item {
                     header(item)
-                    setAsSection(item)
                     if item.isScene { SceneSettingsCard(model: model, item: item) }
                     LibrarySettingsCard(model: model)
                     removeSection(item)
@@ -843,30 +795,6 @@ struct LibraryInspectorView: View {
         }
     }
 
-    private func setAsSection(_ item: VideoItem) -> some View {
-        let selected = model.isSelected(item.id)
-        return InspectorSection(title: "Set as") {
-            Button {
-                model.assign(item.id)
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "display").frame(width: 16)
-                    Text("Desktop")
-                    Spacer()
-                    if selected { Image(systemName: "checkmark.circle.fill").foregroundStyle(.tint) }
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(selected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.035))
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
     private func removeSection(_ item: VideoItem) -> some View {
         InspectorSection(title: "Danger zone") {
             Button(role: .destructive) {
@@ -877,20 +805,6 @@ struct LibraryInspectorView: View {
             .buttonStyle(.bordered)
             .tint(.red)
             .controlSize(.small)
-        }
-    }
-}
-
-// MARK: - Set as
-
-@MainActor
-fileprivate struct SetAsItems: View {
-    let isDesktop: Bool
-    let assign: () -> Void
-
-    var body: some View {
-        Button(action: assign) {
-            if isDesktop { Label("Set as Desktop", systemImage: "checkmark") } else { Text("Set as Desktop") }
         }
     }
 }

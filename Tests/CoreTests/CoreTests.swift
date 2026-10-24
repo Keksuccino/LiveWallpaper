@@ -67,12 +67,10 @@ final class CoreTests: XCTestCase {
     func testAssignSelectsAndEnablesTheDesktop() {
         let a = VideoItem(path: "/a.mp4"), b = VideoItem(path: "/b.mp4")
         var state = LibraryState(videos: [a, b], desktop: PlaybackConfig(enabled: false, selectedID: a.id))
-        XCTAssertFalse(state.isSelected(a.id), "a disabled desktop has no selected wallpaper")
         state.assign(b.id)
         XCTAssertEqual(state.desktop.selectedID, b.id)
         XCTAssertTrue(state.desktop.enabled)
-        XCTAssertTrue(state.isSelected(b.id))
-        XCTAssertFalse(state.isSelected(a.id))
+        XCTAssertEqual(state.selectedItem?.id, b.id)
         state.assign(UUID())
         XCTAssertEqual(state.desktop.selectedID, b.id, "an id that is not in the library is ignored")
     }

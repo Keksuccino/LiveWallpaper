@@ -268,15 +268,12 @@ public struct LibraryState: Codable, Equatable, Sendable {
     /// Rotation only ever cycles a playlist the user curated. Without one, the selected wallpaper stays.
     public var rotates: Bool { desktop.playlist != nil && desktop.rotateEnabled && hasMultipleItems }
 
-    /// True when `id` is the selected wallpaper and the desktop is enabled (drives the role badges).
-    public func isSelected(_ id: UUID) -> Bool { desktop.enabled && desktop.selectedID == id }
-
     /// Something can be played: a non-empty library and the desktop enabled.
     public var canStart: Bool { !videos.isEmpty && desktop.enabled }
 
     // MARK: Writes
 
-    /// "Set as Desktop": selects `id` and turns the desktop on. An id that is not in the library is ignored.
+    /// Selects `id` and turns the desktop on. An id that is not in the library is ignored.
     public mutating func assign(_ id: UUID) {
         guard videos.contains(where: { $0.id == id }) else { return }
         desktop.selectedID = id

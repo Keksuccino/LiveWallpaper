@@ -78,18 +78,17 @@ struct LiveWallpaperApp: App {
 // MARK: - Navigation
 
 enum SidebarSelection: Hashable {
-    case all, desktop, scenes, playlists, workshop, downloads, steamSetup
+    case all, scenes, playlists, workshop, downloads, steamSetup
 
     var isLibrary: Bool {
         switch self {
-        case .all, .desktop, .scenes: return true
+        case .all, .scenes: return true
         default: return false
         }
     }
 
     var libraryFilter: LibraryFilter {
         switch self {
-        case .desktop: return .desktop
         case .scenes: return .scenes
         default: return .all
         }
@@ -98,7 +97,6 @@ enum SidebarSelection: Hashable {
     var title: String {
         switch self {
         case .all: return "All Wallpapers"
-        case .desktop: return "Desktop"
         case .scenes: return "Scenes"
         case .playlists: return "Playlists"
         case .workshop: return "Workshop"
@@ -110,7 +108,6 @@ enum SidebarSelection: Hashable {
     var symbol: String {
         switch self {
         case .all: return "rectangle.on.rectangle"
-        case .desktop: return "display"
         case .scenes: return "sparkles.rectangle.stack"
         case .playlists: return "list.bullet.rectangle"
         case .workshop: return "square.grid.2x2"
@@ -145,7 +142,6 @@ struct RootView: View {
         List(selection: $selection) {
             Section("Library") {
                 sidebarRow(.all, count: model.videos.count)
-                sidebarRow(.desktop, count: desktopCount)
                 sidebarRow(.scenes, count: model.videos.filter(\.isScene).count)
                 sidebarRow(.playlists, count: nil)
             }
@@ -183,11 +179,6 @@ struct RootView: View {
         }
         .padding(.vertical, 1)
         .tag(item)
-    }
-
-    private var desktopCount: Int {
-        let state = model.snapshot
-        return model.videos.filter { state.isSelected($0.id) }.count
     }
 
     // MARK: Detail
@@ -250,7 +241,7 @@ struct RootView: View {
 
     @ViewBuilder private var content: some View {
         switch selection {
-        case .all, .desktop, .scenes:
+        case .all, .scenes:
             LibraryView(model: model,
                         filter: selection.libraryFilter,
                         showInspector: $showInspector,
@@ -279,10 +270,7 @@ struct RootView: View {
     }
 
     private var focusedLibraryItem: VideoItem? {
-        let state = model.snapshot
-        let visible = model.videos.filter {
-            selection.libraryFilter.includes($0, selected: state.isSelected($0.id))
-        }
+        let visible = model.videos.filter { selection.libraryFilter.includes($0) }
         return visible.first { $0.id == model.focusedID } ?? visible.first
     }
 
@@ -479,7 +467,7 @@ private struct ServicePopover: View {
                 Text(stateText).font(.caption).foregroundStyle(.secondary)
             }
 
-            desktopRow
+            wallpaperRow
                 .padding(12)
                 .background {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -529,15 +517,15 @@ private struct ServicePopover: View {
         }
     }
 
-    private var desktopRow: some View {
+    private var wallpaperRow: some View {
         let id = model.currentID
         let item = model.videos.first { $0.id == id }
         return HStack(spacing: 9) {
-            Image(systemName: "display")
+            Image(systemName: "play.rectangle")
                 .foregroundStyle(.secondary)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 1) {
-                Text("Desktop").font(.caption).foregroundStyle(.secondary)
+                Text("Wallpaper").font(.caption).foregroundStyle(.secondary)
                 Text(item?.name ?? "Off")
                     .font(.callout.weight(.medium))
                     .lineLimit(1)
