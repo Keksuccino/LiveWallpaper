@@ -15,6 +15,7 @@ dist/
 WallpaperEngineAssets/
 SteamCMD/
 SteamHome/
+wallpaper_engine_windows_build/
 
 # Rust renderer build output
 SceneRenderer/target/
