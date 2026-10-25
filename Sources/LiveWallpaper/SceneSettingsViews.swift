@@ -1,8 +1,9 @@
 import SwiftUI
 import Core
 
-// Per-scene settings ("Scene settings" section of the library detail) and the global "Scenes" power settings.
-// Everything writes through SettingsModel (sceneOptions / power), which commits to the service.
+// A scene's settings on one display (the "Scene" section of the Home inspector) and the display's "Scenes" power
+// settings. Everything writes through SettingsModel (DisplayConfig.sceneOptions / .power), which commits to the
+// service.
 
 /// One user property read from a scene's project.json (general.properties).
 struct SceneProperty: Identifiable {
@@ -62,27 +63,28 @@ fileprivate final class ScenePropertyCache {
 @MainActor
 struct SceneSettingsCard: View {
     @ObservedObject var model: SettingsModel
+    let display: String
     let item: VideoItem
     @State private var properties: [SceneProperty] = []
 
-    private var options: SceneOptions { model.sceneOptions(for: item.id) }
+    private var options: SceneOptions { model.sceneOptions(on: display, for: item.id) }
     private func binding<T>(_ path: WritableKeyPath<SceneOptions, T>) -> Binding<T> {
-        Binding(get: { model.sceneOptions(for: item.id)[keyPath: path] },
-                set: { v in model.updateSceneOptions(item.id) { $0[keyPath: path] = v } })
+        Binding(get: { options[keyPath: path] },
+                set: { v in model.updateSceneOptions(on: display, for: item.id) { $0[keyPath: path] = v } })
     }
     private func percent(_ v: Double) -> String { "\(Int((v * 100).rounded()))%" }
 
     var body: some View {
-        InspectorSection(title: "Scene", subtitle: "Tuning for this wallpaper only.") {
+        InspectorSection(title: "Scene", subtitle: "Tuning for this wallpaper on this display.") {
             VStack(alignment: .leading, spacing: 11) {
                 HStack {
                     Text("Frame rate"); Spacer()
                     Picker("Frame rate", selection: binding(\.fps)) {
-                        Text("Use global").tag(Int?.none)
+                        Text("Default").tag(Int?.none)
                         ForEach([20, 24, 30, 45, 60], id: \.self) { Text("\($0) fps").tag(Int?.some($0)) }
                     }.labelsHidden().fixedSize()
                 }
-                .help("Frame rate for this scene. “Use global” follows Scene frame rate below.")
+                .help("Frame rate for this scene. “Default” follows the Scenes frame rate below.")
                 sliderRow("Resolution", binding(\.renderScale), 0.25...1)
                     .help("Share of the display’s pixels the scene is drawn at. Lower is lighter on the GPU.")
                 sliderRow("Zoom", binding(\.zoom), 0.5...2)
@@ -165,7 +167,7 @@ struct SceneSettingsCard: View {
     /// key would leave the old value in the renderer until the scene restarts.
     private func reset() {
         let overridden = options.properties
-        model.updateSceneOptions(item.id) { o in
+        model.updateSceneOptions(on: display, for: item.id) { o in
             o = .standard
             for p in properties where overridden[p.key] != nil {
                 if let d = defaultValue(p) { o.properties[p.key] = d }
@@ -177,7 +179,7 @@ struct SceneSettingsCard: View {
 
     private func current(_ p: SceneProperty) -> ScenePropertyValue? { options.properties[p.key] }
     private func set(_ p: SceneProperty, _ v: ScenePropertyValue) {
-        model.updateSceneOptions(item.id) { $0.properties[p.key] = v }
+        model.updateSceneOptions(on: display, for: item.id) { $0.properties[p.key] = v }
     }
     private func projectDefault(_ p: SceneProperty) -> Any? {
         SceneProperty.defaults(from: item.url.deletingLastPathComponent().appendingPathComponent("project.json"), key: p.key)
@@ -233,13 +235,17 @@ struct SceneSettingsCard: View {
     }
 }
 
-/// Global "Scenes" rows (frame-rate cap, battery rule, render optimisations); lives inside the settings card.
+/// A display's "Scenes" rows (frame-rate cap, battery rule, render optimisations); lives inside its settings card.
 @MainActor
 struct ScenePowerRows: View {
     @ObservedObject var model: SettingsModel
+    let display: String
+
+    private var power: PowerOptions { model.config(for: display).power }
 
     private func binding<T>(_ path: WritableKeyPath<PowerOptions, T>) -> Binding<T> {
-        Binding(get: { model.power[keyPath: path] }, set: { model.power[keyPath: path] = $0 })
+        Binding(get: { power[keyPath: path] },
+                set: { value in model.updateDisplay(display) { $0.power[keyPath: path] = value } })
     }
 
     var body: some View {
@@ -258,11 +264,11 @@ struct ScenePowerRows: View {
                     ForEach(BatteryMode.allCases, id: \.self) { Text($0.title).tag($0) }
                 }.labelsHidden().fixedSize()
             }
-            if model.power.batteryMode == .reducedQuality {
+            if power.batteryMode == .reducedQuality {
                 HStack {
                     Text("Battery resolution")
                     Slider(value: binding(\.batteryRenderScale), in: 0.25...1)
-                    Text("\(Int((model.power.batteryRenderScale * 100).rounded()))%").monospacedDigit()
+                    Text("\(Int((power.batteryRenderScale * 100).rounded()))%").monospacedDigit()
                         .foregroundStyle(.secondary).frame(width: 44, alignment: .trailing)
                 }
                 HStack {

@@ -35,8 +35,8 @@ struct SettingsOpenerInstaller: View {
     }
 }
 
-/// The standard macOS Settings window (⌘,): settings about the app as a whole. Playback, rotation and the scene
-/// settings live in the Library inspector (LibrarySettingsCard).
+/// The standard macOS Settings window (⌘,): settings about the app as a whole. Everything about a display's
+/// wallpaper lives in the Home inspector (DisplayInspectorView).
 @MainActor
 struct AppSettingsView: View {
     @ObservedObject var model: SettingsModel

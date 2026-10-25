@@ -1,78 +1,76 @@
 import AppKit
 import Core
 
-// Decides what the desktop shows: the selected wallpaper, rotation through the playlist and the next item when one
-// cannot play. The desktop is drawn by a WallpaperService (VideoRenderService or SceneRenderService); WallpaperStills
-// keeps every display's system wallpaper a still of it, which is also what the lock screen shows. The service is
-// the only writer of state.json (StateStore.commit / setMuted).
+// Decides what every display shows. Each connected display that has a wallpaper gets a DisplayPlayer, which draws
+// it (and rotates it) on that display alone; WallpaperStills keeps such a display's system wallpaper a still of it,
+// which is also what its menu bar and the lock screen show. A display whose wallpaper is taken away gets macOS's
+// default wallpaper back. The service is the only writer of state.json (StateStore.commit / setMuted).
 
 @MainActor final class Orchestrator {
     private static let unreadableLibrary = "Couldn’t read your library. Using the previous list."
-    private static let nothingPlayable = "None of your wallpapers can be played."
 
-    /// Fired after any change of the observable properties below (status item and socket status listen).
+    /// Fired after any change of what the displays show or of the properties below (status item and socket status
+    /// listen).
     var onChange: (@MainActor () -> Void)?
 
     /// Library + settings as last read from state.json.
     private(set) var state = LibraryState()
-    private(set) var isRunning = false
     private(set) var isPaused = false
-    private(set) var failedIDs: Set<UUID> = []
-    /// User-facing problem (orange line in the menu, `message` in ServiceStatus). nil = fine.
-    private(set) var statusMessage: String?
-    /// Why the last item could not play (ServiceStatus.error); cleared by start and play.
-    private(set) var itemError: String?
+    /// User-facing problem of the service as a whole (orange line in the menu, `message` in ServiceStatus).
+    private(set) var message: String?
 
-    var muted: Bool { state.muted }
-    var canStart: Bool { state.canPlay }
-    var message: String? { statusMessage }
-    var currentItem: VideoItem? { state.videos.first { $0.id == current } }
-    var canRotate: Bool { isRunning && current != nil && state.hasMultipleItems }
-
-    private let video = VideoRenderService()
-    private let scene = SceneRenderService()
+    private var players: [String: DisplayPlayer] = [:]
     private let stills = WallpaperStills()
-    private var current: UUID?
-    private var rotationTimer: Timer?
     private var activity: NSObjectProtocol?
     private var screenLock: ScreenLockObserver?
-    private var showDepth = 0  // > 0 while show() runs: a render service may report a failure synchronously
+    private var screenLocked = false
+    private var screenObserver: NSObjectProtocol?
 
     init() {
-        // The scene is on screen: the previous (video) wallpaper can go.
-        scene.onReady = { [weak self] _ in self?.video.stop() }
-        // While a scene loads, the previous video's windows are still up, so both services let the new still through.
-        stills.onApplied = { [weak self] in
-            self?.video.revealSystemWallpaper()
-            self?.scene.revealSystemWallpaper()
-        }
+        // While a scene loads, the previous video's window is still up, so both of the display's services let the
+        // new still through.
+        stills.onApplied = { [weak self] display in self?.players[display]?.revealSystemWallpaper() }
     }
+
+    /// What the connected displays show, in screen order, each item once.
+    var shownItems: [VideoItem] {
+        var seen = Set<UUID>()
+        return NSScreen.screens.compactMap { players[$0.displayID]?.currentItem }.filter { seen.insert($0.id).inserted }
+    }
+
+    var isLive: Bool { players.values.contains { $0.current != nil } }
+    var canRotate: Bool { players.values.contains { $0.current != nil && $0.rotates } }
+    /// Every display with a wallpaper is muted (the menu's Mute Sound).
+    var muted: Bool { players.keys.allSatisfy { state.config(for: $0).muted } }
 
     // MARK: Lifecycle
 
-    /// Once at launch: loads state.json and agent.json, clears what older versions left for their lock screen and
-    /// resumes when `wantsRunning` (and canStart).
+    /// Once at launch: loads state.json, clears what older versions left for their lock screen and shows every
+    /// display's wallpaper.
     func bootstrap() {
-        for service in [video, scene] as [WallpaperService] {
-            service.onFailure = { [weak self] item, message in self?.failed(item, message) }
-        }
         state = StateStore.load() ?? LibraryState()
         stills.delay = state.stillDelay
         LegacyLockScreen.cleanUp(library: state.videos)
-        video.setMuted(state.muted)
-        scene.setMuted(state.muted)
-        if AgentRecordStore.load().wantsRunning, canStart {
-            start(at: nil)
-        } else {
-            setWantsRunning(false)
+        screenLock = ScreenLockObserver { [weak self] locked in
+            guard let self else { return }
+            self.screenLocked = locked
+            self.players.values.forEach { $0.setScreenLocked(locked) }
         }
+        screenObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.reconcile()
+                self?.onChange?()
+            }
+        }
+        reconcile()
     }
 
-    /// The UI's edited library: written to state.json with the service's own `muted`, then applied.
+    /// The UI's edited library: written to state.json with the service's own `muted` values, then applied.
     /// Returns false when state.json could not be written (nothing is applied then).
     func commit(_ edited: LibraryState) -> Bool {
         var fresh = edited
-        fresh.muted = state.muted
         guard StateStore.commit(&fresh) else { return false }
         reload()
         return true
@@ -81,279 +79,120 @@ import Core
     /// Re-reads state.json and applies it when its revision differs from the applied one.
     func reload() {
         guard let fresh = StateStore.load() else {
-            statusMessage = Self.unreadableLibrary
+            message = Self.unreadableLibrary
             onChange?()
             return
         }
-        if statusMessage == Self.unreadableLibrary { statusMessage = nil }
+        if message == Self.unreadableLibrary { message = nil }
         if fresh.revision != state.revision { apply(fresh) }
-        changed()
+        onChange?()
     }
 
-    /// Begins at `id`, else the selected item, else the first. No-op when already running or nothing can be played.
-    /// Persists `wantsRunning = true`.
-    func start(at id: UUID?) {
-        guard !isRunning, canStart else { return }
-        statusMessage = nil
-        failedIDs = []
-        itemError = nil
-        isRunning = true
-        activity = ProcessInfo.processInfo.beginActivity(
-            options: .userInitiatedAllowingIdleSystemSleep, reason: "Playing live wallpaper")
-        setWantsRunning(true)
-        observeSystem()
-        applyItem(startingAt: state.items.firstIndex { $0.id == id } ?? selectedIndex)
-        changed()
-    }
-
-    /// Stops playback and persists `wantsRunning = false`. The service stays alive, and the stills stay the system
-    /// wallpaper.
-    func stop() {
-        guard isRunning else { return }
-        halt()
-        changed()
-    }
-
-    /// Jumps to `id`, starting playback if needed.
-    func play(_ id: UUID) {
-        guard state.videos.contains(where: { $0.id == id }) else { return }
-        guard isRunning else {
-            start(at: id)
-            return
-        }
-        failedIDs.remove(id)  // asking for it by name is worth another try
-        if state.canPlay, let index = state.items.firstIndex(where: { $0.id == id }) {
-            itemError = nil
-            applyItem(startingAt: index)
-        }
-        changed()
-    }
-
-    /// Moves on to the next item; with fewer than two items the desktop stays where it is.
+    /// Every rotating display moves on to its next wallpaper.
     func next() {
-        guard isRunning else { return }
-        if current != nil, state.hasMultipleItems {
-            applyItem(startingAt: (state.items.firstIndex { $0.id == current } ?? -1) + 1)
-        }
+        players.values.forEach { $0.next() }
         changed()
     }
 
-    /// Pauses/resumes the desktop AND the rotation timer.
+    /// Pauses/resumes every display AND its rotation.
     func setPaused(_ paused: Bool) {
-        guard isRunning, paused != isPaused else { return }
+        guard paused != isPaused else { return }
         isPaused = paused
-        video.setPaused(paused)
-        scene.setPaused(paused)
-        scheduleRotation()
-        changed()
+        players.values.forEach { $0.setPaused(paused) }
+        onChange?()
     }
 
-    /// Written to state.json and applied at once.
-    func setMuted(_ muted: Bool) {
-        guard StateStore.setMuted(muted) != nil else { return }
+    /// `display` nil = every display. Written to state.json and applied at once.
+    func setMuted(_ muted: Bool, display: String?) {
+        guard StateStore.setMuted(muted, display: display) != nil else { return }
         reload()
     }
 
-    /// Tears everything down. Idempotent. `userQuit` true also persists `wantsRunning = false`; false (logout,
-    /// SIGTERM) leaves it so the next launch resumes.
-    func shutdown(userQuit: Bool) {
-        if userQuit { setWantsRunning(false) }
-        if isRunning { teardown() }
+    /// Takes the live wallpapers off the displays; their stills stay the system wallpapers. Idempotent.
+    func shutdown() {
+        if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+        screenObserver = nil
+        players.values.forEach { $0.stop() }
+        players = [:]
+        stills.stop()
+        screenLock = nil
+        updateActivity()
     }
 
     func status() -> ServiceStatus {
-        ServiceStatus(
-            playback: isRunning ? (isPaused ? .paused : .playing) : .stopped,
-            itemID: current, error: itemError, stateRevision: state.revision, muted: state.muted, message: message)
-    }
-
-    // MARK: Library changes
-
-    // Adding videos never changes what is playing.
-    private func apply(_ fresh: LibraryState) {
-        let old = state
-        state = fresh  // first, so canPlay and friends read the new values
-        failedIDs.formIntersection(fresh.videos.map(\.id))
-        if old.muted != fresh.muted {
-            video.setMuted(fresh.muted)
-            scene.setMuted(fresh.muted)
+        let displays = NSScreen.screens.map { screen -> DisplayStatus in
+            let id = screen.displayID
+            return DisplayStatus(id: id, itemID: players[id]?.current, error: players[id]?.error,
+                                 muted: state.config(for: id).muted)
         }
-        scene.update(fresh)  // diffs itself; no restart
-        stills.delay = fresh.stillDelay
-        guard isRunning else { return }
-        guard canStart else {
-            halt()
-            return
-        }
-        reconcile(from: old)
-        // A scene framed differently needs new stills; anything else leaves them as they are.
-        if let item = currentItem { stills.show(item, options: sceneOptions(of: item)) }
-    }
-
-    private func reconcile(from old: LibraryState) {
-        guard let playing = current else {
-            if !old.canPlay { applyItem(startingAt: selectedIndex) }
-            return
-        }
-        let items = state.items
-        let selected = state.desktop.selectedID
-        if !items.contains(where: { $0.id == playing }) {
-            // The current item was removed: continue with whatever now sits at its index.
-            let oldIndex = old.items.firstIndex { $0.id == playing } ?? 0
-            applyItem(startingAt: min(oldIndex, items.count))
-        } else if selected != old.desktop.selectedID, let selected,
-                  let index = items.firstIndex(where: { $0.id == selected }) {
-            failedIDs.remove(selected)
-            itemError = nil
-            applyItem(startingAt: index)
-        }
-        if old.rotates != state.rotates || old.desktop.intervalSeconds != state.desktop.intervalSeconds {
-            scheduleRotation()
-        }
-    }
-
-    // From a render service: only the item currently on the desktop counts.
-    private func failed(_ item: VideoItem, _ message: String?) {
-        guard isRunning, item.id == current else { return }
-        fail(item, message)
-        if showDepth == 0 { changed() }  // inside show() the public entry point that called it ends with changed()
-    }
-
-    // The status item reads `onChange`, so every public entry point ends here. A run that ran out of playable items
-    // stops, keeping the message that says why.
-    private func changed() {
-        if isRunning, current == nil {
-            let reason = statusMessage ?? Self.nothingPlayable
-            halt()
-            statusMessage = reason
-        }
-        onChange?()
+        return ServiceStatus(paused: isPaused, displays: displays, stateRevision: state.revision, message: message)
     }
 
     // MARK: Applying
 
-    private var selectedIndex: Int {
-        state.items.firstIndex { $0.id == state.desktop.selectedID } ?? 0
-    }
-
-    // Shows the first playable item at or after `start` (wrapping), then restarts the rotation timer.
-    private func applyItem(startingAt start: Int) {
-        let items = state.items
-        guard let index = firstPlayableIndex(in: items, from: start) else {
-            clear()
-            statusMessage = Self.nothingPlayable
-            return
+    private func apply(_ fresh: LibraryState) {
+        let old = state
+        state = fresh
+        stills.delay = fresh.stillDelay
+        // A wallpaper taken away (or deleted from the library) gives the display macOS's default wallpaper back.
+        // It is set while the live window still covers it; reconcile() then closes the window.
+        let connected = Set(NSScreen.screens.map(\.displayID))
+        for (id, config) in old.displays
+        where config.wallpaperID != nil && fresh.config(for: id).wallpaperID == nil && connected.contains(id) {
+            stills.revert(id)
         }
-        statusMessage = nil
-        let item = items[index]
-        // The item that is already showing is left alone.
-        if item.id != current {
-            current = item.id
-            show(item)
+        reconcile()
+    }
+
+    /// A player for every connected display that has a wallpaper, none for the rest.
+    private func reconcile() {
+        let connected = NSScreen.screens.map(\.displayID)
+        for (id, player) in players where !connected.contains(id) || state.config(for: id).wallpaperID == nil {
+            player.stop()
+            players[id] = nil
+            stills.forget(id)
         }
-        scheduleRotation()
-    }
-
-    private func firstPlayableIndex(in items: [VideoItem], from start: Int) -> Int? {
-        for offset in 0..<items.count {
-            let index = (start + offset) % items.count
-            let item = items[index]
-            if failedIDs.contains(item.id) { continue }
-            if FileManager.default.fileExists(atPath: item.path) { return index }
-            failedIDs.insert(item.id)
+        for id in connected where state.config(for: id).wallpaperID != nil {
+            if let player = players[id] {
+                player.update(state)
+            } else {
+                let player = DisplayPlayer(displayID: id, state: state, paused: isPaused)
+                player.onChange = { [weak self] in self?.changed() }
+                if screenLocked { player.setScreenLocked(true) }
+                players[id] = player
+            }
         }
-        return nil
+        syncStills()
+        updateActivity()
     }
 
-    // Marks `item` failed, moves on to the next item and keeps the reason.
-    private func fail(_ item: VideoItem, _ message: String?) {
-        failedIDs.insert(item.id)
-        itemError = message
-        applyItem(startingAt: (state.items.firstIndex { $0.id == item.id } ?? -1) + 1)
-        if let message { statusMessage = message }
+    /// A player moved on by itself (rotation, failure): the stills follow and the status item and UI hear of it.
+    private func changed() {
+        syncStills()
+        updateActivity()
+        onChange?()
     }
 
-    private func show(_ item: VideoItem) {
-        showDepth += 1
-        defer { showDepth -= 1 }
-        // Before the render service starts: if it fails at once, the item after it asks for its own stills last.
-        stills.show(item, options: sceneOptions(of: item))
-        if item.isScene {
-            // The video windows stay up (previous wallpaper) until the scene renderer shows its first frame.
-            scene.update(state)
-            scene.start(item)
-            if scene.item?.id == item.id { scene.setPaused(isPaused) }
-        } else {
-            scene.stop()
-            video.start(item)
-            video.setPaused(isPaused)
+    /// Each display's still follows what it shows; a display that shows nothing keeps its last still.
+    private func syncStills() {
+        for (id, player) in players {
+            if let item = player.currentItem {
+                let options = item.isScene ? state.config(for: id).sceneOptions(for: item.id) : nil
+                stills.show(item, options: options, on: id)
+            } else {
+                stills.forget(id)
+            }
         }
     }
 
-    private func sceneOptions(of item: VideoItem) -> SceneOptions? {
-        item.isScene ? state.sceneOptions[item.id.uuidString] ?? .standard : nil
-    }
-
-    // Nothing left to show. The stills stay the system wallpaper.
-    private func clear() {
-        rotationTimer?.invalidate()
-        rotationTimer = nil
-        guard current != nil else { return }
-        current = nil
-        video.stop()
-        scene.stop()
-        stills.stop()
-    }
-
-    // MARK: System events
-
-    private func observeSystem() {
-        video.setScreenLocked(false)
-        scene.setScreenLocked(false)
-        guard screenLock == nil else { return }
-        screenLock = ScreenLockObserver { [weak self] locked in
-            self?.video.setScreenLocked(locked)
-            self?.scene.setScreenLocked(locked)
+    /// Keeps App Nap away while something is live.
+    private func updateActivity() {
+        if isLive, activity == nil {
+            activity = ProcessInfo.processInfo.beginActivity(
+                options: .userInitiatedAllowingIdleSystemSleep, reason: "Showing live wallpapers")
+        } else if !isLive, let activity {
+            ProcessInfo.processInfo.endActivity(activity)
+            self.activity = nil
         }
-    }
-
-    private func scheduleRotation() {
-        rotationTimer?.invalidate()
-        rotationTimer = nil
-        guard isRunning, !isPaused, current != nil, state.rotates else { return }
-        let interval = state.desktop.intervalSeconds
-        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.next() }
-        }
-        timer.tolerance = min(interval * 0.1, 5)
-        RunLoop.main.add(timer, forMode: .common)
-        rotationTimer = timer
-    }
-
-    // MARK: Stopping
-
-    private func teardown() {
-        rotationTimer?.invalidate()
-        rotationTimer = nil
-        video.stop()
-        scene.stop()
-        stills.stop()
-        screenLock = nil
-        if let activity { ProcessInfo.processInfo.endActivity(activity) }
-        activity = nil
-        isRunning = false
-        isPaused = false
-        current = nil
-    }
-
-    // An explicit or automatic stop: nothing to resume at the next launch.
-    private func halt() {
-        teardown()
-        statusMessage = nil
-        setWantsRunning(false)
-    }
-
-    private func setWantsRunning(_ wants: Bool) {
-        AgentRecordStore.update { $0.wantsRunning = wants }
     }
 }

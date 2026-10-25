@@ -5,44 +5,68 @@ import UniformTypeIdentifiers
 import Core
 import SceneBridge
 
-// The system wallpaper of every display is a still of the live wallpaper, framed exactly like the live one on that
-// display. The menu bar's background, Mission Control and the lock screen show the system wallpaper, never our
+// The system wallpaper of every display with a live wallpaper is a still of it, framed exactly like the live one on
+// that display. The menu bar's background, Mission Control and the lock screen show the system wallpaper, never our
 // windows, so without it they would show whatever picture was set before. A still is made only when what it shows
-// changes (another wallpaper, display size or scene framing), never to follow the animation. It stays when playback
-// stops: from then on it simply is the user's wallpaper.
+// changes (another wallpaper, display size or scene framing), never to follow the animation. It stays when the
+// service quits: from then on it simply is the user's wallpaper. A display whose live wallpaper is taken away gets
+// macOS's default wallpaper back.
 
 @MainActor final class WallpaperStills {
     /// Bump when the still of an unchanged wallpaper would come out differently; every display gets a new one.
     private static let revision = 1
     nonisolated private static let directory = AppPaths.wallpaperStillsDirectory
+    /// The picture macOS itself starts with (a link to the still of its current default wallpaper).
+    private static let defaultWallpaper = URL(fileURLWithPath: "/System/Library/CoreServices/DefaultDesktop.heic")
 
-    /// A display got a new system wallpaper; the live windows have to let it through once (see
-    /// DesktopWindows.revealSystemWallpaper) or the menu bar keeps showing the old one.
-    var onApplied: (() -> Void)?
+    /// A display (by UUID) got a new system wallpaper; its live window has to let it through once (see
+    /// DisplayWindow.revealSystemWallpaper) or the menu bar keeps showing the old one.
+    var onApplied: ((String) -> Void)?
     /// Seconds to wait before making stills (LibraryState.stillDelay): edits come in bursts (a slider sends every
     /// step), and a new wallpaper should get the machine before its still loads the scene a second time.
     var delay = LibraryState.defaultStillDelay
-    private var look: Look?
-    /// The stills the displays should show, once they exist.
-    private var targets: [Target] = []
+    /// What each display shows live, by display UUID.
+    private var looks: [String: Look] = [:]
+    /// The still each display should show, once it exists.
+    private var targets: [String: Target] = [:]
     private var work: Task<Void, Never>?
     private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
 
-    /// The desktop now shows `item`; `options` are its scene options (nil for a video).
-    func show(_ item: VideoItem, options: SceneOptions?) {
+    /// `display` now shows `item`; `options` are its scene options there (nil for a video).
+    func show(_ item: VideoItem, options: SceneOptions?, on display: String) {
         let look = Look(item: item, options: options)
-        guard look != self.look else { return }
-        self.look = look
+        guard look != looks[display] else { return }
+        looks[display] = look
         if observers.isEmpty { installObservers() }
         refresh()
     }
 
-    /// Playback stopped: pending work ends and the stills stay the system wallpaper.
+    /// `display` shows nothing live any more; its still stays its system wallpaper.
+    func forget(_ display: String) {
+        looks[display] = nil
+        targets[display] = nil
+    }
+
+    /// `display`'s live wallpaper was taken away: it gets macOS's default wallpaper, and its still goes.
+    func revert(_ display: String) {
+        forget(display)
+        if let screen = NSScreen.screens.first(where: { $0.displayID == display }) {
+            do {
+                try NSWorkspace.shared.setDesktopImageURL(Self.defaultWallpaper, for: screen, options: [:])
+            } catch {
+                NSLog("LiveWallpaper: couldn’t set the default wallpaper: \(error.localizedDescription)")
+            }
+        }
+        AgentRecordStore.update { $0.stills[display] = nil }
+        removeUnusedStills()
+    }
+
+    /// The service quits: pending work ends and the stills stay the system wallpapers.
     func stop() {
         work?.cancel()
         work = nil
-        look = nil
-        targets = []
+        looks = [:]
+        targets = [:]
         for (center, token) in observers { center.removeObserver(token) }
         observers.removeAll()
     }
@@ -52,41 +76,56 @@ import SceneBridge
     /// Works out the still of every display, makes the missing ones after the settle delay and applies them.
     private func refresh() {
         work?.cancel()
-        guard let look else { return }
-        let targets = NSScreen.screens.map { Target(screen: $0, look: look) }
+        var targets: [String: Target] = [:]
+        for screen in NSScreen.screens {
+            if let look = looks[screen.displayID] { targets[screen.displayID] = Target(screen: screen, look: look) }
+        }
+        guard !targets.isEmpty else { return }
         let delay = delay
         work = Task { @MainActor [weak self] in
             if delay > 0 {
                 do { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) } catch { return }
             }
-            var jobs: [String: Target] = [:]
-            for target in targets where !FileManager.default.fileExists(atPath: target.url.path) {
-                jobs[target.fileName] = target
+            // One renderer or video frame serves every display that shows the same look; a file that exists already
+            // (same look, size and colour space) is not made again.
+            var groups: [(look: Look, jobs: [String: Target])] = []
+            for target in targets.values where !FileManager.default.fileExists(atPath: target.url.path) {
+                if let index = groups.firstIndex(where: { $0.look == target.look }) {
+                    groups[index].jobs[target.fileName] = target
+                } else {
+                    groups.append((target.look, [target.fileName: target]))
+                }
             }
-            if !jobs.isEmpty {
+            for group in groups {
                 do {
-                    try await Self.make(Array(jobs.values), of: look)
+                    try await Self.make(Array(group.jobs.values), of: group.look)
                 } catch {
-                    if !Task.isCancelled { NSLog("LiveWallpaper: couldn’t make the wallpaper still: \(error)") }
-                    return
+                    if Task.isCancelled { return }
+                    NSLog("LiveWallpaper: couldn’t make the wallpaper still: \(error)")
                 }
             }
             guard !Task.isCancelled, let self else { return }
             self.work = nil
-            self.targets = targets
+            // A display that shows something else by now waits for its own refresh.
+            self.targets = targets.filter { self.looks[$0.key] == $0.value.look }
             self.apply()
-            Self.removeStills(except: Set(targets.map(\.fileName)))
+            self.removeUnusedStills()
         }
     }
 
-    /// Sets each display's still as its system wallpaper, skipping displays that show it already.
+    /// Sets each display's still as its system wallpaper, skipping displays that show it already, and records which
+    /// still each display has.
     private func apply() {
-        var changed = false
+        var stills: [String: String] = [:]
+        var applied: [String] = []
         for screen in NSScreen.screens {
-            guard let target = targets.first(where: { $0.displayID == screen.displayID }),
-                  FileManager.default.fileExists(atPath: target.url.path),
-                  NSWorkspace.shared.desktopImageURL(for: screen)?.standardizedFileURL != target.url.standardizedFileURL
-            else { continue }
+            let id = screen.displayID
+            guard let target = targets[id], FileManager.default.fileExists(atPath: target.url.path) else { continue }
+            guard NSWorkspace.shared.desktopImageURL(for: screen)?.standardizedFileURL != target.url.standardizedFileURL
+            else {
+                stills[id] = target.fileName
+                continue
+            }
             // The still has the display's exact aspect ratio, so filling the screen neither crops nor shifts it.
             let options: [NSWorkspace.DesktopImageOptionKey: Any] = [
                 .imageScaling: NSImageScaling.scaleProportionallyUpOrDown.rawValue,
@@ -94,12 +133,17 @@ import SceneBridge
             ]
             do {
                 try NSWorkspace.shared.setDesktopImageURL(target.url, for: screen, options: options)
-                changed = true
+                stills[id] = target.fileName
+                applied.append(id)
             } catch {
                 NSLog("LiveWallpaper: couldn’t set the wallpaper still: \(error.localizedDescription)")
             }
         }
-        if changed { onApplied?() }
+        let recorded = AgentRecordStore.load().stills
+        if stills.contains(where: { recorded[$0.key] != $0.value }) {
+            AgentRecordStore.update { $0.stills.merge(stills) { _, new in new } }
+        }
+        applied.forEach { onApplied?($0) }
     }
 
     // A Space shows its own wallpaper unless "Show on all Spaces" is on, so a Space the stills were never set on
@@ -118,9 +162,12 @@ import SceneBridge
         observers = [(workspace, spaces), (NotificationCenter.default, screens)]
     }
 
-    /// Deletes the stills no display uses any more (older wallpapers, sizes and framings).
-    private static func removeStills(except keep: Set<String>) {
-        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+    /// Deletes the stills no display uses any more (older wallpapers, sizes and framings). The last still of a
+    /// display that is not connected right now stays, so it still has its wallpaper when it comes back.
+    private func removeUnusedStills() {
+        let keep = Set(AgentRecordStore.load().stills.values).union(targets.values.map(\.fileName))
+        let files = (try? FileManager.default.contentsOfDirectory(at: Self.directory, includingPropertiesForKeys: nil))
+            ?? []
         for file in files where !keep.contains(file.lastPathComponent) {
             try? FileManager.default.removeItem(at: file)
         }
@@ -128,7 +175,7 @@ import SceneBridge
 
     // MARK: Rendering (off the main actor)
 
-    /// Writes the still of every target: one renderer or video frame serves all of them.
+    /// Writes the still of every target, all of the same look: one renderer or video frame serves all of them.
     nonisolated private static func make(_ jobs: [Target], of look: Look) async throws {
         try AppPaths.ensureDirectory(directory)
         if let scene = look.scene {
@@ -253,9 +300,9 @@ import SceneBridge
         var options: SceneOptions { SceneOptions(zoom: zoom, fitMode: fitMode, panX: panX, panY: panY) }
     }
 
-    /// The still one display needs. Displays of the same size and colour space share one file.
+    /// The still one display needs. Displays of the same look, size and colour space share one file.
     private struct Target: Sendable {
-        let displayID: String
+        let look: Look
         let width: Int
         let height: Int
         let colorSpace: CGColorSpace
@@ -265,7 +312,7 @@ import SceneBridge
         var url: URL { WallpaperStills.directory.appendingPathComponent(fileName) }
 
         @MainActor init(screen: NSScreen, look: Look) {
-            displayID = screen.displayID
+            self.look = look
             let scale = screen.backingScaleFactor
             width = Int((screen.frame.width * scale).rounded())
             height = Int((screen.frame.height * scale).rounded())

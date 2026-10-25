@@ -9,38 +9,21 @@ import SceneFormat
 
 @MainActor final class SettingsModel: ObservableObject {
     static let shared = SettingsModel()
-    static let minimumInterval: TimeInterval = LibraryState.minimumInterval
 
-    // Persisted in state.json; UI-bound. Every change is sent to the service (`.commit`). Bulk changes go through `batch` (one write) and never write while loading.
+    // Persisted in state.json; UI-bound. Every change is sent to the service (`.commit`). Bulk changes go through
+    // `batch` (one write) and never write while loading.
     @Published var videos: [VideoItem] = [] { didSet { persist() } }
-    @Published var selectedID: VideoItem.ID? = nil { didSet { persist() } }
-    @Published var rotateEnabled: Bool = false { didSet { persist() } }   // rotation needs a curated playlist
-    @Published var intervalValue: Int = 5 {          // clamped to 1...999
-        didSet {
-            let clamped = LibraryState.clampedInterval(intervalValue)
-            if clamped != intervalValue { intervalValue = clamped }
-            persist()
-        }
-    }
-    @Published var intervalUnit: IntervalUnit = .minutes { didSet { persist() } }
-    @Published var applyToDesktop: Bool = true { didSet { persist() } }
-    /// The desktop's curated playlist; nil = the whole library in library order (PlaybackConfig.playlist).
-    @Published var desktopPlaylistIDs: [VideoItem.ID]? = nil { didSet { persist() } }
-    // `selectedID`, `rotateEnabled`, `intervalValue`, `intervalUnit`, `applyToDesktop` and `desktopPlaylistIDs`
-    // above are the desktop config (LibraryState.desktop). `muted` is sent as `.setMuted`.
-    @Published var sceneFPS: Int = LibraryState.defaultSceneFPS { didSet { persist() } }
-    @Published var sceneOptions: [String: SceneOptions] = [:] { didSet { persist() } }
-    @Published var power: PowerOptions = PowerOptions() { didSet { persist() } }
+    /// The rotation playlist; nil = none yet (LibraryState.playlist).
+    @Published private(set) var playlistIDs: [VideoItem.ID]? = nil { didSet { persist() } }
+    /// Per display (LibraryState.displays). A display's `muted` goes to the service as `.setMuted`.
+    @Published private(set) var displays: [String: DisplayConfig] = [:] { didSet { persist() } }
     @Published var stillDelay: Double = LibraryState.defaultStillDelay { didSet { persist() } }
-    @Published var muted: Bool = true {
-        didSet {
-            guard !writesSuspended, muted != oldValue else { return }
-            changeMuted(muted)
-        }
-    }
 
-    /// The library item shown in the Library's preview pane. UI state only (never written to state.json), kept here
-    /// so "Show in Library" in the Workshop can point the Library at an item without changing any wallpaper.
+    /// The connected displays, as arranged in System Settings > Displays. UI state only.
+    @Published private(set) var screens: [ScreenInfo] = []
+    /// The display Home and its inspector configure: the leftmost one unless the user picked another. UI state only.
+    @Published var selectedDisplayID: String?
+    /// A library item Home scrolls to and highlights once (Show in Library in the Workshop). UI state only.
     @Published var focusedID: VideoItem.ID? = nil
 
     // Service mirror (read-only for views).
@@ -52,73 +35,92 @@ import SceneFormat
     @Published private(set) var localMessage: String? = nil
 
     private var serviceStatus: ServiceStatus? { client.status }
-    var isRunning: Bool { serviceStatus.map { $0.playback != .stopped } ?? false }
-    var isPaused: Bool { serviceStatus?.playback == .paused }
-    /// The item the service shows on the desktop.
-    var currentID: VideoItem.ID? { serviceStatus?.itemID }
-    /// Items the service reported an error for.
-    var failedIDs: Set<VideoItem.ID> {
-        guard let status = serviceStatus, status.error != nil, let id = status.itemID else { return [] }
-        return [id]
-    }
-    var statusMessage: String? {
-        localMessage ?? serviceStatus?.message ?? serviceStatus?.error
-    }
+    var isPaused: Bool { serviceStatus?.paused ?? false }
+    /// Some display shows a live wallpaper.
+    var isLive: Bool { serviceStatus?.isLive ?? false }
+    var statusMessage: String? { localMessage ?? serviceStatus?.message }
 
     /// The persisted fields as one value (what gets written to state.json).
     var snapshot: LibraryState {
-        // Starts from what state.json last held so fields this model does not edit (muted) survive.
+        // Starts from what state.json last held so fields this model does not edit survive.
         var state = written
         state.videos = videos
-        state.desktop = PlaybackConfig(enabled: applyToDesktop, selectedID: selectedID, playlist: desktopPlaylistIDs,
-                                       rotateEnabled: rotateEnabled, intervalValue: intervalValue,
-                                       intervalUnit: intervalUnit)
-        state.muted = muted
-        state.sceneFPS = sceneFPS
-        state.sceneOptions = sceneOptions
-        state.power = power
+        state.playlist = playlistIDs
+        state.displays = displays
         state.stillDelay = stillDelay
         return state
     }
 
-    func sceneOptions(for id: UUID) -> SceneOptions { sceneOptions[id.uuidString] ?? SceneOptions() }
+    // MARK: Displays
 
-    /// Edits one scene's options and commits them to the service.
-    func updateSceneOptions(_ id: UUID, _ change: (inout SceneOptions) -> Void) {
-        var options = sceneOptions(for: id)
-        change(&options)
-        sceneOptions[id.uuidString] = options
+    var selectedScreen: ScreenInfo? { screens.first { $0.id == selectedDisplayID } }
+
+    func config(for display: String) -> DisplayConfig { displays[display] ?? DisplayConfig() }
+
+    /// The wallpaper set for `display`.
+    func wallpaper(on display: String) -> VideoItem? { snapshot.item(config(for: display).wallpaperID) }
+
+    /// What the service shows live on `display` (a rotating display moves on from its wallpaper).
+    func liveItem(on display: String) -> VideoItem? { snapshot.item(serviceStatus?.display(display)?.itemID) }
+
+    /// What `display` shows: its live item, else its wallpaper.
+    func shownItem(on display: String) -> VideoItem? { liveItem(on: display) ?? wallpaper(on: display) }
+
+    /// Why `display`'s wallpaper could not be shown, as the service reported it.
+    func error(on display: String) -> String? { serviceStatus?.display(display)?.error }
+
+    /// Edits one display's settings and commits them to the service. `muted` is not changed here (`setMuted`).
+    func updateDisplay(_ display: String, _ change: (inout DisplayConfig) -> Void) {
+        edit { change(&$0.displays[display, default: DisplayConfig()]) }
     }
 
-    /// Makes `id` the selected wallpaper. Commits through the service; starts nothing.
-    private func assign(_ id: VideoItem.ID) {
-        var state = snapshot
-        state.assign(id)
-        guard state != snapshot else { return }
-        batch { apply(state) }
+    /// Puts `id` on `display` at once.
+    func setWallpaper(_ id: VideoItem.ID, on display: String) {
+        edit { $0.setWallpaper(id, on: display) }
     }
 
-    // MARK: Playlists
+    /// Puts `id` on every connected display.
+    func setWallpaperOnAllDisplays(_ id: VideoItem.ID) {
+        edit { state in screens.forEach { state.setWallpaper(id, on: $0.id) } }
+    }
 
-    /// The stored playlist order; nil = the whole library in library order.
-    var playlistIDs: [VideoItem.ID]? { desktopPlaylistIDs }
+    /// Takes `display`'s wallpaper away; the service gives it macOS's default wallpaper.
+    func removeWallpaper(from display: String) {
+        edit { $0.setWallpaper(nil, on: display) }
+    }
 
-    /// The items the desktop actually rotates through, in playlist order.
-    var playlistItems: [VideoItem] { snapshot.items }
+    func setMuted(_ muted: Bool, on display: String) {
+        guard config(for: display).muted != muted else { return }
+        batch(persisting: false) { displays[display, default: DisplayConfig()].muted = muted }
+        written.displays[display, default: DisplayConfig()].muted = muted
+        send(.setMuted(display: display, muted: muted))
+    }
 
-    /// Writes the playlist (nil = use the entire library); ids no longer in the library are dropped.
+    func sceneOptions(on display: String, for id: UUID) -> SceneOptions {
+        config(for: display).sceneOptions(for: id)
+    }
+
+    /// Edits one scene's options on one display and commits them to the service.
+    func updateSceneOptions(on display: String, for id: UUID, _ change: (inout SceneOptions) -> Void) {
+        updateDisplay(display) { config in
+            var options = config.sceneOptions(for: id)
+            change(&options)
+            config.sceneOptions[id.uuidString] = options
+        }
+    }
+
+    // MARK: Playlist
+
+    /// The playlist's items in order.
+    var playlistItems: [VideoItem] { snapshot.playlistItems }
+    var canRotate: Bool { snapshot.canRotate }
+
+    /// Writes the playlist (nil = no playlist); ids no longer in the library are dropped.
     func setPlaylist(_ ids: [VideoItem.ID]?) {
         let valid = Set(videos.map(\.id))
         let pruned = ids.map { $0.filter { valid.contains($0) } }
-        if pruned != desktopPlaylistIDs { desktopPlaylistIDs = pruned }
+        if pruned != playlistIDs { playlistIDs = pruned }
     }
-
-    var selectedItem: VideoItem? { videos.first { $0.id == selectedID } }
-    var currentIndex: Int? { videos.firstIndex { $0.id == currentID } }
-    var canStart: Bool { snapshot.canStart }
-    var canRotate: Bool { snapshot.hasMultipleItems }
-    var intervalSeconds: TimeInterval { snapshot.intervalSeconds }
-    var intervalIsClamped: Bool { snapshot.intervalIsClamped }
 
     let client = ServiceClient.shared
     private var written = LibraryState()           // what state.json last held, revision included
@@ -137,7 +139,7 @@ import SceneFormat
         let loaded = StateStore.loadOrMigrate()
         batch(persisting: false) { apply(loaded.state) }
         written = loaded.state
-        focusedID = selectedID
+        refreshScreens()
         reanalyzeStaleScenes()
         importedFromPhase1 = loaded.importedCount
         legacyAppRunning = Self.otherInstances().contains { $0.legacy }
@@ -157,10 +159,9 @@ import SceneFormat
         client.stop()
     }
 
-    // MARK: Library intents (phase-1 semantics)
+    // MARK: Library intents
 
-    /// Filters non-video, dedupes by path, appends, selects the first added if nothing is selected.
-    /// Returns the number added.
+    /// Filters non-video, dedupes by path and appends. Returns the number added.
     @discardableResult func addVideos(urls: [URL]) -> Int {
         var knownPaths = Set(videos.map(\.path))
         var added: [VideoItem] = []
@@ -168,26 +169,20 @@ import SceneFormat
             let item = VideoItem(url: url)
             if knownPaths.insert(item.path).inserted { added.append(item) }
         }
-        guard let first = added.first else { return 0 }
-        batch {
-            videos += added
-            if selectedItem == nil { selectedID = first.id }
-            if focusedID == nil { focusedID = first.id }
-        }
+        guard !added.isEmpty else { return 0 }
+        videos += added
         return added.count
     }
 
     /// Called by the Workshop importer with a finished item (files already in AppPaths.libraryDirectory).
-    /// A re-download replaces the earlier copy of the same Workshop item in place.
+    /// A re-download replaces the earlier copy of the same Workshop item in place, on every display that shows it.
     func addImported(_ item: VideoItem) {
-        batch {
-            if let index = videos.firstIndex(where: { $0.workshopID != nil && $0.workshopID == item.workshopID }) {
-                if selectedID == videos[index].id { selectedID = item.id }
-                videos[index] = item
+        edit { state in
+            if let old = state.videos.first(where: { $0.workshopID != nil && $0.workshopID == item.workshopID }) {
+                state.replace(old.id, with: item)
             } else {
-                videos.append(item)
+                state.videos.append(item)
             }
-            if selectedItem == nil { selectedID = item.id }
         }
     }
 
@@ -195,47 +190,17 @@ import SceneFormat
         videos.contains { $0.workshopID == workshopID }
     }
 
-    /// Removes from the library. Files are deleted only when AppPaths.isInsideLibrary(item.url)
-    /// (imported Workshop copies); a local video is never touched.
+    /// Removes from the library, the playlist and every display (which gets macOS's default wallpaper back).
+    /// Files are deleted only when AppPaths.isInsideLibrary(item.url) (imported Workshop copies); a local video is
+    /// never touched.
     func remove(ids: Set<VideoItem.ID>) {
-        guard let firstIndex = videos.firstIndex(where: { ids.contains($0.id) }) else { return }
         let removed = videos.filter { ids.contains($0.id) }
-        batch {
-            videos.removeAll { ids.contains($0.id) }
-            desktopPlaylistIDs = desktopPlaylistIDs?.filter { !ids.contains($0) }
-            if selectedItem == nil {
-                selectedID = videos.isEmpty ? nil : videos[min(firstIndex, videos.count - 1)].id
-            }
-            if !videos.contains(where: { $0.id == focusedID }) { focusedID = selectedID }
-        }
+        guard !removed.isEmpty else { return }
+        edit { $0.remove(ids) }
         for item in removed { Self.deleteDownloadedFiles(of: item) }
     }
 
-    func removeAll() {
-        remove(ids: Set(videos.map(\.id)))
-    }
-
-    // MARK: Playback intents (all go to the service)
-
-    func start() { send(.start(itemID: nil)) }   // starts with the selection
-
-    func stop() { send(.stop) }
-
-    /// True when `id` is what the service shows on the desktop right now.
-    func isPlaying(_ id: VideoItem.ID) -> Bool {
-        isRunning && currentID == id
-    }
-
-    func toggleRunning() {
-        if isRunning { stop() } else { start() }
-    }
-
-    /// Selects `id` and jumps to it, starting playback if needed.
-    func play(_ id: VideoItem.ID) {
-        guard videos.contains(where: { $0.id == id }) else { return }
-        assign(id)
-        send(.start(itemID: id))
-    }
+    // MARK: Service intents
 
     /// Terminates the service (`.quit`).
     func quitService() { send(.quit) }
@@ -254,6 +219,14 @@ import SceneFormat
     }
 
     // MARK: Persistence
+
+    /// Applies `change` to a copy of the persisted fields and commits the result once.
+    private func edit(_ change: (inout LibraryState) -> Void) {
+        var state = snapshot
+        change(&state)
+        guard state != snapshot else { return }
+        batch { apply(state) }
+    }
 
     /// Runs `body` with writes suspended, then commits once (unless `persisting` is false).
     private func batch(persisting: Bool = true, _ body: () -> Void) {
@@ -293,25 +266,10 @@ import SceneFormat
 
     private func apply(_ state: LibraryState) {
         videos = state.videos
-        selectedID = state.selectedID
-        rotateEnabled = state.rotateEnabled
-        intervalValue = state.intervalValue
-        intervalUnit = state.intervalUnit
-        applyToDesktop = state.applyToDesktop
-        desktopPlaylistIDs = state.desktop.playlist
-        sceneFPS = state.sceneFPS
-        sceneOptions = state.sceneOptions
-        power = state.power
+        playlistIDs = state.playlist
+        displays = state.displays
         stillDelay = state.stillDelay
-        muted = state.muted
     }
-
-    /// Mute toggle: its own command so a stale snapshot can never undo the service menu's toggle.
-    private func changeMuted(_ value: Bool) {
-        written.muted = value
-        send(.setMuted(value))
-    }
-
 
     private static func deleteDownloadedFiles(of item: VideoItem) {
         let file = item.url.standardizedFileURL
@@ -335,15 +293,37 @@ import SceneFormat
         }
     }
 
-    /// A status arrived (reply or push): the service owns `muted` (its menu can toggle it).
+    /// A status arrived (reply or push): the service owns each display's `muted` (its menu can toggle them all).
     private func statusReceived(_ status: ServiceStatus) {
-        if status.muted != muted { batch(persisting: false) { muted = status.muted } }
+        let changed = status.displays.filter { display in
+            displays[display.id].map { $0.muted != display.muted } ?? false
+        }
+        guard !changed.isEmpty else { return }
+        batch(persisting: false) {
+            for display in changed { displays[display.id]?.muted = display.muted }
+        }
+        for display in changed { written.displays[display.id]?.muted = display.muted }
     }
 
+    // MARK: Screens
+
+    /// Reads the connected displays and keeps a valid display selected.
+    private func refreshScreens() {
+        screens = NSScreen.screens.map { ScreenInfo(id: $0.displayID, name: $0.localizedName, frame: $0.frame) }
+        if selectedScreen == nil {
+            selectedDisplayID = screens.min { ($0.frame.minX, -$0.frame.maxY) < ($1.frame.minX, -$1.frame.maxY) }?.id
+        }
+    }
 
     // MARK: Workspace
 
     private func observeSystem() {
+        let screens = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.refreshScreens() }
+        }
+        observers.append((NotificationCenter.default, screens))
         let workspace = NSWorkspace.shared.notificationCenter
         let appKey = NSWorkspace.applicationUserInfoKey
         for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
@@ -368,5 +348,22 @@ import SceneFormat
                 let role = app.bundleURL.flatMap { Bundle(url: $0) }?.object(forInfoDictionaryKey: AppIdentity.roleKey)
                 return (app, role == nil)
             }
+    }
+}
+
+/// A connected display.
+struct ScreenInfo: Identifiable, Equatable {
+    /// The display's UUID (DisplayIdentity), the key of its settings.
+    let id: String
+    let name: String
+    /// In the global screen space (points, origin at the bottom-left of the main display).
+    let frame: CGRect
+}
+
+extension NSScreen {
+    /// The display's UUID (DisplayIdentity): the key of its settings in state.json.
+    var displayID: String {
+        let number = (deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
+        return DisplayIdentity.uuid(of: number)
     }
 }

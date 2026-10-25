@@ -126,26 +126,35 @@ public struct SceneInfo: Codable, Hashable, Sendable {
     }
 }
 
-// MARK: - Library + settings (state.json, written only by the Settings app)
+// MARK: - Library + settings (state.json, written only by the service)
 
-/// What the desktop plays and how it rotates. The lock screen shows the system wallpaper, which the service sets to
-/// a still of the desktop's wallpaper.
-public struct PlaybackConfig: Codable, Equatable, Sendable {
-    public var enabled: Bool              // false = the desktop is left alone (Apple's wallpaper stays)
-    public var selectedID: UUID?          // starting / current choice
-    public var playlist: [UUID]?          // nil = every library item in library order; else this order
+/// What one display shows and how. Stored in `LibraryState.displays` under the display's UUID (DisplayIdentity), so
+/// it survives restarts and reconnecting. A display without a wallpaper keeps whatever system wallpaper it has.
+public struct DisplayConfig: Codable, Equatable, Sendable {
+    public var wallpaperID: UUID?
+    /// Changed only through StateStore.setMuted, never by a commit (the service's menu mutes every display).
+    public var muted: Bool
+    /// Cycles the playlist (LibraryState.playlist), going on from the wallpaper.
     public var rotateEnabled: Bool
     public var intervalValue: Int
     public var intervalUnit: IntervalUnit
+    /// Frame rate of scenes that do not set their own; the service lowers it on battery.
+    public var sceneFPS: Int
+    public var power: PowerOptions
+    /// Per scene, keyed by VideoItem.id.uuidString.
+    public var sceneOptions: [String: SceneOptions]
 
-    public init(enabled: Bool = true, selectedID: UUID? = nil, playlist: [UUID]? = nil, rotateEnabled: Bool = false,
-                intervalValue: Int = 5, intervalUnit: IntervalUnit = .minutes) {
-        self.enabled = enabled
-        self.selectedID = selectedID
-        self.playlist = playlist
+    public init(wallpaperID: UUID? = nil, muted: Bool = true, rotateEnabled: Bool = false, intervalValue: Int = 5,
+                intervalUnit: IntervalUnit = .minutes, sceneFPS: Int = LibraryState.defaultSceneFPS,
+                power: PowerOptions = PowerOptions(), sceneOptions: [String: SceneOptions] = [:]) {
+        self.wallpaperID = wallpaperID
+        self.muted = muted
         self.rotateEnabled = rotateEnabled
-        self.intervalValue = intervalValue
+        self.intervalValue = LibraryState.clampedInterval(intervalValue)
         self.intervalUnit = intervalUnit
+        self.sceneFPS = LibraryState.clampedSceneFPS(sceneFPS)
+        self.power = power
+        self.sceneOptions = sceneOptions
     }
 
     public var intervalSeconds: TimeInterval {
@@ -154,39 +163,55 @@ public struct PlaybackConfig: Codable, Equatable, Sendable {
     public var intervalIsClamped: Bool {
         Double(intervalValue) * intervalUnit.multiplier < LibraryState.minimumInterval
     }
+
+    public func sceneOptions(for id: UUID) -> SceneOptions { sceneOptions[id.uuidString] ?? .standard }
+
+    private enum CodingKeys: String, CodingKey {
+        case wallpaperID, muted, rotateEnabled, intervalValue, intervalUnit, sceneFPS, power, sceneOptions
+    }
+
+    // Every key may be missing, so a file written before a setting existed still loads.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(wallpaperID: try c.decodeIfPresent(UUID.self, forKey: .wallpaperID),
+                  muted: try c.decodeIfPresent(Bool.self, forKey: .muted) ?? true,
+                  rotateEnabled: try c.decodeIfPresent(Bool.self, forKey: .rotateEnabled) ?? false,
+                  intervalValue: try c.decodeIfPresent(Int.self, forKey: .intervalValue) ?? 5,
+                  intervalUnit: try c.decodeIfPresent(IntervalUnit.self, forKey: .intervalUnit) ?? .minutes,
+                  sceneFPS: try c.decodeIfPresent(Int.self, forKey: .sceneFPS) ?? LibraryState.defaultSceneFPS,
+                  power: try c.decodeIfPresent(PowerOptions.self, forKey: .power) ?? PowerOptions(),
+                  sceneOptions: try c.decodeIfPresent([String: SceneOptions].self, forKey: .sceneOptions) ?? [:])
+    }
 }
 
 public struct LibraryState: Codable, Equatable, Sendable {
     public static let minimumInterval: TimeInterval = 5
-    public static let currentSchema = 2
+    public static let currentSchema = 3
 
     public var schema: Int
     public var revision: Int          // bumped by StateStore.commit on every write
     public var videos: [VideoItem]    // the whole library (videos and scenes); the name is a phase-1 leftover
-    public var muted: Bool            // default true; changed only through StateStore.setMuted
-    public var sceneFPS: Int          // frame rate cap for live scenes; the agent lowers it on battery
-    public var sceneZoom: Double      // 1 = as authored; below 1 shows more of the scene (edges go black), above crops in
-    public var desktop: PlaybackConfig
-    public var sceneOptions: [String: SceneOptions] = [:]   // per scene, keyed by VideoItem.id.uuidString
-    public var power: PowerOptions = PowerOptions()           // global scene settings
+    /// The wallpapers a rotating display cycles, in this order; nil = no playlist yet (rotation needs one).
+    public var playlist: [UUID]?
+    /// Every display that was ever given a wallpaper or a setting, keyed by its UUID (DisplayIdentity).
+    public var displays: [String: DisplayConfig]
     /// Seconds the service waits before it makes a new still for the system wallpaper (see `stillDelayOptions`).
-    public var stillDelay: Double = LibraryState.defaultStillDelay
+    public var stillDelay: Double
 
     public init(schema: Int = LibraryState.currentSchema, revision: Int = 0, videos: [VideoItem] = [],
-                muted: Bool = true, sceneFPS: Int = LibraryState.defaultSceneFPS, sceneZoom: Double = 1.0,
-                desktop: PlaybackConfig = PlaybackConfig()) {
+                playlist: [UUID]? = nil, displays: [String: DisplayConfig] = [:],
+                stillDelay: Double = LibraryState.defaultStillDelay) {
         self.schema = schema
         self.revision = revision
         self.videos = videos
-        self.muted = muted
-        self.sceneFPS = LibraryState.clampedSceneFPS(sceneFPS)
-        self.sceneZoom = LibraryState.clampedSceneZoom(sceneZoom)
-        self.desktop = desktop
+        self.playlist = playlist
+        self.displays = displays
+        self.stillDelay = LibraryState.clampedStillDelay(stillDelay)
     }
 
     public static let defaultSceneFPS = 30
     public static func clampedSceneFPS(_ fps: Int) -> Int { min(max(fps, 10), 120) }
-    public static func clampedSceneZoom(_ zoom: Double) -> Double { min(max(zoom, 0.5), 2.0) }
+    public static func clampedInterval(_ value: Int) -> Int { min(max(value, 1), 999) }
 
     /// The choices for `stillDelay`. The wait exists because a slider in Settings sends a change for every step, and
     /// a scene's still loads the whole scene a second time: waiting lets the drag finish before one still is made,
@@ -195,42 +220,34 @@ public struct LibraryState: Codable, Equatable, Sendable {
     public static let defaultStillDelay: Double = 2
     public static func clampedStillDelay(_ seconds: Double) -> Double { min(max(seconds, 0), 5) }
 
-    // MARK: Codable with v1 migration (schema 1 files have no desktop section)
-    // Files written by older versions also hold `sameForBoth` and a `lock` section; both are ignored.
+    // MARK: Codable with migration
+    // Schema 1 and 2 files hold one wallpaper with its settings for the whole desktop. Reading one gives that
+    // wallpaper and its settings to every display connected at the time; the next commit writes them per display.
+    // Files written by older versions may also hold `sameForBoth` and a `lock` section; both are ignored.
 
     private enum CodingKeys: String, CodingKey {
-        case schema, revision, videos, muted, sceneFPS, sceneZoom, desktop, sceneOptions, power, stillDelay
-        // schema 1 only
+        case schema, revision, videos, playlist, displays, stillDelay
+        // schema 2
+        case desktop, muted, sceneFPS, sceneOptions, power
+        // schema 1
         case selectedID, rotateEnabled, intervalValue, intervalUnit, applyToDesktop
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        let diskSchema = try c.decodeIfPresent(Int.self, forKey: .schema) ?? 1
+        schema = LibraryState.currentSchema
         revision = try c.decodeIfPresent(Int.self, forKey: .revision) ?? 0
         videos = try c.decodeIfPresent([VideoItem].self, forKey: .videos) ?? []
-        schema = LibraryState.currentSchema
-        sceneFPS = LibraryState.clampedSceneFPS(try c.decodeIfPresent(Int.self, forKey: .sceneFPS) ?? Self.defaultSceneFPS)
-        sceneZoom = LibraryState.clampedSceneZoom(try c.decodeIfPresent(Double.self, forKey: .sceneZoom) ?? 1.0)
-        sceneOptions = try c.decodeIfPresent([String: SceneOptions].self, forKey: .sceneOptions) ?? [:]
-        power = try c.decodeIfPresent(PowerOptions.self, forKey: .power) ?? PowerOptions()
         stillDelay = LibraryState.clampedStillDelay(
             try c.decodeIfPresent(Double.self, forKey: .stillDelay) ?? Self.defaultStillDelay)
-        if diskSchema >= 2 || c.contains(.desktop) {
-            muted = try c.decodeIfPresent(Bool.self, forKey: .muted) ?? true
-            desktop = try c.decodeIfPresent(PlaybackConfig.self, forKey: .desktop) ?? PlaybackConfig()
+        if c.contains(.displays) {
+            playlist = try c.decodeIfPresent([UUID].self, forKey: .playlist)
+            displays = try c.decode([String: DisplayConfig].self, forKey: .displays)
         } else {
-            // v1: one selection / rotation setting and an "apply to desktop" flag.
-            let selected = try c.decodeIfPresent(UUID.self, forKey: .selectedID)
-            let rotate = try c.decodeIfPresent(Bool.self, forKey: .rotateEnabled) ?? true
-            let value = try c.decodeIfPresent(Int.self, forKey: .intervalValue) ?? 5
-            let unit = try c.decodeIfPresent(IntervalUnit.self, forKey: .intervalUnit) ?? .minutes
-            let onDesktop = try c.decodeIfPresent(Bool.self, forKey: .applyToDesktop) ?? true
-            muted = true
-            desktop = PlaybackConfig(enabled: onDesktop, selectedID: selected, rotateEnabled: rotate,
-                                     intervalValue: value, intervalUnit: unit)
+            let legacy = try Self.legacyDesktop(c)
+            playlist = legacy.playlist
+            displays = Self.everyDisplay(legacy.config)
         }
-        desktop.intervalValue = LibraryState.clampedInterval(desktop.intervalValue)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -238,75 +255,124 @@ public struct LibraryState: Codable, Equatable, Sendable {
         try c.encode(schema, forKey: .schema)
         try c.encode(revision, forKey: .revision)
         try c.encode(videos, forKey: .videos)
-        try c.encode(muted, forKey: .muted)
-        try c.encode(sceneFPS, forKey: .sceneFPS)
-        try c.encode(sceneZoom, forKey: .sceneZoom)
-        try c.encode(sceneOptions, forKey: .sceneOptions)
-        try c.encode(power, forKey: .power)
+        try c.encodeIfPresent(playlist, forKey: .playlist)
+        try c.encode(displays, forKey: .displays)
         try c.encode(stillDelay, forKey: .stillDelay)
-        try c.encode(desktop, forKey: .desktop)
+    }
+
+    /// `config` for every display connected now (DisplayIdentity.active).
+    public static func everyDisplay(_ config: DisplayConfig) -> [String: DisplayConfig] {
+        Dictionary(DisplayIdentity.active().map { ($0, config) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// The single desktop setting of a schema 1 or 2 file.
+    private static func legacyDesktop(_ c: KeyedDecodingContainer<CodingKeys>) throws
+        -> (playlist: [UUID]?, config: DisplayConfig) {
+        let desktop: LegacyDesktop
+        if c.contains(.desktop) {
+            desktop = try c.decode(LegacyDesktop.self, forKey: .desktop)
+        } else {
+            // Schema 1: the same fields at the top level, with `applyToDesktop` for `enabled`.
+            desktop = LegacyDesktop(
+                enabled: try c.decodeIfPresent(Bool.self, forKey: .applyToDesktop) ?? true,
+                selectedID: try c.decodeIfPresent(UUID.self, forKey: .selectedID),
+                rotateEnabled: try c.decodeIfPresent(Bool.self, forKey: .rotateEnabled) ?? true,
+                intervalValue: try c.decodeIfPresent(Int.self, forKey: .intervalValue) ?? 5,
+                intervalUnit: try c.decodeIfPresent(IntervalUnit.self, forKey: .intervalUnit) ?? .minutes)
+        }
+        let config = DisplayConfig(
+            wallpaperID: desktop.enabled ? desktop.selectedID : nil,
+            muted: try c.decodeIfPresent(Bool.self, forKey: .muted) ?? true,
+            rotateEnabled: desktop.rotateEnabled,
+            intervalValue: desktop.intervalValue,
+            intervalUnit: desktop.intervalUnit,
+            sceneFPS: try c.decodeIfPresent(Int.self, forKey: .sceneFPS) ?? Self.defaultSceneFPS,
+            power: try c.decodeIfPresent(PowerOptions.self, forKey: .power) ?? PowerOptions(),
+            sceneOptions: try c.decodeIfPresent([String: SceneOptions].self, forKey: .sceneOptions) ?? [:])
+        return (desktop.playlist, config)
+    }
+
+    private struct LegacyDesktop: Decodable {
+        var enabled = true
+        var selectedID: UUID?
+        var playlist: [UUID]?
+        var rotateEnabled = false
+        var intervalValue = 5
+        var intervalUnit = IntervalUnit.minutes
+
+        init(enabled: Bool, selectedID: UUID?, rotateEnabled: Bool, intervalValue: Int, intervalUnit: IntervalUnit) {
+            self.enabled = enabled
+            self.selectedID = selectedID
+            self.rotateEnabled = rotateEnabled
+            self.intervalValue = intervalValue
+            self.intervalUnit = intervalUnit
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case enabled, selectedID, playlist, rotateEnabled, intervalValue, intervalUnit
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+            selectedID = try c.decodeIfPresent(UUID.self, forKey: .selectedID)
+            playlist = try c.decodeIfPresent([UUID].self, forKey: .playlist)
+            rotateEnabled = try c.decodeIfPresent(Bool.self, forKey: .rotateEnabled) ?? false
+            intervalValue = try c.decodeIfPresent(Int.self, forKey: .intervalValue) ?? 5
+            intervalUnit = try c.decodeIfPresent(IntervalUnit.self, forKey: .intervalUnit) ?? .minutes
+        }
     }
 
     // MARK: Reads
 
-    /// True when `id` is a library scene (a live-rendered Wallpaper Engine wallpaper).
-    public func isScene(_ id: UUID?) -> Bool {
-        guard let id else { return false }
-        return videos.first { $0.id == id }?.isScene == true
+    public func item(_ id: UUID?) -> VideoItem? {
+        guard let id else { return nil }
+        return videos.first { $0.id == id }
     }
 
-    /// The items the desktop rotates through: the playlist (ids that no longer exist are skipped) or the library.
-    public var items: [VideoItem] {
-        guard let ids = desktop.playlist else { return videos }
-        return ids.compactMap { id in videos.first { $0.id == id } }
-    }
+    /// The display's settings; a display that has none yet gets the defaults.
+    public func config(for display: String) -> DisplayConfig { displays[display] ?? DisplayConfig() }
 
-    public var selectedItem: VideoItem? { items.first { $0.id == desktop.selectedID } }
-    /// The desktop is enabled and has something to play.
-    public var canPlay: Bool { desktop.enabled && !items.isEmpty }
-    public var hasMultipleItems: Bool { items.count > 1 }
-    /// Rotation only ever cycles a playlist the user curated. Without one, the selected wallpaper stays.
-    public var rotates: Bool { desktop.playlist != nil && desktop.rotateEnabled && hasMultipleItems }
+    /// The playlist's wallpapers in order (ids that are no longer in the library are skipped); empty without one.
+    public var playlistItems: [VideoItem] { (playlist ?? []).compactMap { item($0) } }
 
-    /// Something can be played: a non-empty library and the desktop enabled.
-    public var canStart: Bool { !videos.isEmpty && desktop.enabled }
+    /// Rotation needs a playlist of at least two wallpapers.
+    public var canRotate: Bool { playlistItems.count > 1 }
+
+    /// `display` cycles the playlist.
+    public func rotates(_ display: String) -> Bool { config(for: display).rotateEnabled && canRotate }
 
     // MARK: Writes
 
-    /// Selects `id` and turns the desktop on. An id that is not in the library is ignored.
-    public mutating func assign(_ id: UUID) {
-        guard videos.contains(where: { $0.id == id }) else { return }
-        desktop.selectedID = id
-        desktop.enabled = true
+    /// Puts `id` on `display`; nil takes its wallpaper away. An id that is not in the library is ignored.
+    public mutating func setWallpaper(_ id: UUID?, on display: String) {
+        guard id == nil || item(id) != nil else { return }
+        displays[display, default: DisplayConfig()].wallpaperID = id
     }
 
-    // MARK: Shortcuts to the desktop config (the Settings app binds to these)
+    /// Takes the items out of the library, the playlist and every display (with their scene settings).
+    public mutating func remove(_ ids: Set<UUID>) {
+        videos.removeAll { ids.contains($0.id) }
+        playlist = playlist?.filter { !ids.contains($0) }
+        for key in displays.keys {
+            if let wallpaper = displays[key]?.wallpaperID, ids.contains(wallpaper) { displays[key]?.wallpaperID = nil }
+            for id in ids { displays[key]?.sceneOptions[id.uuidString] = nil }
+        }
+    }
 
-    public var selectedID: UUID? {
-        get { desktop.selectedID }
-        set { desktop.selectedID = newValue }
-    }
-    public var rotateEnabled: Bool {
-        get { desktop.rotateEnabled }
-        set { desktop.rotateEnabled = newValue }
-    }
-    public var intervalValue: Int {
-        get { desktop.intervalValue }
-        set { desktop.intervalValue = newValue }
-    }
-    public var intervalUnit: IntervalUnit {
-        get { desktop.intervalUnit }
-        set { desktop.intervalUnit = newValue }
-    }
-    public var applyToDesktop: Bool {
-        get { desktop.enabled }
-        set { desktop.enabled = newValue }
-    }
-    public var intervalSeconds: TimeInterval { desktop.intervalSeconds }
-    public var intervalIsClamped: Bool { desktop.intervalIsClamped }
-
-    public static func clampedInterval(_ value: Int) -> Int {
-        min(max(value, 1), 999)
+    /// Puts `item` in place of the library item `id` (a Workshop item downloaded again gets a new id): the
+    /// playlist and every display that used the old one use the new one, with the same scene settings.
+    public mutating func replace(_ id: UUID, with item: VideoItem) {
+        guard let index = videos.firstIndex(where: { $0.id == id }) else { return }
+        videos[index] = item
+        guard item.id != id else { return }
+        playlist = playlist?.map { $0 == id ? item.id : $0 }
+        for key in displays.keys {
+            if displays[key]?.wallpaperID == id { displays[key]?.wallpaperID = item.id }
+            if let options = displays[key]?.sceneOptions.removeValue(forKey: id.uuidString) {
+                displays[key]?.sceneOptions[item.id.uuidString] = options
+            }
+        }
     }
 }
 
@@ -364,8 +430,8 @@ public enum StateStore {
     public static let phase1DefaultsKey = "LiveWallpaper.state.v1"
     private static let importedFlagKey = "LiveWallpaper.v2.importedPhase1"
 
-    /// Reads state.json (schema 1 files are migrated in memory). Returns nil if it is missing; an unreadable file
-    /// is moved aside (never overwritten).
+    /// Reads state.json (files of older schemas are migrated in memory). Returns nil if it is missing; an unreadable
+    /// file is moved aside (never overwritten).
     public static func load() -> LibraryState? {
         guard let data = try? Data(contentsOf: AppPaths.stateFile) else { return nil }
         if let state = try? JSONDecoder().decode(LibraryState.self, from: data) { return state }
@@ -382,25 +448,28 @@ public enum StateStore {
         return object["schema"] as? Int ?? 1
     }
 
-    /// Writes state.json atomically and bumps `state.revision` past anything already on disk.
-    /// Settings app only. `muted` is not changed by a commit: the value on disk wins (it is changed only by
-    /// `setMuted`, which the agent's menu also uses). Returns false if the file could not be written.
+    /// Writes state.json atomically and bumps `state.revision` past anything already on disk. A display's `muted`
+    /// is not changed by a commit: the value on disk wins (it is changed only by `setMuted`, which the service's
+    /// menu also uses). Returns false if the file could not be written.
     @discardableResult
     public static func commit(_ state: inout LibraryState) -> Bool {
         let onDisk = load()
-        if let onDisk { state.muted = onDisk.muted }
+        for (id, config) in onDisk?.displays ?? [:] where state.displays[id] != nil {
+            state.displays[id]?.muted = config.muted
+        }
         state.revision = max(state.revision, onDisk?.revision ?? 0) + 1
         state.schema = LibraryState.currentSchema
         return write(state)
     }
 
-    /// The only write besides `commit`: changes `muted` in state.json (read, change, write, revision + 1).
-    /// May be called from the Settings app and from the agent. Returns the written state, nil on failure.
+    /// The only write besides `commit`: mutes or unmutes `display`, or every display that has settings when it is
+    /// nil (read, change, write, revision + 1). Returns the written state, nil on failure.
     @discardableResult
-    public static func setMuted(_ muted: Bool) -> LibraryState? {
+    public static func setMuted(_ muted: Bool, display: String?) -> LibraryState? {
         var state = load() ?? LibraryState()
-        guard state.muted != muted || diskSchema() == nil else { return state }
-        state.muted = muted
+        let ids = display.map { [$0] } ?? Array(state.displays.keys)
+        guard ids.contains(where: { state.config(for: $0).muted != muted }) || diskSchema() == nil else { return state }
+        for id in ids { state.displays[id, default: DisplayConfig()].muted = muted }
         state.revision += 1
         return write(state) ? state : nil
     }
@@ -418,13 +487,13 @@ public enum StateStore {
         }
     }
 
-    /// Settings app only: loads state.json (rewriting a schema 1 file as schema 2 once, after keeping a copy as
-    /// state.v1-backup.json), or imports the phase-1 library from its UserDefaults once
+    /// Settings app only: loads state.json (rewriting a file of an older schema once, after keeping a copy as
+    /// state.v<schema>-backup.json), or imports the phase-1 library from its UserDefaults once
     /// (the Settings app has the phase-1 bundle id, so `.standard` is the phase-1 domain).
     public static func loadOrMigrate(defaults: UserDefaults = .standard) -> (state: LibraryState, importedCount: Int) {
         if var state = load() {
             if let schema = diskSchema(), schema < LibraryState.currentSchema {
-                let backup = AppPaths.supportDirectory.appendingPathComponent("state.v1-backup.json")
+                let backup = AppPaths.supportDirectory.appendingPathComponent("state.v\(schema)-backup.json")
                 if !FileManager.default.fileExists(atPath: backup.path) {
                     try? FileManager.default.copyItem(at: AppPaths.stateFile, to: backup)
                 }
@@ -437,12 +506,10 @@ public enum StateStore {
         if !defaults.bool(forKey: importedFlagKey),
            let data = defaults.data(forKey: phase1DefaultsKey),
            let old = try? JSONDecoder().decode(Phase1State.self, from: data) {
-            let value = LibraryState.clampedInterval(old.intervalValue)
-            state = LibraryState(
-                videos: old.videos,
-                desktop: PlaybackConfig(enabled: old.applyToDesktop, selectedID: old.selectedID,
-                                        rotateEnabled: old.rotateEnabled, intervalValue: value,
-                                        intervalUnit: old.intervalUnit))
+            let desktop = DisplayConfig(wallpaperID: old.applyToDesktop ? old.selectedID : nil,
+                                        rotateEnabled: old.rotateEnabled, intervalValue: old.intervalValue,
+                                        intervalUnit: old.intervalUnit)
+            state = LibraryState(videos: old.videos, displays: LibraryState.everyDisplay(desktop))
             imported = old.videos.count
         }
         defaults.set(true, forKey: importedFlagKey)
@@ -464,23 +531,32 @@ public enum StateStore {
 // MARK: - Agent record (agent.json, written only by the agent)
 
 public struct AgentRecord: Codable, Equatable, Sendable {
-    public var wantsRunning: Bool    // resume playing when the agent launches
     /// Aerial files an older version swapped for its lock-screen video; LegacyLockScreen puts Apple's back.
     public var aerialSlots: [String]
-    public var legacyImported: Bool
+    /// The still each display was last given as its system wallpaper (a file name in
+    /// AppPaths.wallpaperStillsDirectory), keyed by display UUID. A display that is not connected keeps its file.
+    public var stills: [String: String]
 
-    public init(wantsRunning: Bool = false, aerialSlots: [String] = [], legacyImported: Bool = false) {
-        self.wantsRunning = wantsRunning
+    public init(aerialSlots: [String] = [], stills: [String: String] = [:]) {
         self.aerialSlots = aerialSlots
-        self.legacyImported = legacyImported
+        self.stills = stills
+    }
+
+    private enum CodingKeys: String, CodingKey { case aerialSlots, stills }
+
+    // Every key may be missing: older versions wrote other fields.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        aerialSlots = try c.decodeIfPresent([String].self, forKey: .aerialSlots) ?? []
+        stills = try c.decodeIfPresent([String: String].self, forKey: .stills) ?? [:]
     }
 }
 
 public enum AgentRecordStore {
     private static let legacyDomain = "com.noob3301.LiveWallpaper"
 
-    /// Never fails. The first call without agent.json imports the phase-1 records (wasRunning, aerial backup)
-    /// from the old app's preferences domain, which the old app never clears on its own.
+    /// Never fails. The first call without agent.json imports the phase-1 Aerial backup record from the old app's
+    /// preferences domain, which the old app never clears on its own.
     public static func load() -> AgentRecord {
         if let data = try? Data(contentsOf: AppPaths.agentFile) {
             if let record = try? JSONDecoder().decode(AgentRecord.self, from: data) { return record }
@@ -489,14 +565,9 @@ public enum AgentRecordStore {
             try? FileManager.default.moveItem(at: AppPaths.agentFile, to: aside)
         }
         var record = AgentRecord()
-        record.legacyImported = true
         if let data = legacyData("LiveWallpaper.aerialBackup.v1"),
            let backup = try? JSONDecoder().decode(LegacyBackup.self, from: data) {
             record.aerialSlots = backup.slots
-        }
-        if let data = legacyData("LiveWallpaper.state.v1"),
-           let running = try? JSONDecoder().decode(LegacyRunning.self, from: data) {
-            record.wantsRunning = running.wasRunning ?? false
         }
         save(record)
         return record
@@ -540,8 +611,6 @@ public enum AgentRecordStore {
                 ?? [container.decode(String.self, forKey: .slot)]
         }
     }
-
-    private struct LegacyRunning: Decodable { var wasRunning: Bool? }
 }
 
 // MARK: - Frame extraction

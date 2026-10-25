@@ -3,9 +3,9 @@ import AppKit
 import Core
 import UniformTypeIdentifiers
 
-// The Playlists page: the ordered list of wallpapers that rotate, plus its rotation settings. The
-// storage is PlaybackConfig.playlist in state.json (nil = the whole library in library order); every edit goes
-// through SettingsModel.setPlaylist, so the service stays the only writer.
+// The Playlists page: the ordered list of wallpapers a rotating display cycles. Rotation itself is turned on per
+// display in the Home inspector. The storage is LibraryState.playlist in state.json (nil = no playlist); every edit
+// goes through SettingsModel.setPlaylist, so the service stays the only writer.
 
 @MainActor
 struct PlaylistView: View {
@@ -28,29 +28,22 @@ struct PlaylistView: View {
         .background(LWBackground())
     }
 
-    /// Rotation is a property of a curated playlist; without one there is nothing to show but the hint.
-    @ViewBuilder private var rotationCard: some View {
-        if model.playlistIDs != nil {
-            InspectorSection(title: "Rotation") {
-                RotationBlock(model: model)
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background { glassShape(radius: LWTheme.cardRadius) }
-        } else {
-            HStack(spacing: 12) {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.tertiary)
-                Text("Start a playlist above to rotate wallpapers.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 8)
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background { glassShape(radius: LWTheme.cardRadius) }
+    /// Where rotation is turned on.
+    private var rotationCard: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(.tertiary)
+            Text(model.playlistIDs == nil
+                 ? "Start a playlist above to rotate wallpapers."
+                 : "To rotate, select a display in Home and turn on Rotate wallpaper in its settings.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 8)
         }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background { glassShape(radius: LWTheme.cardRadius) }
     }
 }
 
@@ -66,7 +59,6 @@ private struct PlaylistEditorCard: View {
     private var storedIDs: [UUID]? { model.playlistIDs }
     private var isCustom: Bool { storedIDs != nil }
     private var items: [VideoItem] { model.playlistItems }
-    private var playingID: UUID? { model.isRunning ? model.currentID : nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -82,7 +74,7 @@ private struct PlaylistEditorCard: View {
                 Toggle("Custom order", isOn: customBinding)
                     .toggleStyle(.switch)
                     .controlSize(.small)
-                    .help("Choose wallpapers and the order they play in.")
+                    .help("Choose wallpapers and the order they rotate in.")
                 if isCustom {
                     Button { addSheet = true } label: {
                         Label("Add", systemImage: "plus")
@@ -94,7 +86,7 @@ private struct PlaylistEditorCard: View {
             if isCustom {
                 if items.isEmpty { emptyRow } else { rows }
             } else {
-                Text("Start a playlist and add wallpapers to play them in your own order.")
+                Text("Start a playlist and add wallpapers to rotate them in your own order.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -120,12 +112,12 @@ private struct PlaylistEditorCard: View {
         return count == 0 ? "Empty" : "\(count) \(count == 1 ? "wallpaper" : "wallpapers") · drag to reorder"
     }
 
-    /// Turning custom order on starts from the order the screen shows today.
+    /// Turning custom order on starts from the whole library, in library order.
     private var customBinding: Binding<Bool> {
         Binding(
             get: { isCustom },
             set: { on in
-                model.setPlaylist(on ? items.map(\.id) : nil)
+                model.setPlaylist(on ? model.videos.map(\.id) : nil)
             })
     }
 
@@ -167,15 +159,10 @@ private struct PlaylistEditorCard: View {
                     .font(.callout.weight(.medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                HStack(spacing: 5) {
-                    if let info = item.scene {
-                        SceneSupportBadge(info: info)
-                    } else {
-                        LWChip(text: "Video")
-                    }
-                    if item.id == playingID {
-                        LWChip(text: "Now playing", tint: .accentColor, filled: true, icon: "waveform")
-                    }
+                if let info = item.scene {
+                    SceneSupportBadge(info: info)
+                } else {
+                    LWChip(text: "Video")
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

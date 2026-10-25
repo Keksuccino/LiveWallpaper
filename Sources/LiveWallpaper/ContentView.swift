@@ -4,38 +4,17 @@ import AppKit
 import UniformTypeIdentifiers
 import Core
 
-// The Library: a gallery-first wall of wallpapers, with a large live preview and a context inspector.
-
-enum LibraryFilter: String, CaseIterable, Identifiable, Equatable {
-    case all, scenes
-
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .all: return "All Wallpapers"
-        case .scenes: return "Scenes"
-        }
-    }
-
-    func includes(_ item: VideoItem) -> Bool {
-        switch self {
-        case .all: return true
-        case .scenes: return item.isScene
-        }
-    }
-}
+// Home: the connected displays (DisplayArrangementView) above the wallpaper library. Clicking a wallpaper puts it on
+// the selected display at once; the inspector holds that display's settings.
 
 enum LibraryLayout: String, CaseIterable {
     case grid, list
 }
 
 @MainActor
-struct LibraryView: View {
+struct HomeView: View {
     @ObservedObject var model: SettingsModel
-    let filter: LibraryFilter
-    @Binding var showInspector: Bool
     let openWorkshop: () -> Void
-    let openSteamSetup: () -> Void
 
     @State private var searchText = ""
     @State private var layout: LibraryLayout = .grid
@@ -45,25 +24,17 @@ struct LibraryView: View {
     @State private var importFailures: [String] = []
     @State private var showFailures = false
     @State private var pendingRemoval: Set<VideoItem.ID> = []
+    /// Selecting several wallpapers (to remove them) instead of putting the clicked one on the display.
+    @State private var selectionMode = false
     @State private var selectedIDs: Set<VideoItem.ID> = []
     @State private var anchorID: VideoItem.ID?
-    @State private var selectionMode = false
-
-    init(model: SettingsModel, filter: LibraryFilter, showInspector: Binding<Bool>,
-         openWorkshop: @escaping () -> Void, openSteamSetup: @escaping () -> Void) {
-        self._model = ObservedObject(wrappedValue: model)
-        self.filter = filter
-        self._showInspector = showInspector
-        self.openWorkshop = openWorkshop
-        self.openSteamSetup = openSteamSetup
-    }
+    /// Ringed for a moment after Show in Library scrolled to it.
+    @State private var highlightedID: VideoItem.ID?
 
     var body: some View {
         Group {
             if model.videos.isEmpty {
                 emptyState
-            } else if items.isEmpty {
-                noResults
             } else {
                 gallery
             }
@@ -74,21 +45,18 @@ struct LibraryView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    withAnimation(LWMotion.panel) {
-                        selectionMode.toggle()
-                        if !selectionMode, let focused { selectedIDs = [focused.id] }
-                    }
+                    withAnimation(LWMotion.panel) { setSelectionMode(!selectionMode) }
                 } label: {
                     Image(systemName: selectionMode ? "checkmark.circle.fill" : "checkmark.circle")
                 }
-                .help(selectionMode ? "Stop selecting multiple" : "Select multiple wallpapers")
-                .accessibilityLabel(selectionMode ? "Stop selecting multiple" : "Select multiple wallpapers")
+                .help(selectionMode ? "Stop selecting" : "Select wallpapers to remove")
+                .accessibilityLabel(selectionMode ? "Stop selecting" : "Select wallpapers to remove")
             }
             ToolbarItem(placement: .primaryAction) {
                 Button(action: removeSelection) {
                     Image(systemName: "trash")
                 }
-                .disabled(selectedIDs.isEmpty)
+                .disabled(!selectionMode || selectedIDs.isEmpty)
                 .help(removalHelp)
                 .accessibilityLabel(removalHelp)
                 .keyboardShortcut(.delete, modifiers: .command)
@@ -120,113 +88,87 @@ struct LibraryView: View {
                  ? "Downloaded Workshop files are deleted and can be downloaded again."
                  : "You can download it again from the Workshop.")
         }
-        .onAppear { reconcileSelection() }
-        .onChange(of: filter) { _ in reconcileSelection() }
-        .onChange(of: searchText) { _ in reconcileSelection() }
-        .onChange(of: model.videos.map(\.id)) { _ in reconcileSelection() }
+        .onChange(of: model.videos.map(\.id)) { ids in selectedIDs.formIntersection(ids) }
     }
 
     // MARK: Data
 
     private var items: [VideoItem] {
         model.videos.filter { item in
-            filter.includes(item) &&
-            (searchText.isEmpty ||
-             item.name.localizedCaseInsensitiveContains(searchText) ||
-             (item.author ?? "").localizedCaseInsensitiveContains(searchText))
+            searchText.isEmpty ||
+            item.name.localizedCaseInsensitiveContains(searchText) ||
+            (item.author ?? "").localizedCaseInsensitiveContains(searchText)
         }
     }
 
-    private var focused: VideoItem? {
-        items.first { $0.id == model.focusedID } ?? items.first
+    /// What the selected display shows; its card is ringed.
+    private var currentID: VideoItem.ID? {
+        model.selectedDisplayID.flatMap { model.shownItem(on: $0)?.id }
     }
-
-    private var selectionCount: Int { selectedIDs.count }
 
     private var removalHelp: String {
-        selectionCount > 1 ? "Remove \(selectionCount) wallpapers (⌘⌫)" : "Remove selected wallpaper (⌘⌫)"
+        selectedIDs.count > 1 ? "Remove \(selectedIDs.count) wallpapers (⌘⌫)" : "Remove selected wallpaper (⌘⌫)"
     }
 
-    /// Keeps the multi-selection inside what is visible after a filter, search or library change.
-    private func reconcileSelection() {
-        let visible = Set(items.map(\.id))
-        selectedIDs.formIntersection(visible)
-
-        if let focused = model.focusedID, visible.contains(focused) {
-            if selectedIDs.isEmpty { selectedIDs.insert(focused) }
-        } else if let firstSelected = items.first(where: { selectedIDs.contains($0.id) }) {
-            model.focusedID = firstSelected.id
-        } else {
-            model.focusedID = items.first?.id
-            if let first = items.first { selectedIDs.insert(first.id) }
-        }
-
-        if let anchorID, visible.contains(anchorID) {
-            // Keep the range anchor while it is still on screen.
-        } else {
-            anchorID = model.focusedID
-        }
+    private func isBroken(_ item: VideoItem) -> Bool {
+        !FileManager.default.fileExists(atPath: item.path)
     }
 
-    private func select(_ item: VideoItem) {
+    // MARK: Clicks
+
+    /// A click puts the wallpaper on the selected display. While selecting, it adds or removes the wallpaper from
+    /// the selection instead (Shift extends it from the last click); ⌘ or Shift starts selecting.
+    private func click(_ item: VideoItem) {
         let flags = NSEvent.modifierFlags
-        if flags.contains(.shift), let anchorID,
-           let from = items.firstIndex(where: { $0.id == anchorID }),
-           let to = items.firstIndex(where: { $0.id == item.id }) {
-            let range = min(from, to)...max(from, to)
-            selectedIDs = Set(items[range].map(\.id))
-            model.focusedID = item.id
-        } else if selectionMode || flags.contains(.command) {
-            toggleSelection(item.id)
-        } else {
-            selectedIDs = [item.id]
-            model.focusedID = item.id
+        if !selectionMode, flags.contains(.command) || flags.contains(.shift) {
+            withAnimation(LWMotion.panel) { setSelectionMode(true) }
+        }
+        if selectionMode {
+            if flags.contains(.shift), let anchorID,
+               let from = items.firstIndex(where: { $0.id == anchorID }),
+               let to = items.firstIndex(where: { $0.id == item.id }) {
+                selectedIDs.formUnion(items[min(from, to)...max(from, to)].map(\.id))
+            } else {
+                toggleSelection(item.id)
+            }
             anchorID = item.id
+        } else if let display = model.selectedDisplayID {
+            model.setWallpaper(item.id, on: display)
         }
     }
 
     private func toggleSelection(_ id: VideoItem.ID) {
-        if selectedIDs.contains(id) {
-            selectedIDs.remove(id)
-            if model.focusedID == id {
-                model.focusedID = items.first(where: { selectedIDs.contains($0.id) })?.id ?? id
-            }
-        } else {
-            selectedIDs.insert(id)
-            model.focusedID = id
-            anchorID = id
-        }
+        if selectedIDs.contains(id) { selectedIDs.remove(id) } else { selectedIDs.insert(id) }
+    }
+
+    private func setSelectionMode(_ on: Bool) {
+        selectionMode = on
+        selectedIDs = []
+        anchorID = nil
     }
 
     private func removeSelection() {
-        guard !selectedIDs.isEmpty else { return }
+        guard selectionMode, !selectedIDs.isEmpty else { return }
         remove(selectedIDs)
-    }
-
-    private func isBroken(_ item: VideoItem) -> Bool {
-        model.failedIDs.contains(item.id) || !FileManager.default.fileExists(atPath: item.path)
     }
 
     // MARK: Content
 
     private var gallery: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 26) {
-                heading
-                if let item = focused {
-                    LibraryHero(model: model, item: item, broken: isBroken(item),
-                                playing: model.isPlaying(item.id),
-                                openSteamSetup: openSteamSetup,
-                                remove: { remove([item.id]) })
-                        .transition(.opacity)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 26) {
+                    LWPageHeader(title: "Home", subtitle: subtitle)
+                    DisplayPicker(model: model)
+                    librarySection
                 }
-                librarySection
+                .padding(LWTheme.contentPadding)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(LWTheme.contentPadding)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .scrollIndicators(.visible)
+            .onAppear { reveal(with: proxy) }
+            .onChange(of: model.focusedID) { _ in reveal(with: proxy) }
         }
-        .scrollIndicators(.visible)
-        .animation(LWMotion.hero, value: focused?.id)
         .overlay(alignment: .top) {
             if isTargeted {
                 Text("Drop wallpapers to add them")
@@ -241,39 +183,34 @@ struct LibraryView: View {
         .animation(.easeInOut(duration: 0.18), value: isTargeted)
     }
 
-    private var heading: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(filter.title)
-                .font(.system(size: 30, weight: .bold))
-                .kerning(-0.4)
-            Text(subtitle)
-                .font(.callout)
-                .foregroundStyle(.secondary)
+    /// Scrolls to the wallpaper Show in Library asked for and rings it for a moment.
+    private func reveal(with proxy: ScrollViewProxy) {
+        guard let id = model.focusedID else { return }
+        model.focusedID = nil
+        searchText = ""
+        Task { @MainActor in
+            await Task.yield()  // the cards exist after this layout pass
+            withAnimation(LWMotion.content) { proxy.scrollTo(id, anchor: .center) }
+            withAnimation(LWMotion.select) { highlightedID = id }
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            withAnimation(LWMotion.content) { if highlightedID == id { highlightedID = nil } }
         }
     }
 
     private var subtitle: String {
-        if selectionCount > 1 {
-            return "\(selectionCount) selected · click checkmarks to adjust"
-        }
         if selectionMode {
-            return selectionCount == 0
-                ? "Select wallpapers to remove."
-                : "1 selected · click to add or remove"
+            return selectedIDs.isEmpty ? "Select wallpapers to remove." : "\(selectedIDs.count) selected"
         }
         if !searchText.isEmpty {
             return "\(items.count) \(items.count == 1 ? "result" : "results") for “\(searchText)”"
         }
-        switch filter {
-        case .all: return "\(items.count) \(items.count == 1 ? "wallpaper" : "wallpapers")"
-        case .scenes: return "\(items.count) Wallpaper Engine \(items.count == 1 ? "scene" : "scenes")"
-        }
+        return "\(items.count) \(items.count == 1 ? "wallpaper" : "wallpapers")"
     }
 
     @ViewBuilder private var librarySection: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Text(filter == .all ? "Your library" : "Wallpapers")
+                Text("Your library")
                     .font(.title3.weight(.semibold))
                 Text("\(items.count)")
                     .font(.callout.monospacedDigit())
@@ -296,45 +233,49 @@ struct LibraryView: View {
                 .accessibilityLabel("Add wallpapers")
             }
 
-            switch layout {
-            case .grid:
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: LWTheme.cardMinWidth, maximum: 340),
-                                             spacing: LWTheme.gridSpacing)],
-                          alignment: .leading, spacing: LWTheme.gridSpacing) {
-                    ForEach(items) { item in
-                        LibraryCard(item: item,
-                                    broken: isBroken(item),
-                                    playing: model.isPlaying(item.id),
-                                    paused: model.isPaused,
-                                    focused: item.id == focused?.id,
-                                    selected: selectedIDs.contains(item.id),
-                                    selectionMode: selectionMode,
-                                    onSelect: { select(item) },
-                                    onToggleSelect: { toggleSelection(item.id) },
-                                    onActivate: { model.play(item.id) },
-                                    remove: { remove([item.id]) })
-                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            if items.isEmpty {
+                noResults
+            } else {
+                switch layout {
+                case .grid:
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: LWTheme.cardMinWidth, maximum: 340),
+                                                 spacing: LWTheme.gridSpacing)],
+                              alignment: .leading, spacing: LWTheme.gridSpacing) {
+                        ForEach(items) { item in
+                            LibraryCard(item: item, broken: isBroken(item), state: cardState(item),
+                                        actions: actions(item))
+                                .id(item.id)
+                                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                        }
                     }
-                }
-            case .list:
-                LazyVStack(spacing: 4) {
-                    ForEach(items) { item in
-                        LibraryListRow(item: item,
-                                       broken: isBroken(item),
-                                       playing: model.isPlaying(item.id),
-                                       paused: model.isPaused,
-                                       focused: item.id == focused?.id,
-                                       selected: selectedIDs.contains(item.id),
-                                       selectionMode: selectionMode,
-                                       onSelect: { select(item) },
-                                       onToggleSelect: { toggleSelection(item.id) },
-                                       onActivate: { model.play(item.id) },
-                                       remove: { remove([item.id]) })
+                case .list:
+                    LazyVStack(spacing: 4) {
+                        ForEach(items) { item in
+                            LibraryListRow(item: item, broken: isBroken(item), state: cardState(item),
+                                           actions: actions(item))
+                                .id(item.id)
+                        }
                     }
                 }
             }
         }
         .animation(LWMotion.content, value: items.map(\.id))
+        .animation(LWMotion.select, value: currentID)
+    }
+
+    private func cardState(_ item: VideoItem) -> CardState {
+        CardState(current: !selectionMode && item.id == currentID,
+                  highlighted: item.id == highlightedID,
+                  selectionMode: selectionMode,
+                  selected: selectedIDs.contains(item.id))
+    }
+
+    private func actions(_ item: VideoItem) -> CardActions {
+        CardActions(click: { click(item) },
+                    toggleSelection: { toggleSelection(item.id) },
+                    useOnAllDisplays: model.screens.count > 1 ? { model.setWallpaperOnAllDisplays(item.id) } : nil,
+                    showInFinder: { NSWorkspace.shared.activateFileViewerSelecting([item.url]) },
+                    remove: { remove([item.id]) })
     }
 
     private var emptyState: some View {
@@ -352,10 +293,10 @@ struct LibraryView: View {
         VStack(spacing: 12) {
             Image(systemName: "magnifyingglass").font(.system(size: 28, weight: .light)).foregroundStyle(.tertiary)
             Text("No wallpapers match").font(.title3.weight(.semibold))
-            Text(searchText.isEmpty ? "There is nothing in this collection yet." : "Try another search.")
-                .font(.callout).foregroundStyle(.secondary)
+            Text("Try another search.").font(.callout).foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
     }
 
     // MARK: Removing and adding
@@ -373,7 +314,6 @@ struct LibraryView: View {
             importFailures = outcome.failed
             showSkipped = outcome.skipped > 0
             showFailures = !outcome.failed.isEmpty
-            reconcileSelection()
         }
     }
 
@@ -393,14 +333,12 @@ struct LibraryView: View {
             pendingRemoval = ids
         } else {
             model.remove(ids: ids)
-            reconcileSelection()
         }
     }
 
     private func finishRemoval() {
         model.remove(ids: pendingRemoval)
         pendingRemoval = []
-        reconcileSelection()
     }
 
     private var confirmingRemoval: Binding<Bool> {
@@ -414,140 +352,57 @@ struct LibraryView: View {
     }
 }
 
-// MARK: - Hero
+// MARK: - Cards
 
-@MainActor
-private struct LibraryHero: View {
-    @ObservedObject var model: SettingsModel
-    let item: VideoItem
-    let broken: Bool
-    let playing: Bool
-    let openSteamSetup: () -> Void
-    let remove: () -> Void
+/// How a library card looks.
+struct CardState: Equatable {
+    /// The selected display shows this wallpaper.
+    var current: Bool
+    /// Show in Library pointed here a moment ago.
+    var highlighted: Bool
+    var selectionMode: Bool
+    var selected: Bool
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ZStack(alignment: .bottom) {
-                ItemPreviewPane(item: item, broken: broken, openSteamSetup: openSteamSetup, showsNotes: false)
-                    .frame(maxWidth: .infinity)
-                    .aspectRatio(16 / 9, contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: LWTheme.panelRadius, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: LWTheme.panelRadius, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
-                    }
-
-                LinearGradient(colors: [.clear, .black.opacity(0.42)],
-                               startPoint: .center, endPoint: .bottom)
-                    .allowsHitTesting(false)
-                    .clipShape(RoundedRectangle(cornerRadius: LWTheme.panelRadius, style: .continuous))
-
-                HStack(alignment: .bottom, spacing: 10) {
-                    if playing {
-                        HStack(spacing: 6) {
-                            ActivityBars(playing: true, paused: model.isPaused, tint: .white)
-                            Text(model.isPaused ? "Paused" : "Playing")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.white)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(.ultraThinMaterial, in: Capsule())
-                    }
-                    Spacer()
-                    transport
-                }
-                .padding(12)
-            }
-
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(item.name)
-                        .font(.system(size: 22, weight: .semibold))
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                    HStack(spacing: 6) {
-                        if item.isScene, let info = item.scene { SceneSupportBadge(info: info) }
-                        Text(meta)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Spacer(minLength: 8)
-                HStack(spacing: 8) {
-                    Button {
-                        model.clearStatus()
-                        if playing { model.stop() } else { model.play(item.id) }
-                    } label: {
-                        Label(playing ? "Stop" : "Play",
-                              systemImage: playing ? "stop.fill" : "play.fill")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(playing ? .red : nil)
-                }
-                .controlSize(.large)
-            }
-        }
+    var ringColor: Color {
+        if selected || current { return .accentColor }
+        return highlighted ? Color.accentColor.opacity(0.6) : Color.primary.opacity(0.07)
     }
 
-    private var transport: some View {
-        GlassPanel(radius: 13) {
-            HStack(spacing: 2) {
-                iconButton(playing ? "stop.fill" : "play.fill",
-                           help: playing ? "Stop wallpaper" : "Play wallpaper") {
-                    model.clearStatus()
-                    if playing { model.stop() } else { model.play(item.id) }
-                }
-                iconButton(model.muted ? "speaker.slash.fill" : "speaker.wave.2.fill",
-                           help: model.muted ? "Unmute" : "Mute") {
-                    model.muted.toggle()
-                }
-                iconButton("arrow.up.left.and.arrow.down.right", help: "Enter full screen") {
-                    NSApp.keyWindow?.toggleFullScreen(nil)
-                }
-                iconButton("folder", help: "Reveal in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([item.url])
-                }
-                iconButton("trash", help: "Remove from library") { remove() }
-            }
-            .padding(4)
-        }
-        .fixedSize()
-    }
-
-    private func iconButton(_ icon: String, help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 12, weight: .semibold))
-                .frame(width: 26, height: 24)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(help)
-        .accessibilityLabel(help)
-    }
-
-    private var meta: String {
-        if item.isWorkshop { return "Workshop" }
-        return item.isScene ? "Scene" : "Video"
-    }
+    var ringWidth: CGFloat { selected || current ? 2.5 : (highlighted ? 2 : 1) }
 }
 
-// MARK: - Cards
+/// What a library card can do.
+struct CardActions {
+    /// Puts the wallpaper on the selected display, or selects it while selecting.
+    let click: () -> Void
+    let toggleSelection: () -> Void
+    /// nil with a single display.
+    let useOnAllDisplays: (() -> Void)?
+    let showInFinder: () -> Void
+    let remove: () -> Void
+}
+
+/// The menu of a library card (its context menu and the … button).
+@MainActor
+private struct CardMenu: View {
+    let actions: CardActions
+
+    var body: some View {
+        if let useOnAllDisplays = actions.useOnAllDisplays {
+            Button("Use on All Displays", action: useOnAllDisplays)
+        }
+        Button("Show in Finder", action: actions.showInFinder)
+        Divider()
+        Button("Remove…", role: .destructive, action: actions.remove)
+    }
+}
 
 @MainActor
 private struct LibraryCard: View {
     let item: VideoItem
     let broken: Bool
-    let playing: Bool
-    let paused: Bool
-    let focused: Bool
-    let selected: Bool
-    let selectionMode: Bool
-    let onSelect: () -> Void
-    let onToggleSelect: () -> Void
-    let onActivate: () -> Void
-    let remove: () -> Void
+    let state: CardState
+    let actions: CardActions
     @State private var hovering = false
 
     var body: some View {
@@ -567,29 +422,18 @@ private struct LibraryCard: View {
                     }
                     .padding(7)
 
-                    if hovering && !broken && !selectionMode {
-                        HStack(spacing: 5) {
-                            Button {
-                                onActivate()
-                            } label: {
-                                Image(systemName: "play.fill")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .frame(width: 26, height: 26)
-                            }
-                            .buttonStyle(.plain)
-                            .help("Play wallpaper")
-
-                            Menu {
-                                Button("Remove…", role: .destructive, action: remove)
-                            } label: {
-                                Image(systemName: "ellipsis")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .frame(width: 26, height: 26)
-                            }
-                            .menuStyle(.borderlessButton)
-                            .menuIndicator(.hidden)
-                            .fixedSize()
+                    if hovering && !state.selectionMode {
+                        Menu {
+                            CardMenu(actions: actions)
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 11, weight: .bold))
+                                .frame(width: 26, height: 26)
                         }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                        .help("More")
                         .padding(4)
                         .background(.ultraThinMaterial, in: Capsule())
                         .padding(8)
@@ -599,34 +443,25 @@ private struct LibraryCard: View {
                 }
                 .overlay {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(selected ? Color.accentColor.opacity(focused ? 1 : 0.72)
-                                               : Color.primary.opacity(0.07),
-                                      lineWidth: selected ? (focused ? 2.5 : 2) : 1)
+                        .strokeBorder(state.ringColor, lineWidth: state.ringWidth)
                 }
-                .shadow(color: .black.opacity(hovering || selected ? 0.20 : 0), radius: 16, y: 8)
-                .animation(LWMotion.hover, value: selected)
+                .shadow(color: .black.opacity(hovering || state.current ? 0.20 : 0), radius: 16, y: 8)
+                .animation(LWMotion.hover, value: state)
 
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(item.name)
-                        .font(.subheadline.weight(.medium))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .opacity(broken ? 0.6 : 1)
-                    Spacer(minLength: 0)
-                    if playing {
-                        ActivityBars(playing: true, paused: paused)
-                    }
-                }
+                Text(item.name)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .opacity(broken ? 0.6 : 1)
                 Text(cardMeta)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
             .contentShape(Rectangle())
-            .onTapGesture(perform: onSelect)
-            .onTapGesture(count: 2, perform: onActivate)
+            .onTapGesture(perform: actions.click)
 
-            if selected || hovering || selectionMode {
+            if state.selectionMode {
                 selectionBadge
                     .padding(8)
                     .transition(.opacity.combined(with: .scale(scale: 0.85)))
@@ -635,29 +470,27 @@ private struct LibraryCard: View {
         .onHover { inside in
             withAnimation(LWMotion.hover) { hovering = inside }
         }
-        .contextMenu {
-            Button("Remove…", role: .destructive, action: remove)
-        }
+        .contextMenu { CardMenu(actions: actions) }
         .help(broken ? "This file was moved, deleted, or can’t be played." : item.name)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(item.name), \(cardMeta)")
-        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityAddTraits(state.current || state.selected ? .isSelected : [])
     }
 
     private var selectionBadge: some View {
-        Button(action: onToggleSelect) {
-            Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+        Button(action: actions.toggleSelection) {
+            Image(systemName: state.selected ? "checkmark.circle.fill" : "circle")
                 .symbolRenderingMode(.palette)
-                .foregroundStyle(selected ? Color.white : Color.white.opacity(0.95),
-                                 selected ? Color.accentColor : Color.white.opacity(0.55))
+                .foregroundStyle(state.selected ? Color.white : Color.white.opacity(0.95),
+                                 state.selected ? Color.accentColor : Color.white.opacity(0.55))
                 .font(.system(size: 16, weight: .semibold))
                 .padding(3)
                 .background(Circle().fill(Color.black.opacity(0.36)))
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .help(selected ? "Deselect" : "Add to selection")
-        .accessibilityLabel(selected ? "Deselect wallpaper" : "Select wallpaper")
+        .help(state.selected ? "Deselect" : "Select")
+        .accessibilityLabel(state.selected ? "Deselect wallpaper" : "Select wallpaper")
     }
 
     private var cardMeta: String {
@@ -671,35 +504,24 @@ private struct LibraryCard: View {
 private struct LibraryListRow: View {
     let item: VideoItem
     let broken: Bool
-    let playing: Bool
-    let paused: Bool
-    let focused: Bool
-    let selected: Bool
-    let selectionMode: Bool
-    let onSelect: () -> Void
-    let onToggleSelect: () -> Void
-    let onActivate: () -> Void
-    let remove: () -> Void
+    let state: CardState
+    let actions: CardActions
     @State private var hovering = false
 
     var body: some View {
         HStack(spacing: 10) {
-            Group {
-                if selectionMode || selected || hovering {
-                    Button(action: onToggleSelect) {
-                        Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(selected ? Color.accentColor : Color.secondary.opacity(0.55))
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .help(selected ? "Deselect" : "Add to selection")
-                    .accessibilityLabel(selected ? "Deselect wallpaper" : "Select wallpaper")
-                } else {
-                    Color.clear.frame(width: 15, height: 15)
+            if state.selectionMode {
+                Button(action: actions.toggleSelection) {
+                    Image(systemName: state.selected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(state.selected ? Color.accentColor : Color.secondary.opacity(0.55))
+                        .contentShape(Circle())
                 }
+                .buttonStyle(.plain)
+                .frame(width: 16, height: 16)
+                .help(state.selected ? "Deselect" : "Select")
+                .accessibilityLabel(state.selected ? "Deselect wallpaper" : "Select wallpaper")
             }
-            .frame(width: 16, height: 16)
 
             HStack(spacing: 12) {
                 ItemThumbnail(item: item, broken: broken, cornerRadius: 8)
@@ -709,9 +531,8 @@ private struct LibraryListRow: View {
                     if let info = item.scene { SceneSupportBadge(info: info) }
                 }
                 Spacer(minLength: 8)
-                if playing { ActivityBars(playing: true, paused: paused) }
                 Menu {
-                    Button("Remove…", role: .destructive, action: remove)
+                    CardMenu(actions: actions)
                 } label: {
                     Image(systemName: "ellipsis")
                 }
@@ -720,91 +541,82 @@ private struct LibraryListRow: View {
                 .fixedSize()
             }
             .contentShape(Rectangle())
-            .onTapGesture(perform: onSelect)
-            .onTapGesture(count: 2, perform: onActivate)
+            .onTapGesture(perform: actions.click)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(selected ? Color.accentColor.opacity(0.12) : (hovering ? Color.primary.opacity(0.045) : .clear))
+                .fill(state.current || state.selected ? Color.accentColor.opacity(0.12)
+                                                      : (hovering ? Color.primary.opacity(0.045) : .clear))
         }
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(selected ? Color.accentColor.opacity(focused ? 0.45 : 0.25) : .clear,
+                .strokeBorder(state.current || state.selected || state.highlighted ? state.ringColor.opacity(0.5)
+                                                                                    : .clear,
                               lineWidth: 1)
         }
         .onHover { inside in withAnimation(LWMotion.hover) { hovering = inside } }
-        .contextMenu {
-            Button("Remove…", role: .destructive, action: remove)
-        }
-        .accessibilityAddTraits(selected ? .isSelected : [])
+        .contextMenu { CardMenu(actions: actions) }
+        .accessibilityAddTraits(state.current || state.selected ? .isSelected : [])
     }
 }
 
 // MARK: - Inspector
 
+/// The selected display's wallpaper and that display's settings.
 @MainActor
-struct LibraryInspectorView: View {
+struct DisplayInspectorView: View {
     @ObservedObject var model: SettingsModel
-    let item: VideoItem?
-    let openSteamSetup: () -> Void
-    let remove: () -> Void
-    @State private var confirmingRemoval = false
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                if let item {
-                    header(item)
-                    if item.isScene { SceneSettingsCard(model: model, item: item) }
-                    LibrarySettingsCard(model: model)
-                    removeSection(item)
-                } else {
-                    VStack(spacing: 10) {
-                        Image(systemName: "sidebar.right").font(.system(size: 22, weight: .light))
-                        Text("Select a wallpaper").font(.callout.weight(.medium))
-                        Text("Its settings and rotation options appear here.")
-                            .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 40)
-                }
+            if let screen = model.selectedScreen {
+                content(screen)
+                    .id(screen.id)  // a display's own state (the interval being typed) never carries over
+                    .transition(.opacity)
             }
-            .padding(18)
         }
         .scrollIndicators(.visible)
-        .alert("Remove this wallpaper?", isPresented: $confirmingRemoval) {
-            Button("Remove", role: .destructive, action: remove)
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This deletes the downloaded files. You can download it again from the Workshop.")
-        }
+        .animation(LWMotion.content, value: model.selectedDisplayID)
     }
 
-    private func header(_ item: VideoItem) -> some View {
+    private func content(_ screen: ScreenInfo) -> some View {
+        VStack(alignment: .leading, spacing: 20) {
+            if model.wallpaper(on: screen.id) != nil, let item = model.shownItem(on: screen.id) {
+                header(item, on: screen)
+                if let error = model.error(on: screen.id) {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if item.isScene { SceneSettingsCard(model: model, display: screen.id, item: item) }
+                DisplaySettingsCard(model: model, display: screen.id)
+            } else {
+                VStack(spacing: 10) {
+                    Image(systemName: "display").font(.system(size: 22, weight: .light))
+                    Text(screen.name).font(.callout.weight(.medium))
+                    Text("This display has no live wallpaper. Click one in your library to use it here.")
+                        .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 40)
+            }
+        }
+        .padding(18)
+    }
+
+    private func header(_ item: VideoItem, on screen: ScreenInfo) -> some View {
         HStack(spacing: 11) {
             ItemThumbnail(item: item, broken: !FileManager.default.fileExists(atPath: item.path),
                           showsHoverPreview: false, cornerRadius: 8)
                 .frame(width: 76, height: 43)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.name).font(.callout.weight(.semibold)).lineLimit(2).truncationMode(.middle)
-                Text(item.isScene ? "Scene" : "Video")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text("\(item.isScene ? "Scene" : "Video") · \(screen.name)")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
-        }
-    }
-
-    private func removeSection(_ item: VideoItem) -> some View {
-        InspectorSection(title: "Danger zone") {
-            Button(role: .destructive) {
-                if item.isWorkshop { confirmingRemoval = true } else { remove() }
-            } label: {
-                Label("Remove from library", systemImage: "trash")
-            }
-            .buttonStyle(.bordered)
-            .tint(.red)
-            .controlSize(.small)
         }
     }
 }
@@ -831,38 +643,43 @@ struct SceneSupportBadge: View {
     }
 }
 
-// MARK: - Settings card
+// MARK: - Display settings
 
-/// Mute, rotation and the scene settings.
+/// Sound, rotation and scene settings of one display.
 @MainActor
-struct LibrarySettingsCard: View {
+struct DisplaySettingsCard: View {
     @ObservedObject var model: SettingsModel
+    let display: String
+
+    private var config: DisplayConfig { model.config(for: display) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            InspectorSection(title: "Playback") {
-                Toggle("Mute sound", isOn: $model.muted)
-                    .help("Videos play silently.")
+            InspectorSection(title: "Sound") {
+                Toggle("Mute sound", isOn: Binding(get: { config.muted }, set: { model.setMuted($0, on: display) }))
+                    .help("Wallpapers on this display stay silent.")
             }
 
             Divider()
 
             InspectorSection(title: "Rotation", subtitle: "Runs on a playlist you curate in Playlists.") {
-                RotationBlock(model: model)
+                RotationBlock(model: model, display: display)
             }
 
             Divider()
 
             InspectorSection(title: "Scenes") {
                 VStack(alignment: .leading, spacing: 14) {
-                    LWSettingRow(title: "Frame rate",
-                                 help: "Smoothness of scene wallpapers. Higher looks smoother but keeps the GPU busier.") {
-                        Picker("Scene frame rate", selection: $model.sceneFPS) {
+                    LWSettingRow(title: "Frame rate", help: "Smoothness of scene wallpapers on this display. "
+                                 + "Higher looks smoother but keeps the GPU busier.") {
+                        Picker("Scene frame rate", selection: Binding(
+                            get: { config.sceneFPS },
+                            set: { fps in model.updateDisplay(display) { $0.sceneFPS = fps } })) {
                             ForEach([20, 24, 30, 45, 60], id: \.self) { Text("\($0) fps").tag($0) }
                         }
                         .labelsHidden().fixedSize()
                     }
-                    ScenePowerRows(model: model)
+                    ScenePowerRows(model: model, display: display)
                 }
             }
         }
@@ -872,18 +689,20 @@ struct LibrarySettingsCard: View {
 @MainActor
 struct RotationBlock: View {
     @ObservedObject var model: SettingsModel
+    let display: String
     @State private var intervalText: String
     @FocusState private var intervalFocused: Bool
 
-    init(model: SettingsModel) {
+    init(model: SettingsModel, display: String) {
         self._model = ObservedObject(wrappedValue: model)
-        self._intervalText = State(initialValue: String(model.snapshot.desktop.intervalValue))
+        self.display = display
+        self._intervalText = State(initialValue: String(model.config(for: display).intervalValue))
     }
 
-    private var config: PlaybackConfig { model.snapshot.desktop }
-    private var hasPlaylist: Bool { config.playlist != nil }
-    private var canRotate: Bool { hasPlaylist && model.snapshot.hasMultipleItems }
-    private var itemCount: Int { model.snapshot.items.count }
+    private var config: DisplayConfig { model.config(for: display) }
+    private var hasPlaylist: Bool { model.playlistIDs != nil }
+    private var canRotate: Bool { hasPlaylist && model.canRotate }
+    private var itemCount: Int { model.playlistItems.count }
     private var enteredValue: Int? { Int(intervalText).flatMap { $0 > 0 ? min($0, 999) : nil } }
 
     var body: some View {
@@ -894,7 +713,7 @@ struct RotationBlock: View {
                 Toggle("Rotate wallpaper", isOn: rotateBinding).labelsHidden().toggleStyle(.switch)
             }
             .disabled(!canRotate)
-            .help("Automatically switch between your wallpapers, in list order.")
+            .help("Automatically switch this display between the wallpapers of your playlist, in playlist order.")
             if config.rotateEnabled && canRotate { intervalRow }
             if let helper {
                 Text(helper.text)
@@ -939,16 +758,16 @@ struct RotationBlock: View {
 
     private var rotateBinding: Binding<Bool> {
         Binding(get: { config.rotateEnabled && canRotate },
-                set: { model.rotateEnabled = $0 })
+                set: { on in model.updateDisplay(display) { $0.rotateEnabled = on } })
     }
 
     private var unitBinding: Binding<IntervalUnit> {
         Binding(get: { config.intervalUnit },
-                set: { model.intervalUnit = $0 })
+                set: { unit in model.updateDisplay(display) { $0.intervalUnit = unit } })
     }
 
     private func commitInterval() {
-        if let value = enteredValue { model.intervalValue = value }
+        if let value = enteredValue { model.updateDisplay(display) { $0.intervalValue = value } }
         intervalText = String(config.intervalValue)
     }
 }

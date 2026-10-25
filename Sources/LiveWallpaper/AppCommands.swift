@@ -55,14 +55,5 @@ struct AppCommands: Commands {
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
         }
-
-        CommandMenu("Wallpaper") {
-            Button(model.isRunning ? "Stop Wallpaper" : "Start Wallpaper") {
-                model.clearStatus()
-                if model.isRunning { model.stop() } else { model.start() }
-            }
-            .keyboardShortcut(.return, modifiers: .command)
-            .disabled(!model.isRunning && !model.canStart)
-        }
     }
 }

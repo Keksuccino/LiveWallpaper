@@ -25,7 +25,6 @@ enum ServiceEntry {
     private let menu = NSMenu()
     private let statusLine = NSMenuItem()
     private let messageItem = NSMenuItem()
-    private let toggleItem = NSMenuItem()
     private let pauseItem = NSMenuItem()
     private let nextItem = NSMenuItem()
     private let muteItem = NSMenuItem()
@@ -40,7 +39,7 @@ enum ServiceEntry {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard isActive else { return .terminateNow }
-        orchestrator.shutdown(userQuit: false)
+        orchestrator.shutdown()
         server.push(orchestrator.status())
         server.stop()
         return .terminateNow
@@ -76,7 +75,7 @@ enum ServiceEntry {
             .contains { $0.processIdentifier < me && !$0.isTerminated }
     }
 
-    // SIGTERM and SIGINT take the normal quit path, so playback stops cleanly.
+    // SIGTERM and SIGINT take the normal quit path, so the live wallpapers stop cleanly.
     private func installTerminationSignals() {
         for number in [SIGTERM, SIGINT] {
             signal(number, SIG_IGN)
@@ -99,13 +98,10 @@ enum ServiceEntry {
         switch command {
         case .commit(let state):
             if !orchestrator.commit(state) { error = "Couldn’t save your library." }
-        case .start(let itemID):
-            if let itemID { orchestrator.play(itemID) } else { orchestrator.start(at: nil) }
-        case .stop: orchestrator.stop()
         case .pause: orchestrator.setPaused(true)
         case .resume: orchestrator.setPaused(false)
         case .next: orchestrator.next()
-        case .setMuted(let muted): orchestrator.setMuted(muted)
+        case .setMuted(let display, let muted): orchestrator.setMuted(muted, display: display)
         case .status: break
         case .quit:
             // After the reply has gone out.
@@ -122,7 +118,7 @@ enum ServiceEntry {
     }
 
     private func quitWallpaper() {
-        orchestrator.shutdown(userQuit: true)
+        orchestrator.shutdown()
         NSApp.terminate(nil)
     }
 
@@ -135,8 +131,7 @@ enum ServiceEntry {
         statusLine.isEnabled = false
         messageItem.isEnabled = false
         messageItem.isHidden = true
-        configure(toggleItem, title: "Start Wallpaper", action: #selector(toggleRunning))
-        configure(pauseItem, title: "Pause Wallpaper", action: #selector(togglePause))
+        configure(pauseItem, title: "Pause Wallpapers", action: #selector(togglePause))
         configure(nextItem, title: "Next Wallpaper", action: #selector(nextWallpaper))
         nextItem.keyEquivalent = String(Character(UnicodeScalar(NSRightArrowFunctionKey)!))
         configure(muteItem, title: "Mute Sound", action: #selector(toggleMute))
@@ -144,9 +139,9 @@ enum ServiceEntry {
         settings.target = self
         let quit = NSMenuItem(title: "Quit Wallpaper", action: #selector(quitFromMenu), keyEquivalent: "q")
         quit.target = self
-        quit.toolTip = "Stops the wallpaper and quits this helper. Its still stays your system wallpaper."
+        quit.toolTip = "Stops the live wallpapers and quits this helper. Their stills stay your system wallpapers."
         [statusLine, messageItem, .separator(), settings, .separator(),
-         toggleItem, pauseItem, nextItem, muteItem, .separator(), quit].forEach(menu.addItem)
+         pauseItem, nextItem, muteItem, .separator(), quit].forEach(menu.addItem)
         item.menu = menu
     }
 
@@ -157,8 +152,8 @@ enum ServiceEntry {
     }
 
     private func refreshMenu() {
-        let running = orchestrator.isRunning
-        let symbol = running ? (orchestrator.isPaused ? "pause.rectangle.fill" : "play.rectangle.fill") : "play.rectangle"
+        let live = orchestrator.isLive
+        let symbol = live ? (orchestrator.isPaused ? "pause.rectangle.fill" : "play.rectangle.fill") : "play.rectangle"
         let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Live Wallpaper")
         image?.isTemplate = true
         statusItem?.button?.image = image
@@ -174,31 +169,23 @@ enum ServiceEntry {
                 string: "⚠ " + shown, attributes: [.foregroundColor: NSColor.systemOrange])
         }
 
-        toggleItem.title = running ? "Stop Wallpaper" : "Start Wallpaper"
-        toggleItem.isEnabled = running || orchestrator.canStart
-        toggleItem.toolTip = toggleItem.isEnabled ? nil
-            : "Add a wallpaper in Settings to start."
-        pauseItem.title = orchestrator.isPaused ? "Resume Wallpaper" : "Pause Wallpaper"
-        pauseItem.isEnabled = running
+        pauseItem.title = orchestrator.isPaused ? "Resume Wallpapers" : "Pause Wallpapers"
+        pauseItem.isEnabled = live || orchestrator.isPaused
         nextItem.isEnabled = orchestrator.canRotate
         muteItem.state = orchestrator.muted ? .on : .off
+        muteItem.isEnabled = live
     }
 
     private var statusText: String {
-        guard orchestrator.state.desktop.enabled else { return "Off" }
-        guard orchestrator.isRunning else { return "Stopped" }
-        guard let item = orchestrator.currentItem else { return "Off" }
-        let name = "“\(item.name)”"
-        return orchestrator.isPaused ? "Paused · \(name)" : "Playing \(name)"
-    }
-
-    @objc private func toggleRunning() {
-        if orchestrator.isRunning { orchestrator.stop() } else { orchestrator.start(at: nil) }
+        let shown = orchestrator.shownItems
+        guard let first = shown.first else { return "No live wallpaper" }
+        let text = shown.count == 1 ? "Showing “\(first.name)”" : "Showing \(shown.count) wallpapers"
+        return orchestrator.isPaused ? "Paused · \(text)" : text
     }
 
     @objc private func togglePause() { orchestrator.setPaused(!orchestrator.isPaused) }
     @objc private func nextWallpaper() { orchestrator.next() }
-    @objc private func toggleMute() { orchestrator.setMuted(!orchestrator.muted) }
+    @objc private func toggleMute() { orchestrator.setMuted(!orchestrator.muted, display: nil) }
     @objc private func quitFromMenu() { quitWallpaper() }
 
     // The service lives at <LiveWallpaper.app>/Contents/Library/LoginItems/LiveWallpaperService.app.

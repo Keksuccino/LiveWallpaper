@@ -10,19 +10,20 @@
 ![Rust](https://img.shields.io/badge/renderer-Rust%20%2B%20Metal-orange)
 ![Swift](https://img.shields.io/badge/app-Swift%20%2B%20SwiftUI-F05138)
 
-**Live Wallpaper** is a free, open-source animated wallpaper app for macOS. It plays videos and **Wallpaper Engine scenes** as your desktop wallpaper, rotates through a playlist on a timer, keeps the lock screen and menu bar in step with a still of it, and downloads wallpapers from the **Steam Workshop** with your own Steam account. Scenes are drawn by our own Rust + Metal renderer that sleeps when nothing is moving, so it stays light on battery.
+**Live Wallpaper** is a free, open-source animated wallpaper app for macOS. It plays videos and **Wallpaper Engine scenes** as your desktop wallpaper, a different one on every display if you like, rotates through a playlist on a timer, keeps the lock screen and menu bar in step with a still of it, and downloads wallpapers from the **Steam Workshop** with your own Steam account. Scenes are drawn by our own Rust + Metal renderer that sleeps when nothing is moving, so it stays light on battery.
 
 ![Live Wallpaper settings window: a video wallpaper selected, with rotation and scene frame-rate options](assets/screenshots/library-detail.png)
 
 ## Features
 
-- **Video wallpapers**: drop in MP4, MOV or M4V files; they play muted (or with sound) and loop on every display.
+- **Video wallpapers**: drop in MP4, MOV or M4V files; they play muted (or with sound) and loop.
 - **Wallpaper Engine scenes on a Mac**: a from-scratch renderer for `.pkg` scene packages: layers, effects, bloom, particles, puppet animation, text, parallax, SceneScript (QuickJS) and audio-reactive properties.
 - **Steam Workshop browser**: browse Trending wallpapers, search, or paste a Workshop link; download with Valve's official SteamCMD and your own account.
+- **Every display its own**: each display gets its own wallpaper and settings, picked on a map of your display arrangement. Works with and without separate Spaces per display.
 - **Lock screen and menu bar to match**: each display's system wallpaper becomes a still of the live wallpaper, framed the same way, so the lock screen, the menu bar background and Mission Control show it too.
-- **Rotation**: cycle a playlist or your whole library every N seconds (minimum 5).
+- **Rotation**: cycle a display through your playlist every N seconds (minimum 5).
 - **Battery-friendly**: frame-rate cap, render scale, "pause on battery", "skip repeated frames", "update only when the scene changes", pause while the screen is locked or the desktop is covered.
-- **Menu bar control**: start/stop, pause, next wallpaper, mute and quit from a background service that keeps running after Settings closes.
+- **Menu bar control**: pause, next wallpaper, mute and quit from a background service that keeps running after Settings closes.
 - **Native and small**: SwiftUI settings app plus an AppKit background service. No Electron, no web view, no Homebrew libraries.
 
 ## Screenshots
@@ -32,7 +33,7 @@
 | ![Steam Workshop grid showing trending video and scene wallpapers with download buttons](assets/screenshots/workshop-browse.png) | ![Steam Workshop link lookup showing a scene wallpaper's tags, resolution, size and download button](assets/screenshots/workshop-lookup.png) |
 | **Workshop browser.** Trending, search and a Mature filter. Web wallpapers are flagged as unsupported instead of failing after download. | **Paste a link.** Any Workshop URL or item number is looked up automatically and shows type, resolution, rating and size before you download. |
 | ![Steam Setup wizard: install SteamCMD, sign in to Steam, check Wallpaper Engine](assets/screenshots/steam-setup.png) | ![Empty wallpaper library with Choose Videos and Browse the Workshop buttons](assets/screenshots/library-empty.png) |
-| **Steam settings.** Three steps: install SteamCMD (about 3 MB), sign in, check Wallpaper Engine. | **Library.** Drop videos anywhere on the window. Sidebar filters: All, Scenes. |
+| **Steam settings.** Three steps: install SteamCMD (about 3 MB), sign in, check Wallpaper Engine. | **Library.** Drop videos anywhere on the window. |
 
 ## How the renderer works
 
@@ -92,15 +93,14 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the process, IPC and bridge diagram.
 
 ## Usage
 
-- Add videos by dropping them on the window or with Add Videos (⌘O). The first item is selected automatically.
-- The preview shows the selected item, muted and looping.
-- **Play** (or a double-click) shows a wallpaper.
+- Add wallpapers by dropping them on the window, with Import Wallpapers (⌘O) or with Add Videos (⇧⌘O).
+- **Home** shows your displays as they are arranged in System Settings. Click a display to choose it (the leftmost one is chosen at first), then click a wallpaper in your library to put it on that display. The inspector on the right holds that display's settings.
+- **Remove Wallpaper** takes a display's live wallpaper away and gives the display the macOS default wallpaper back. **Use on All Displays** in a wallpaper's menu puts it on every display.
+- Rotation cycles a display through the playlist (Playlists page) in list order. Turn it on per display in the inspector and set how often it switches (minimum 5 seconds). Rotation needs at least two wallpapers in the playlist.
 - **Update delay** (Settings ⌘, → General) sets how long the app waits before the picture on your lock screen and behind the menu bar follows a wallpaper change (2 seconds by default).
 - The **Steam** tab in Settings sets up Workshop downloads.
-- Rotation cycles through the playlist, or the library when no playlist is set, in list order. Set how often it switches (minimum 5 seconds). Rotation needs at least two wallpapers.
-- **Start Wallpaper** (⌘↩) starts the service if needed and begins playback. **Stop Wallpaper** ends playback; the still of the last wallpaper stays your system wallpaper.
-- The service's menu bar item offers Open Settings, Start/Stop, Pause/Resume, Next Wallpaper, Mute and Quit.
-- Closing the Settings window quits Settings; the service keeps playing. Choosing Quit Wallpaper stops the service.
+- The service's menu bar item offers Open Settings, Pause/Resume, Next Wallpaper, Mute Sound (every display) and Quit.
+- Closing the Settings window quits Settings; the service keeps running. Choosing Quit Wallpaper stops the service; the stills of the live wallpapers stay your system wallpapers.
 
 Everything the app installs stays in `~/Library/Application Support/LiveWallpaper/` and `~/Library/Caches/LiveWallpaperSteam/`. Remove the app and those folders to uninstall; choose **Quit Wallpaper** in the menu bar first, and pick another wallpaper in System Settings → Wallpaper, since the current one is a still stored in that folder.
 
@@ -134,7 +134,7 @@ The build checks that Settings never links the old scene engine and that the ser
 
 ## Architecture
 
-Two processes: the SwiftUI **LiveWallpaper** (Settings) app, which plays nothing, and the nested AppKit **LiveWallpaperService**, which owns playback, the system wallpaper stills, rotation timers, the Unix socket and `state.json`. Settings sends commands to the service over the socket and never imports `SceneBridge`. The Rust renderer is statically linked into the service, not a separate process. Full diagram, state ownership and option mapping: [ARCHITECTURE.md](ARCHITECTURE.md).
+Two processes: the SwiftUI **LiveWallpaper** (Settings) app, which plays nothing, and the nested AppKit **LiveWallpaperService**, which draws every display's wallpaper and owns the system wallpaper stills, rotation timers, the Unix socket and `state.json`. Settings sends commands to the service over the socket and never imports `SceneBridge`. The Rust renderer is statically linked into the service, not a separate process. Full diagram, state ownership and option mapping: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## FAQ
 

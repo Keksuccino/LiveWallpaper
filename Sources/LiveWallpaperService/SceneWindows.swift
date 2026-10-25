@@ -2,7 +2,7 @@ import AppKit
 import QuartzCore
 
 // What a scene is drawn in. Our renderer draws into a CAMetalLayer that the app hands over, so the app keeps
-// control of the windows (DesktopWindows): their level, the spaces and the occlusion state.
+// control of the window (DisplayWindow): its level, the spaces and the occlusion state.
 
 /// A view whose backing layer is a CAMetalLayer, so the renderer can draw into it.
 final class MetalView: NSView {
@@ -20,9 +20,9 @@ final class MetalView: NSView {
     var metalLayer: CAMetalLayer? { layer as? CAMetalLayer }
 }
 
-/// One display the scene is drawn on.
+/// The display a scene is drawn on.
 struct SceneDisplay: Equatable {
-    /// Stable id of the display, used to attach and detach the layer.
+    /// The display's UUID, which the renderer attaches and detaches the layer by.
     let id: String
     let layer: CAMetalLayer
     /// Size of the drawable in pixels.
@@ -30,20 +30,19 @@ struct SceneDisplay: Equatable {
     let pixelHeight: Int
 }
 
-extension DesktopWindows where View == MetalView {
-    /// The layer of every screen with its size in pixels (the layer's scale follows the screen's).
-    func displays() -> [SceneDisplay] {
-        entries.compactMap { entry -> SceneDisplay? in
-            guard let layer = entry.view.metalLayer else { return nil }
-            let scale = entry.window.screen?.backingScaleFactor ?? 1
-            layer.contentsScale = scale
-            let size = entry.window.frame.size
-            return SceneDisplay(
-                id: entry.id,
-                layer: layer,
-                pixelWidth: Int((size.width * scale).rounded()),
-                pixelHeight: Int((size.height * scale).rounded())
-            )
-        }
+extension DisplayWindow where View == MetalView {
+    /// The window's layer with its size in pixels (the layer's scale follows the screen's); nil while the window is
+    /// not on screen.
+    func display() -> SceneDisplay? {
+        guard let window, let layer = view?.metalLayer else { return nil }
+        let scale = window.screen?.backingScaleFactor ?? 1
+        layer.contentsScale = scale
+        let size = window.frame.size
+        return SceneDisplay(
+            id: displayID,
+            layer: layer,
+            pixelWidth: Int((size.width * scale).rounded()),
+            pixelHeight: Int((size.height * scale).rounded())
+        )
     }
 }

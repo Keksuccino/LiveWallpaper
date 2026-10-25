@@ -77,27 +77,12 @@ struct LiveWallpaperApp: App {
 
 // MARK: - Navigation
 
-enum SidebarSelection: Hashable {
-    case all, scenes, playlists, workshop, downloads
-
-    var isLibrary: Bool {
-        switch self {
-        case .all, .scenes: return true
-        default: return false
-        }
-    }
-
-    var libraryFilter: LibraryFilter {
-        switch self {
-        case .scenes: return .scenes
-        default: return .all
-        }
-    }
+enum SidebarSelection: Hashable, CaseIterable {
+    case home, playlists, workshop, downloads
 
     var title: String {
         switch self {
-        case .all: return "All Wallpapers"
-        case .scenes: return "Scenes"
+        case .home: return "Home"
         case .playlists: return "Playlists"
         case .workshop: return "Workshop"
         case .downloads: return "Downloads"
@@ -106,8 +91,7 @@ enum SidebarSelection: Hashable {
 
     var symbol: String {
         switch self {
-        case .all: return "rectangle.on.rectangle"
-        case .scenes: return "sparkles.rectangle.stack"
+        case .home: return "house"
         case .playlists: return "list.bullet.rectangle"
         case .workshop: return "square.grid.2x2"
         case .downloads: return "arrow.down.circle"
@@ -120,7 +104,7 @@ enum SidebarSelection: Hashable {
 struct RootView: View {
     @ObservedObject var model: SettingsModel
     @ObservedObject var workshop: WorkshopModel
-    @State private var selection: SidebarSelection = .all
+    @State private var selection: SidebarSelection = .home
     @State private var showInspector = true
 
     var body: some View {
@@ -141,16 +125,11 @@ struct RootView: View {
 
     private var sidebar: some View {
         List(selection: $selection) {
-            Section("Library") {
-                sidebarRow(.all, count: model.videos.count)
-                sidebarRow(.scenes, count: model.videos.filter(\.isScene).count)
-                sidebarRow(.playlists, count: nil)
-            }
-            Section("Discover") {
-                sidebarRow(.workshop, count: workshop.results.isEmpty ? nil : workshop.results.count)
-                sidebarRow(.downloads, count: workshop.downloadEntries.isEmpty ? nil : workshop.downloadEntries.count,
-                           live: workshop.hasActiveDownloads)
-            }
+            sidebarRow(.home, count: model.videos.count)
+            sidebarRow(.playlists, count: nil)
+            sidebarRow(.workshop, count: workshop.results.isEmpty ? nil : workshop.results.count)
+            sidebarRow(.downloads, count: workshop.downloadEntries.isEmpty ? nil : workshop.downloadEntries.count,
+                       live: workshop.hasActiveDownloads)
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .bottom) {
@@ -196,7 +175,7 @@ struct RootView: View {
         .animation(LWMotion.content, value: selection)
         .animation(LWMotion.content, value: banner?.text)
         .toolbar {
-            if selection.isLibrary {
+            if selection == .home {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         withAnimation(LWMotion.panel) { showInspector.toggle() }
@@ -241,44 +220,27 @@ struct RootView: View {
 
     @ViewBuilder private var content: some View {
         switch selection {
-        case .all, .scenes:
-            LibraryView(model: model,
-                        filter: selection.libraryFilter,
-                        showInspector: $showInspector,
-                        openWorkshop: { selection = .workshop },
-                        openSteamSetup: openSteamSettings)
+        case .home:
+            HomeView(model: model, openWorkshop: { selection = .workshop })
                 .lwInspector(isPresented: $showInspector) {
-                    LibraryInspectorView(model: model,
-                                         item: focusedLibraryItem,
-                                         openSteamSetup: openSteamSettings,
-                                         remove: removeFocused)
+                    DisplayInspectorView(model: model)
                 }
         case .playlists:
             PlaylistView(model: model)
         case .workshop:
             WorkshopView(model: model, workshop: workshop,
                          openSteamSetup: openSteamSettings,
-                         openLibrary: { selection = .all },
+                         openLibrary: { selection = .home },
                          openDownloads: { selection = .downloads })
         case .downloads:
             DownloadsView(model: model, workshop: workshop,
-                          openLibrary: { selection = .all },
+                          openLibrary: { selection = .home },
                           openWorkshop: { selection = .workshop })
         }
     }
 
     private func openSteamSettings() {
         SettingsNavigator.shared.open(.steam)
-    }
-
-    private var focusedLibraryItem: VideoItem? {
-        let visible = model.videos.filter { selection.libraryFilter.includes($0) }
-        return visible.first { $0.id == model.focusedID } ?? visible.first
-    }
-
-    private func removeFocused() {
-        guard let id = focusedLibraryItem?.id else { return }
-        model.remove(ids: [id])
     }
 
     /// One banner at a time, in priority order.
@@ -345,42 +307,30 @@ fileprivate struct BannerBar: View {
 @MainActor
 private struct ServiceFooter: View {
     @ObservedObject var model: SettingsModel
-    @State private var showingMenu = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 7) {
-                StatusDot(color: dot, pulsing: model.client.state == .connecting)
-                Text(shortText)
-                    .font(.caption)
-                    .foregroundStyle(model.client.state == .connected ? .secondary : .primary)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                Menu {
-                    Button("Connect to Service") { model.startService() }
-                        .disabled(model.client.state == .connected)
-                    Button("Restart Service") { model.restartService() }
-                        .disabled(model.client.state != .connected)
-                    Button("Quit Service") { model.quitService() }
-                        .disabled(model.client.state != .connected)
-                } label: {
-                    Image(systemName: "ellipsis")
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("Service options")
-                .accessibilityLabel("Service options")
+        HStack(spacing: 7) {
+            StatusDot(color: dot, pulsing: model.client.state == .connecting)
+            Text(shortText)
+                .font(.caption)
+                .foregroundStyle(model.client.state == .connected ? .secondary : .primary)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            Menu {
+                Button("Connect to Service") { model.startService() }
+                    .disabled(model.client.state == .connected)
+                Button("Restart Service") { model.restartService() }
+                    .disabled(model.client.state != .connected)
+                Button("Quit Service") { model.quitService() }
+                    .disabled(model.client.state != .connected)
+            } label: {
+                Image(systemName: "ellipsis")
             }
-            HStack(spacing: 6) {
-                Button(model.isRunning ? "Stop" : "Start") {
-                    model.clearStatus()
-                    if model.isRunning { model.stop() } else { model.start() }
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(!model.isRunning && !model.canStart)
-            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Service options")
+            .accessibilityLabel("Service options")
         }
         .padding(10)
         .background { glassShape(radius: 12) }
@@ -388,7 +338,7 @@ private struct ServiceFooter: View {
 
     private var dot: Color {
         switch model.client.state {
-        case .connected: return model.isRunning ? .green : .secondary
+        case .connected: return model.isLive ? .green : .secondary
         case .connecting: return .orange
         case .needsApproval, .unavailable: return .orange
         case .unknown: return .secondary
@@ -397,7 +347,7 @@ private struct ServiceFooter: View {
 
     private var shortText: String {
         switch model.client.state {
-        case .connected: return model.isRunning ? "Wallpaper service · running" : "Wallpaper service · ready"
+        case .connected: return "Wallpaper service · running"
         case .connecting: return "Starting service…"
         case .needsApproval: return "Service needs approval"
         case .unavailable: return "Service not responding"
@@ -440,7 +390,7 @@ struct ServiceStatusPill: View {
 
     private var dot: Color {
         switch model.client.state {
-        case .connected: return model.isRunning ? .green : .secondary
+        case .connected: return model.isLive ? .green : .secondary
         case .connecting: return .orange
         case .needsApproval, .unavailable: return .orange
         case .unknown: return .secondary
@@ -451,7 +401,7 @@ struct ServiceStatusPill: View {
         if model.client.state == .connecting { return "Starting…" }
         if model.client.state == .unavailable { return "Service offline" }
         if model.client.state == .needsApproval { return "Needs approval" }
-        if model.isRunning { return model.isPaused ? "Paused" : "Live" }
+        if model.isLive { return model.isPaused ? "Paused" : "Live" }
         return "Ready"
     }
 }
@@ -469,24 +419,13 @@ private struct ServicePopover: View {
                 Text(stateText).font(.caption).foregroundStyle(.secondary)
             }
 
-            wallpaperRow
-                .padding(12)
-                .background {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.primary.opacity(0.045))
-                }
-
-            HStack(spacing: 8) {
-                Button(model.isRunning ? "Stop Wallpaper" : "Start Wallpaper") {
-                    model.clearStatus()
-                    model.isRunning ? model.stop() : model.start()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!model.isRunning && !model.canStart)
-
-                Toggle("Mute", isOn: $model.muted)
-                    .toggleStyle(.checkbox)
-                Spacer()
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(model.screens) { screen in displayRow(screen) }
+            }
+            .padding(12)
+            .background {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.primary.opacity(0.045))
             }
 
             if let message = model.statusMessage, !message.isEmpty {
@@ -511,7 +450,7 @@ private struct ServicePopover: View {
 
     private var stateText: String {
         switch model.client.state {
-        case .connected: return model.isRunning ? "running" : "ready"
+        case .connected: return "running"
         case .connecting: return "starting"
         case .needsApproval: return "needs approval"
         case .unavailable: return "offline"
@@ -519,22 +458,21 @@ private struct ServicePopover: View {
         }
     }
 
-    private var wallpaperRow: some View {
-        let id = model.currentID
-        let item = model.videos.first { $0.id == id }
+    private func displayRow(_ screen: ScreenInfo) -> some View {
+        let item = model.liveItem(on: screen.id)
         return HStack(spacing: 9) {
-            Image(systemName: "play.rectangle")
+            Image(systemName: "display")
                 .foregroundStyle(.secondary)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 1) {
-                Text("Wallpaper").font(.caption).foregroundStyle(.secondary)
-                Text(item?.name ?? "Off")
+                Text(screen.name).font(.caption).foregroundStyle(.secondary)
+                Text(item?.name ?? "No live wallpaper")
                     .font(.callout.weight(.medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
             Spacer(minLength: 6)
-            ActivityBars(playing: id != nil && model.isRunning, paused: model.isPaused)
+            ActivityBars(playing: item != nil, paused: model.isPaused)
         }
     }
 }

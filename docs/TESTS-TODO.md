@@ -4,9 +4,11 @@ Skipped while getting the new architecture (UI + LiveWallpaperService + SceneRen
 Each entry: what to test, where, and why it was skipped.
 
 - UI/ServiceClient: with the service not registered, the app shows the Login Items banner and no state.json write happens from the UI.
-- UI/SettingsModel: rapid library edits arrive at the service as ordered `.commit`s; a pushed status with a different `muted` updates the toggle without sending `.setMuted` back.
-- Service: `.commit(state)` keeps the service's `muted` and bumps state.json revision (Orchestrator.commit + StateStore). Skipped: needs a temp AppPaths.
-- Service: a scene that fails to load reports the error in ServiceStatus.error, skips to the next item, and stops cleanly when only broken scenes exist.
+- UI/SettingsModel: rapid library edits arrive at the service as ordered `.commit`s; a pushed status with a different `muted` for a display updates its toggle without sending `.setMuted` back.
+- UI/Home: the leftmost display is selected at first; when the selected display is disconnected, the leftmost remaining one is selected; clicking a wallpaper sends one `.commit` for the selected display only.
+- Service: `.commit(state)` keeps each display's `muted` from disk and bumps state.json revision (Orchestrator.commit + StateStore). Skipped: needs a temp AppPaths.
+- Service: a scene that fails to load reports the error in its DisplayStatus, skips to the next playlist item on a rotating display, shows nothing live on any other display, and stops cleanly when only broken scenes exist.
+- Service: removing a display's wallpaper sets macOS's default wallpaper on that display only; a disconnected display keeps its still file; connecting a display with a wallpaper in state.json starts it.
 - Service: WallpaperStills makes one still per display size, reuses it while nothing that changes the picture changed, and sets it only on displays that do not show it yet.
 - Service: SystemAudioTap delivers moving band levels while music plays and stops when audio response is turned off.
 - Service: XPC round trip — a client connection gets a reply ServiceStatus for every ServiceCommand and a statusChanged push on rotation. Skipped: needs launchd-registered mach service.
@@ -20,4 +22,4 @@ Each entry: what to test, where, and why it was skipped.
 - SceneProperty.load: project.json with bool/slider/color/text/combo/unknown properties yields the supported ones sorted by order; missing or invalid JSON yields none.
 - Service scene options: change zoom/fit/pan/volume/property in state.json while a scene runs and check it updates live without restart.
 - Service power: unplug the Mac with batteryMode reducedQuality/pause and check the bridge lowers scale/fps or pauses (no manual cap any more).
-- Service: switching scene items re-pushes that item's SceneOptions (per-item volume, fit) and global power options once.
+- Service: switching scene items re-pushes that item's SceneOptions on that display (per-item volume, fit) and the display's power options once.

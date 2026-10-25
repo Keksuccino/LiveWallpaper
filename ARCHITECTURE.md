@@ -3,7 +3,7 @@
 Live Wallpaper is one app bundle with two running processes:
 
 - **LiveWallpaper.app** — the SwiftUI Settings app. It reads the library, edits settings, drives Steam Workshop downloads and sends commands to the service. It never plays a wallpaper and, after the one-time schema migration described below, never writes `state.json`.
-- **LiveWallpaperService.app** — the nested AppKit background service at `Contents/Library/LoginItems/`. It owns playback, the system wallpaper stills, rotation timers, the menu bar item, the Unix socket and `state.json`.
+- **LiveWallpaperService.app** — the nested AppKit background service at `Contents/Library/LoginItems/`. It draws every display's wallpaper and owns the system wallpaper stills, rotation timers, the menu bar item, the Unix socket and `state.json`.
 
 The Rust/C++ scene renderer is statically linked into the service and accessed in-process through UniFFI. There is no scene-host process, no XPC service and no per-scene subprocess.
 
@@ -24,34 +24,35 @@ flowchart TB
         direction TB
         ENTRY["ServiceEntry / ServiceDelegate<br/>NSApplicationDelegate"]
         SOCK["SocketServer"]
-        ORCH["Orchestrator<br/>bootstrap · commit · start · stop<br/>setPaused · setMuted<br/>owns video + scene + stills"]
-        MENU["Menu bar status item<br/>start/stop · pause · next · mute · quit"]
+        ORCH["Orchestrator<br/>bootstrap · commit · next<br/>setPaused · setMuted<br/>a DisplayPlayer per display + stills"]
+        MENU["Menu bar status item<br/>pause · next · mute · quit"]
 
-        subgraph PLAY["Wallpaper services"]
+        subgraph PLAY["Per display"]
             direction LR
-            BASE["WallpaperService<br/>base class<br/>start · stop · setPaused<br/>setMuted · setScreenLocked · apply"]
+            PLAYER["DisplayPlayer<br/>update(state) · next · stop<br/>rotation · failures"]
+            BASE["WallpaperService<br/>base class<br/>start · stop · setPaused<br/>setMuted · setScreenLocked"]
             VIDEO["VideoRenderService<br/>start · stop · setPaused<br/>setMuted · setScreenLocked"]
             SCENE["SceneRenderService<br/>update(state) · start · stop<br/>setPaused · setMuted · setScreenLocked"]
-            STILLS["WallpaperStills<br/>show · stop<br/>a still per display as system wallpaper"]
         end
+        STILLS["WallpaperStills<br/>show · forget · revert<br/>a still per display as system wallpaper"]
 
         subgraph RUST["SceneRenderer (Rust) · same process"]
             direction LR
             FFI["SceneBridge<br/>generated UniFFI Swift"]
             API["Renderer (Rust)<br/>attach_layer · detach_layer<br/>play · pause · stop · set_visible<br/>apply_property · set_fit_mode<br/>set_pan_zoom · set_render_scale<br/>set_fps_cap · set_muted · set_volume<br/>set_audio_response · set_audio_spectrum<br/>render_frame"]
             THREAD["render thread<br/>Engine · QuickJS scripts<br/>AVAudioPlayer sounds"]
-            WINDOW["SceneWindowManager<br/>NSWindow + CAMetalLayer"]
+            WINDOW["DisplayWindow<br/>NSWindow + CAMetalLayer"]
         end
 
         ENTRY --> SOCK
         ENTRY --> ORCH
         ENTRY --> MENU
         SOCK --> ORCH
-        ORCH --> VIDEO
-        ORCH --> SCENE
+        ORCH -->|"update(LibraryState)"| PLAYER
+        PLAYER --> VIDEO
+        PLAYER --> SCENE
         ORCH --> STILLS
         STILLS -->|"scene stills"| FFI
-        ORCH -->|"update(LibraryState)"| SCENE
         VIDEO -.->|extends| BASE
         SCENE -.->|extends| BASE
         SCENE -->|"FFI calls"| FFI
@@ -94,44 +95,48 @@ NSXPC was not used because launchd would not spawn the ad-hoc-signed nested serv
 
 | File | Owner | Purpose |
 |---|---|---|
-| `state.json` | Service (normal operation) | Library, selections, rotation, scene options, power settings and the still's update delay. Settings reads it and sends `.commit`. |
-| `agent.json` | Service | Resume state, and the Aerial records older versions left (cleaned up at launch). |
+| `state.json` | Service (normal operation) | Library, playlist, the still's update delay, and per display (`displays`, keyed by the display's UUID): its wallpaper, mute, rotation, scene options and power settings. Settings reads it and sends `.commit`. |
+| `agent.json` | Service | The still each display was last given, and the Aerial records older versions left (cleaned up at launch). |
 | `WallpaperStills/*.jpg` | Service (`WallpaperStills`) | The still each display shows as its system wallpaper, named after a digest of what it shows. |
 | `Library/{id}/project.json` | Workshop import / user library | Scene description read by both Settings and the renderer. |
 
-There is one deliberate exception to “the service writes `state.json`”: when the Settings app upgrades a schema-1 file, `StateStore.loadOrMigrate` copies it to `state.v1-backup.json` and performs the one-time schema-2 rewrite before connecting to the service. After that, all commits go through the service.
+There is one deliberate exception to “the service writes `state.json`”: when the Settings app upgrades a file of an older schema, `StateStore.loadOrMigrate` copies it to `state.v<schema>-backup.json` and performs the one-time rewrite before connecting to the service. Files before schema 3 hold one wallpaper with its settings for the whole desktop; the upgrade gives it to every display connected at that moment. After that, all commits go through the service.
+
+A display is named by its UUID (`DisplayIdentity`, from `CGDisplayCreateUUIDFromDisplayID`), which stays the same across restarts and reconnecting. A display without a wallpaper in `state.json` keeps whatever system wallpaper it has. Each display's `muted` is changed only through `.setMuted` (the menu bar item mutes every display), never by a commit.
 
 ## Service classes
 
-`WallpaperService` is the playback base class:
+`WallpaperService` is the base class of what draws a wallpaper on one display:
 
 ```text
-WallpaperService
+WallpaperService(displayID)
   start(item)
   stop()
   setPaused(Bool)
   setMuted(Bool)
   setScreenLocked(Bool)
-  apply(RenderOptions)
+  revealSystemWallpaper()
 ```
 
-`VideoRenderService` extends it and overrides `start`, `stop`, `setPaused`, `setMuted` and `setScreenLocked`. It owns AVPlayer-backed windows and uses `AVPlayerLayer`.
+`VideoRenderService` extends it with an AVPlayer window (`AVPlayerLayer`) on its display.
 
-`SceneRenderService` also extends it and overrides `start`, `stop`, `setPaused`, `setMuted` and `setScreenLocked`, and adds:
+`SceneRenderService` also extends it, with a `Renderer` of its own, and adds:
 
 ```text
 update(LibraryState)
 ```
 
-It does not use the base `apply` path for scene settings; it pushes only changed values to the renderer, and applies the battery rule itself (on battery or in Low Power Mode: pause, or lower FPS and render scale). While the screen is locked the renderer draws nothing and its sounds stop. One scene runs at a time across all displays. When a playing scene has audio response on, it also runs `SystemAudioTap` (a Core Audio process tap, macOS 14.2+) and hands the spectrum to the renderer.
+It reads its display's settings (`DisplayConfig`), pushes only changed values to the renderer, and applies the battery rule itself (on battery or in Low Power Mode: pause, or lower FPS and render scale). While the screen is locked the renderer draws nothing and its sounds stop. The pointer drives parallax relative to its own display. When a playing scene has audio response on, it also runs `SystemAudioTap` (a Core Audio process tap, macOS 14.2+) and hands the spectrum to the renderer.
 
-Both render services draw into `DesktopWindows`: one desktop-level window per screen, kept for as long as the screen stays connected. A change of the screen parameters (resolution, arrangement, the menu bar's background) only moves or resizes the windows; `SceneRenderService` then attaches the layer of a new or resized display to the renderer again and detaches a removed one.
+Both render services draw into a `DisplayWindow`: one desktop-level window on their display, kept for as long as the display stays connected. A change of the screen parameters (resolution, arrangement, the menu bar's background) only moves or resizes the window; `SceneRenderService` then attaches the layer again when its size changed.
 
-`WallpaperStills` is separate from the playback hierarchy. The menu bar's background, Mission Control and the lock screen show the system wallpaper, never our windows, so it sets every display's system wallpaper to a still of the live wallpaper at that display's pixel size: for a scene, a second, off-screen `Renderer` with the live scene's framing and properties; for a video, a frame filled and centred like the player's layer. A still is made only when the wallpaper, a display or the scene's framing changes, after the update delay set in Settings (`LibraryState.stillDelay`, 2 s by default, so a slider drag ends in one still), and it stays when playback stops. The menu bar refreshes its copy of the wallpaper only when the wallpaper is drawn, which never happens behind the opaque live windows, so after setting a still the windows let it through at 1% for half a second (`DesktopWindows.revealSystemWallpaper`). `LegacyLockScreen` puts back Apple's Aerial files that older versions swapped for their lock-screen video and deletes their lock-screen leftovers at launch.
+`DisplayPlayer` owns one service of each kind for one display and decides which one shows its current item: the display's wallpaper, or, while the display rotates, the playlist in turn from there. A rotating display skips items that cannot play; any other display then shows nothing live and reports why (`DisplayStatus.error`). The windows are `.canJoinAllSpaces`, so they work the same with and without separate Spaces per display.
 
-`Orchestrator` owns one `VideoRenderService`, one `SceneRenderService` and one `WallpaperStills`. It decides which service shows which item, handles rotation and failure fallback, and is the normal writer of `state.json`.
+`WallpaperStills` is separate from the playback hierarchy. The menu bar's background, Mission Control and the lock screen show the system wallpaper, never our windows, so it sets every display's system wallpaper to a still of the live wallpaper at that display's pixel size: for a scene, a second, off-screen `Renderer` with the live scene's framing and properties; for a video, a frame filled and centred like the player's layer. A still is made only when the wallpaper, a display or the scene's framing changes, after the update delay set in Settings (`LibraryState.stillDelay`, 2 s by default, so a slider drag ends in one still), and it stays when the service quits. Displays that show the same wallpaper at the same size share one file and one render. A display whose wallpaper is taken away (or deleted from the library) gets macOS's default wallpaper back (`/System/Library/CoreServices/DefaultDesktop.heic`). `agent.json` remembers each display's last still, so a display that is not connected keeps its file. The menu bar refreshes its copy of the wallpaper only when the wallpaper is drawn, which never happens behind the opaque live windows, so after setting a still the display's window lets it through at 1% for half a second (`DisplayWindow.revealSystemWallpaper`). `LegacyLockScreen` puts back Apple's Aerial files that older versions swapped for their lock-screen video and deletes their lock-screen leftovers at launch.
 
-`ServiceDelegate` owns the socket server, the menu bar item and the orchestrator. Settings has no playback classes and never imports `SceneBridge`.
+`Orchestrator` owns a `DisplayPlayer` for every connected display that has a wallpaper, and one `WallpaperStills`. It follows displays as they come and go, keeps each display's still in step with what it shows, and is the normal writer of `state.json`.
+
+`ServiceDelegate` owns the socket server, the menu bar item and the orchestrator. Settings has no playback classes and never imports `SceneBridge`. Its Home page shows the displays as arranged in System Settings (`DisplayPicker`, from `NSScreen` frames); clicking one picks the display the library and the inspector work on.
 
 ## Scene renderer
 
@@ -152,10 +157,10 @@ The exported type is `Renderer` in `SceneRenderer/src/api.rs`. Every call is a m
 
 ## Scene options and state
 
-`LibraryState` stores:
+Each display's `DisplayConfig` stores:
 
 - `sceneOptions: [String: SceneOptions]` — per-scene fit, zoom, pan, render scale, FPS override, volume, audio response and property overrides, keyed by the Swift item UUID.
-- `power: PowerOptions` — global frame-rate cap, battery mode, battery render scale/FPS, `skipRepeatedFrames` and `renderOnlyOnChange`.
+- `sceneFPS` and `power: PowerOptions` — the display's scene frame rate, frame-rate cap, battery mode, battery render scale/FPS, `skipRepeatedFrames` and `renderOnlyOnChange`.
 
 `SceneRenderService.update` compares the new values with the last pushed values and calls only the changed renderer methods.
 
@@ -176,7 +181,6 @@ Settings reparses `Library/{id}/project.json` for the property editor (`ScenePro
 Known mismatches:
 
 - `antialiasing` is stored in `SceneOptions` but is not applied or exposed in the current Settings UI.
-- All displays show the same scene; per-display scene assignments are not implemented in Settings.
 
 ## Build and packaging
 
@@ -199,7 +203,7 @@ CI uses `macos-26` for build and release (its SDK has the Core Audio tap API).
 - Scene support is still partial: unsupported shaders, 3D models and lights, and video textures are reported as load warnings.
 - The Swift scene property editor covers bool, slider, color, text and combo.
 - Antialiasing is stored but not applied.
-- All displays show the same scene.
+- Two displays that show the same wallpaper each run their own player or renderer.
 - Video playback uses AVPlayer windows, while scenes use the Rust renderer.
 - The app is ad-hoc signed and not notarized.
 

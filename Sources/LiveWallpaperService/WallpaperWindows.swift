@@ -44,14 +44,14 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
 
 @MainActor final class WallpaperWindowManager {
     private static let pauseWhenOccluded = true
-    // A fully covered desktop needs no decoder: the player (the biggest allocation) is released after this long.
+    // A fully covered display needs no decoder: the player (the biggest allocation) is released after this long.
     private static let releaseDelay: UInt64 = 10_000_000_000
 
     var onPlaybackFailure: (@MainActor (URL) -> Void)?
     private(set) var currentURL: URL?
     var isShowing: Bool { currentURL != nil }
 
-    private let windows = DesktopWindows { PlayerView(frame: .zero) }
+    private let windows: DisplayWindow<PlayerView>
     private var player: AVQueuePlayer?
     private var looper: AVPlayerLooper?  // looping silently stops if this is released
     private var statusObservations: [NSKeyValueObservation] = []
@@ -68,7 +68,8 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
     private var screenLocked = false  // nothing plays under the lock screen, not even sound
     private var playerReleased = false  // the windows stay (black) while the player is gone
 
-    init() {
+    init(displayID: String) {
+        windows = DisplayWindow(displayID: displayID) { PlayerView(frame: .zero) }
         windows.onChange = { [weak self] in self?.windowsChanged() }
     }
 
@@ -82,7 +83,7 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
             windows.open()
             windowsChanged()
         }
-        // While the desktop is covered the new video only starts once it is uncovered (restorePlayerIfReleased).
+        // While the display is covered the new video only starts once it is uncovered (restorePlayerIfReleased).
         if !playerReleased { startPlayer(for: url) }
     }
 
@@ -126,7 +127,7 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
 
     // MARK: Windows
 
-    /// The windows opened or followed a screen change; a new window starts without the player.
+    /// The window opened or followed a screen change; a new window starts without the player.
     private func windowsChanged() {
         occluded = false  // new windows report their real state through the occlusion notification
         attachPlayer()
@@ -135,7 +136,7 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
     }
 
     private func attachPlayer() {
-        for entry in windows.entries { entry.view.player = player }
+        windows.view?.player = player
     }
 
     // MARK: Player
@@ -194,7 +195,7 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
         player = nil
     }
 
-    /// Frees the decoder while the desktop is covered; updateOcclusion() builds a new player when it is uncovered.
+    /// Frees the decoder while the display is covered; updateOcclusion() builds a new player when it is uncovered.
     private func releasePlayer() {
         releaseTask = nil
         resumeTime = player?.currentTime()
@@ -258,7 +259,7 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
     }
 
     private func updateOcclusion() {
-        occluded = windows.isOpen && windows.entries.allSatisfy { !$0.window.occlusionState.contains(.visible) }
+        occluded = windows.window.map { !$0.occlusionState.contains(.visible) } ?? false
         if occluded { scheduleRelease() } else { restorePlayerIfReleased() }
         applyPlayback()
     }

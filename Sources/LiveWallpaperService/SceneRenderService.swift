@@ -3,8 +3,8 @@ import Core
 import IOKit.ps
 import SceneBridge
 
-// Scenes on the desktop. Our own renderer (SceneRenderer/, a Rust library) draws them with Metal
-// into the CAMetalLayers of SceneWindowManager's windows.
+// A scene on one display. Our own renderer (SceneRenderer/, a Rust library) draws it with Metal into the
+// CAMetalLayer of the display's window, with that display's settings (DisplayConfig).
 
 /// One Rust renderer, on its way from the loading thread to the main actor.
 final class RendererBox: @unchecked Sendable {
@@ -14,7 +14,7 @@ final class RendererBox: @unchecked Sendable {
 
 @MainActor final class SceneRenderService: WallpaperService {
     private var renderer: Renderer?
-    private let windows = DesktopWindows { MetalView(frame: .zero) }
+    private let windows: DisplayWindow<MetalView>
     private let power = PowerSource()
     private var audio: AnyObject?   // SystemAudioTap on macOS 14.2+
     private var pointerMonitor: Any?
@@ -27,19 +27,20 @@ final class RendererBox: @unchecked Sendable {
     private var appliedScale: Double?
     private var appliedPaused: Bool?
     private var paused = false
-    /// The displays the renderer draws on, as they were attached.
-    private var attached: [SceneDisplay] = []
+    /// The display the renderer draws on, as it was attached.
+    private var attached: SceneDisplay?
 
-    override init() {
-        super.init()
-        windows.onChange = { [weak self] in self?.attachDisplays() }
+    override init(displayID: String) {
+        windows = DisplayWindow(displayID: displayID) { MetalView(frame: .zero) }
+        super.init(displayID: displayID)
+        windows.onChange = { [weak self] in self?.attachDisplay() }
         power.onChange = { [weak self] in
             guard let self, let item = self.item, self.renderer != nil else { return }
             self.push(item)
         }
     }
 
-    /// The Orchestrator's state changed (or a scene is about to start): push only what differs.
+    /// The settings changed (or a scene is about to start): push only what differs.
     func update(_ state: LibraryState) {
         self.state = state
         guard renderer != nil, let item else { return }
@@ -79,7 +80,7 @@ final class RendererBox: @unchecked Sendable {
                 NSLog("LiveWallpaper: \(item.name): \(message)")
             }
             windows.open()
-            attachDisplays()
+            attachDisplay()
             renderer.setMuted(muted: muted)
             startPointer()
             push(item)
@@ -94,28 +95,25 @@ final class RendererBox: @unchecked Sendable {
         windows.close()
     }
 
-    /// Hands the renderer the layer of every screen. A display that is drawn on already is attached again only
-    /// when its layer or size changed (attaching again replaces it); a display that went away is detached.
-    private func attachDisplays() {
+    /// Hands the renderer the window's layer. It is attached again only when its layer or size changed (attaching
+    /// again replaces it), and detached when the window went away with its screen.
+    private func attachDisplay() {
         guard let renderer else { return }
-        let displays = windows.displays()
-        for old in attached where !displays.contains(where: { $0.id == old.id }) {
-            renderer.detachLayer(displayId: old.id)
-        }
-        for display in displays where !attached.contains(display) {
+        let display = windows.display()
+        guard display != attached else { return }
+        if let attached, display == nil { renderer.detachLayer(displayId: attached.id) }
+        if let display {
             let pointer = UInt64(UInt(bitPattern: Unmanaged.passUnretained(display.layer).toOpaque()))
             renderer.attachLayer(displayId: display.id, layerPtr: pointer,
                                  width: UInt32(display.pixelWidth), height: UInt32(display.pixelHeight))
         }
-        attached = displays
+        attached = display
     }
 
     private func stopRenderer() {
         stopPointer()
-        for display in attached {
-            renderer?.detachLayer(displayId: display.id)
-        }
-        attached = []
+        if let attached { renderer?.detachLayer(displayId: attached.id) }
+        attached = nil
         renderer?.stop()
         renderer = nil
         setAudioCapture(false)
@@ -125,9 +123,9 @@ final class RendererBox: @unchecked Sendable {
         appliedPaused = nil
     }
 
-    /// The cursor drives parallax: its position on the main screen goes to the renderer, 0...1 with
-    /// the origin at the top-left. A left press on the bare desktop goes to the scene's scripts, so a
-    /// clock can be dragged.
+    /// The cursor drives parallax: its position on this display goes to the renderer, 0...1 with the origin at the
+    /// top-left (held at the edge while the cursor is on another display). A left press on the bare desktop of this
+    /// display goes to the scene's scripts, so a clock can be dragged.
     private func startPointer() {
         guard pointerMonitor == nil else { return }
         pointerMonitor = NSEvent.addGlobalMonitorForEvents(
@@ -143,7 +141,8 @@ final class RendererBox: @unchecked Sendable {
     private func pointerEvent(_ type: NSEvent.EventType) {
         sendPointer()
         switch type {
-        case .leftMouseDown where Self.isDesktop(at: NSEvent.mouseLocation):
+        case .leftMouseDown where windows.window?.frame.contains(NSEvent.mouseLocation) == true
+                               && Self.isDesktop(at: NSEvent.mouseLocation):
             pressedOnDesktop = true
             renderer?.setPointerDown(down: true)
         case .leftMouseUp where pressedOnDesktop:
@@ -171,11 +170,11 @@ final class RendererBox: @unchecked Sendable {
     }
 
     private func sendPointer() {
-        guard let renderer, let screen = NSScreen.main else { return }
-        let frame = screen.frame
+        guard let renderer, let frame = windows.window?.frame else { return }
         let mouse = NSEvent.mouseLocation
-        renderer.setPointer(x: Float((mouse.x - frame.minX) / frame.width),
-                            y: Float(1 - (mouse.y - frame.minY) / frame.height))
+        let x = min(max((mouse.x - frame.minX) / frame.width, 0), 1)
+        let y = min(max((mouse.y - frame.minY) / frame.height, 0), 1)
+        renderer.setPointer(x: Float(x), y: Float(1 - y))
     }
 
     override func setPaused(_ paused: Bool) {
@@ -199,11 +198,12 @@ final class RendererBox: @unchecked Sendable {
     /// (or in Low Power Mode) the scene pauses or runs slower and smaller, as the user chose.
     private func push(_ item: VideoItem) {
         guard let renderer else { return }
-        let new = state.sceneOptions[item.id.uuidString] ?? .standard
+        let config = state.config(for: displayID)
+        let new = config.sceneOptions(for: item.id)
         let old = appliedScene
-        let rules = state.power
+        let rules = config.power
         let saving = power.isSaving
-        var fps = new.fps ?? state.sceneFPS
+        var fps = new.fps ?? config.sceneFPS
         var scale = new.renderScale
         if let cap = rules.frameRateCap { fps = min(fps, max(cap, 1)) }
         if saving && rules.batteryMode == .reducedQuality {

@@ -1,7 +1,8 @@
 import Foundation
 
-// Per-scene and global render settings. Stored in state.json (LibraryState.sceneOptions / .power), edited in the
-// settings app, applied by LiveWallpaperService through SceneBridge. Every field has a default, so older files load.
+// Scene render settings of one display: per scene (DisplayConfig.sceneOptions) and for all its scenes
+// (DisplayConfig.power). Edited in the settings app, applied by LiveWallpaperService through SceneBridge. Every field
+// has a default, so older files load.
 
 /// How a scene is fitted to a display (maps to the bridge's scaling mode).
 public enum SceneFitMode: String, Codable, CaseIterable, Sendable {
@@ -25,9 +26,9 @@ public enum ScenePropertyValue: Codable, Equatable, Sendable {
     case color(red: Double, green: Double, blue: Double)
 }
 
-/// Settings for one scene wallpaper. Keyed by the item's id in `LibraryState.sceneOptions`.
+/// Settings for one scene wallpaper on one display. Keyed by the item's id in `DisplayConfig.sceneOptions`.
 public struct SceneOptions: Codable, Equatable, Sendable {
-    public var fps: Int?                 // nil = the global frame-rate setting
+    public var fps: Int?                 // nil = the display's scene frame rate (DisplayConfig.sceneFPS)
     public var renderScale: Double       // 0.25...1, share of the display's pixels the scene is drawn at
     public var zoom: Double              // 0.5...2, 1 = as authored
     public var fitMode: SceneFitMode
@@ -68,7 +69,7 @@ public enum BatteryMode: String, Codable, CaseIterable, Sendable {
     }
 }
 
-/// Global scene settings, all displays. Stored in `LibraryState.power`.
+/// Settings for every scene on one display. Stored in `DisplayConfig.power`.
 public struct PowerOptions: Codable, Equatable, Sendable {
     public var frameRateCap: Int?              // nil = no global cap
     public var batteryMode: BatteryMode
