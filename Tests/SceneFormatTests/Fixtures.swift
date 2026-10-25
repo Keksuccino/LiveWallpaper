@@ -2,7 +2,7 @@ import Foundation
 @testable import SceneFormat
 
 /// Fixture builders for the container tests. Everything is a valid little-endian byte stream built by hand so the
-/// tests state exactly what the format is (SPEC3.md section 5), and stay independent of Wallpaper Engine content.
+/// tests state exactly what the format is, and stay independent of Wallpaper Engine content.
 
 struct DataWriter {
     private(set) var data = Data()

@@ -5,7 +5,7 @@ import Darwin
 import Glibc
 #endif
 
-// Owner: STEAM. One interactive steamcmd run under a pseudo-terminal (SPEC3.md section 4.4), plus the helpers every
+// Owner: STEAM. One interactive steamcmd run under a pseudo-terminal, plus the helpers every
 // steamcmd run shares: the output scrubber and process-tree termination. Foundation + libc only (no AppKit or
 // SwiftUI) so the Linux harness can typecheck and run it. Design:
 //  - posix_openpt / grantpt / unlockpt / ptsname give a master fd and a slave path. `Process` gets the slave as

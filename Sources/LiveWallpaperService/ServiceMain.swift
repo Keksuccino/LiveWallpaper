@@ -123,7 +123,7 @@ enum ServiceEntry {
         NSApp.terminate(nil)
     }
 
-    // MARK: Status item (menu spec: SPEC3.md section 6.5)
+    // MARK: Status item
 
     private func buildStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)

@@ -2,11 +2,11 @@ import Foundation
 import Combine
 import Core
 
-// Owner: STEAM. The Steam sign-in wizard backend (SPEC3.md section 4): installs Valve's SteamCMD itself, signs the
+// Owner: STEAM. The Steam sign-in wizard backend: installs Valve's SteamCMD itself, signs the
 // user in through a pseudo-terminal (SteamPTY.swift), checks that the account owns Wallpaper Engine, signs out, and
 // fetches the shared assets. The views (SteamWizardView.swift, owner SETTINGS) consume `SteamSetupModel` only.
 //
-// Rules (non-negotiable, SPEC3.md 0 and 4.1):
+// Rules (non-negotiable):
 //  - SteamCMD is downloaded from Valve at the user's request, never bundled or re-hosted.
 //  - The password and Steam Guard code travel only through the pty to steamcmd. They are never in argv, in the
 //    environment, in a file, in UserDefaults, in the log, or in any @Published property. Captured output is
@@ -127,7 +127,7 @@ enum SteamSetupError: Error, Equatable {
         }
     }
 
-    /// Secondary line (exact copy: SPEC3.md 4.6).
+    /// Secondary line.
     var message: String {
         switch self {
         case .downloadFailed(let detail): return "Check your internet connection and try again. (\(detail))"
@@ -153,7 +153,7 @@ enum SteamSetupError: Error, Equatable {
 
 // MARK: - Prompt classifier
 
-/// What the text coming out of steamcmd's pty means. Pure and tolerant (SPEC3.md 4.4): lower-cased substring and
+/// What the text coming out of steamcmd's pty means. Pure and tolerant: lower-cased substring and
 /// small regex matching on the last ~2 KB of the output, first match in the order of the table wins.
 enum SteamPrompt: Equatable {
     case none

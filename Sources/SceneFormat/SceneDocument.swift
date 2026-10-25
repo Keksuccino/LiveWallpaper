@@ -2,9 +2,8 @@ import Foundation
 
 // Owner: SCENEPARSE (produces) / SCENERENDER (consumes). The document model of a parsed `scene.json`.
 // This file is the CONTRACT between the two workers: existing declarations keep their names and types; add new
-// members only with default values so the other side keeps compiling. The meaning of every field is in
-// SPEC3.md section 5.3. Everything is a plain value (Sendable); resolution of model/material/texture paths has
-// already happened, so the renderer never parses JSON.
+// members only with default values so the other side keeps compiling. Everything is a plain value (Sendable);
+// resolution of model/material/texture paths has already happened, so the renderer never parses JSON.
 
 public struct Vec2: Equatable, Sendable {
     public var x: Double
@@ -33,7 +32,7 @@ public struct Vec3: Equatable, Sendable {
 /// How a layer is composited onto what is below it. Parsed from the material pass `blending` string.
 public enum BlendMode: String, Equatable, Sendable {
     case normal        // source over, alpha from the texture ("translucent" and "normal" in material files, UNVERIFIED)
-    case opaque        // no blending ("opaque" / "disabled", UNVERIFIED; mapping table in SPEC3.md 5.3)
+    case opaque        // no blending ("opaque" / "disabled", UNVERIFIED)
     case additive
     case multiply
     case screen

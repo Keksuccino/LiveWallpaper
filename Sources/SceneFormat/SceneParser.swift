@@ -1,10 +1,10 @@
 import Foundation
 
 // Owner: SCENEPARSE. `scene.json` parsing and the support analysis (badge). Foundation only.
-// The rules are in SPEC3.md sections 5.3 (document) and 5.5 (badge). The parser is TOLERANT: a missing or oddly
-// typed field falls back to its default and never throws; only an unreadable file or a missing object list
-// throws. Anything it cannot map is kept as `.other(key)` and shows up in the analysis, not as an error.
-// Coordinate convention (UNVERIFIED, SPEC3.md 9.2 T10): Wallpaper Engine files keep origin at the TOP-LEFT with
+// The parser is TOLERANT: a missing or oddly typed field falls back to its default and never throws; only an
+// unreadable file or a missing object list throws. Anything it cannot map is kept as `.other(key)` and shows up in
+// the analysis, not as an error.
+// Coordinate convention (UNVERIFIED): Wallpaper Engine files keep origin at the TOP-LEFT with
 // y down; the document model converts to the contract's space (bottom-left origin, y up, so
 // (designWidth/2, designHeight/2) is the centre) by mirroring y.
 
@@ -59,7 +59,7 @@ public struct SceneAnalysis: Equatable, Sendable {
     public static let revision = 1               // stored in SceneInfo.analysisRevision
 
     public var support: SceneSupportLevel
-    public var notes: [String]                   // user-facing, one short sentence each (SPEC3.md 5.5 has the wording)
+    public var notes: [String]                   // user-facing, one short sentence each
     public var used: Set<SceneFeature>
     public var unsupported: Set<SceneFeature>
     public var designWidth: Int
@@ -216,7 +216,7 @@ public enum SceneAnalyzer {
             needsSharedAssets: needsSharedAssets)
     }
 
-    /// One sentence per distinct reason, in the fixed order of SPEC3.md 5.5, at most 5 notes and 80 characters.
+    /// One sentence per distinct reason, in a fixed order, at most 5 notes and 80 characters.
     public static func notes(for support: SceneSupportLevel, unsupported: Set<SceneFeature>) -> [String] {
         var notes: [String] = []
         func collect(_ feature: SceneFeature, _ text: String) {

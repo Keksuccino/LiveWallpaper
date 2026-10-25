@@ -7,12 +7,11 @@ import AVFoundation
 
 // Steam Workshop (owner: STEAM): value types and WorkshopModel (the surface WorkshopViews and SettingsModel use),
 // then the file-private backend in `WorkshopKit` (link parsing, Steam Web API client, steamcmd runner, import).
-// Design, endpoints, steamcmd invocation and the error taxonomy: SPEC2.md section 4.
 //
 // Legitimacy rules (non-negotiable): the only download path is Valve's steamcmd with the user's own Steam
 // account, signed in through the wizard (SteamTools.swift). Downloads themselves never see a password or Steam
 // Guard code: steamcmd runs with stdin closed and +@NoPromptForPassword 1. The only network calls are the Steam
-// Web API endpoints named in SPEC2.md 4.1 plus the item's own preview image; no HTML scraping; no third-party
+// Web API endpoints of the WorkshopKit client plus the item's own preview image; no HTML scraping; no third-party
 // downloader sites. The Web API key is sent only to api.steampowered.com and is never logged or cached.
 
 // MARK: - Value types
@@ -508,7 +507,7 @@ enum WorkshopListState: Equatable {
         recheckSetup()
     }
 
-    /// The steamcmd path when a download or sign-in check can run, else what is missing (in the order of SPEC2 4.2).
+    /// The steamcmd path when a download or sign-in check can run, else the first prerequisite that is missing.
     private func prerequisites() -> Result<String, WorkshopError> {
         recheckSetup()
         guard let path = setup.steamcmdPath else { return .failure(.steamcmdMissing) }
@@ -1136,8 +1135,8 @@ extension WorkshopKit {
             case failure(WorkshopError)
         }
 
-        /// One output line -> what it means. Case-insensitive substrings; wording that is not verified against a
-        /// real macOS steamcmd is marked in SPEC2.md 4.7.
+        /// One output line -> what it means. Case-insensitive substrings; not all of the wording is verified against
+        /// a real macOS steamcmd.
         static func classify(_ line: String) -> Event? {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             let text = trimmed.lowercased()
@@ -1542,7 +1541,7 @@ extension WorkshopKit {
 
 extension WorkshopKit {
     enum Import {
-        /// The fields of Wallpaper Engine's project.json that matter here (all optional; unverified, SPEC2.md 4.4).
+        /// The fields of Wallpaper Engine's project.json that matter here (all optional; unverified).
         struct Project: Equatable {
             var title: String?
             var type: String?      // lower-cased

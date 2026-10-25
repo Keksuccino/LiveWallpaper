@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 import Core
 
-// The Steam sign-in wizard (SPEC3.md 4.6 and 6.4): cards for Install tools -> (Rosetta) -> Sign in (username,
+// The Steam sign-in wizard: cards for Install tools -> (Rosetta) -> Sign in (username,
 // password, Steam Guard) -> Wallpaper Engine check -> done, plus Sign out and the optional shared files. Only the
 // card of the current step is open; finished steps shrink to one line with a check mark. It reads `SteamSetupModel`
 // (owner STEAM) and calls its methods. The typed password and Steam Guard code live in @State of the two small

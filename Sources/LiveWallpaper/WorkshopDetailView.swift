@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 import Core
 
-// The Workshop detail pane (SPEC3.md 6.3): opens when a result is clicked. Large preview that ANIMATES (Workshop
+// The Workshop detail pane: opens when a result is clicked. Large preview that ANIMATES (Workshop
 // previews are often GIFs), title, tags, size, description, Download; after the download the pane shows the
 // library item's own preview (the muted looping video, or the scene preview with its support badge).
 

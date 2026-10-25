@@ -2,7 +2,7 @@ import Foundation
 import Core
 import SceneFormat
 
-// Owner: STEAM. Imports a downloaded scene-type Workshop item into the library (SPEC3.md section 4.7): copies
+// Owner: STEAM. Imports a downloaded scene-type Workshop item into the library: copies
 // scene.pkg (or the loose scene files), project.json and the preview into Library/<id>/, runs the SceneFormat
 // analyzer for the support badge and builds the VideoItem. Called by the import step of Workshop.swift when
 // project.json says type "scene". The video import path is unchanged. Foundation + Core + SceneFormat only.

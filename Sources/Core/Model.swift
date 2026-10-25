@@ -408,9 +408,9 @@ public enum AppPaths {
     /// Where the app installs Valve's SteamCMD itself (downloaded on first use, never bundled).
     public static let steamToolsDirectory = supportDirectory.appendingPathComponent("SteamCMD", isDirectory: true)
     /// HOME for the app's own SteamCMD runs, so its cached login lives here and nowhere else (UNVERIFIED that
-    /// SteamCMD honours HOME on macOS, see SPEC3.md section 4).
+    /// SteamCMD honours HOME on macOS).
     public static let steamHomeDirectory = supportDirectory.appendingPathComponent("SteamHome", isDirectory: true)
-    /// Wallpaper Engine's shared assets, fetched with the user's own account (optional, SPEC3.md section 4.8).
+    /// Wallpaper Engine's shared assets, fetched with the user's own account (optional).
     public static let sharedAssetsDirectory = supportDirectory
         .appendingPathComponent("WallpaperEngineAssets", isDirectory: true)
 

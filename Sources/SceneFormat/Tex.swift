@@ -1,6 +1,6 @@
 import Foundation
 
-// Owner: SCENEPARSE. `.tex` texture container decoding (SPEC3.md section 5.2). Pixels are NOT uploaded here:
+// Owner: SCENEPARSE. `.tex` texture container decoding. Pixels are NOT uploaded here:
 // the decoder returns the payload as stored (raw pixels, BC-compressed blocks, or an encoded PNG/JPEG/MP4 file)
 // after LZ4 decompression, so the renderer can keep DXT data compressed on the GPU.
 
@@ -410,7 +410,7 @@ public enum TexDecoder {
         }
     }
 
-    /// FreeImage format ids (RePKG table, SPEC3.md section 5.2).
+    /// FreeImage format ids (RePKG table).
     static func extOfFreeImageFormat(_ id: Int) -> String {
         switch id {
         case 0: return "bmp"
