@@ -392,8 +392,6 @@ private struct PlaylistItemsCard: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 8)
-            Button("Add Wallpapers…") { addSheet = true }
-                .controlSize(.small)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 12)
