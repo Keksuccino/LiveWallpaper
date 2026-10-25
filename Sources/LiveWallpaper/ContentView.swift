@@ -148,22 +148,31 @@ struct HomeView: View {
 
     // MARK: Content
 
+    /// The page header, the display picker and the library's title row stay put; only the wallpapers below them
+    /// scroll.
     private var gallery: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 26) {
-                    LWPageHeader(title: "Home", subtitle: subtitle)
-                    DisplayPicker(model: model)
-                    librarySection
-                }
-                .padding(LWTheme.contentPadding)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 26) {
+                LWPageHeader(title: "Home", subtitle: subtitle)
+                DisplayPicker(model: model)
+                libraryHeader
             }
-            .scrollIndicators(.visible)
-            .animation(LWMotion.panel, value: selectionMode)
-            .onAppear { reveal(with: proxy) }
-            .onChange(of: model.focusedID) { reveal(with: proxy) }
+            .padding([.horizontal, .top], LWTheme.contentPadding)
+            .padding(.bottom, 8)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    libraryItems
+                        .padding([.horizontal, .bottom], LWTheme.contentPadding)
+                        .padding(.top, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .scrollIndicators(.visible)
+                .scrollEdgeEffectStyle(.soft, for: .top)
+                .onAppear { reveal(with: proxy) }
+                .onChange(of: model.focusedID) { reveal(with: proxy) }
+            }
         }
+        .animation(LWMotion.panel, value: selectionMode)
         .overlay(alignment: .top) {
             if isTargeted {
                 Text("Drop wallpapers to add them")
@@ -202,32 +211,34 @@ struct HomeView: View {
         return "\(items.count) \(items.count == 1 ? "wallpaper" : "wallpapers")"
     }
 
-    @ViewBuilder private var librarySection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Your library")
-                    .font(.title3.weight(.semibold))
-                Text("\(items.count)")
-                    .font(.callout.monospacedDigit())
-                    .foregroundStyle(.tertiary)
-                Spacer()
-                Menu {
-                    Button { importWallpapers() } label: {
-                        Label("Import Wallpapers…", systemImage: "square.and.arrow.down.on.square")
-                    }
-                    Button { chooseVideos() } label: {
-                        Label("Add Videos…", systemImage: "film")
-                    }
-                } label: {
-                    Label("Add", systemImage: "plus")
+    private var libraryHeader: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("Your library")
+                .font(.title3.weight(.semibold))
+            Text("\(items.count)")
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(.tertiary)
+            Spacer()
+            Menu {
+                Button { importWallpapers() } label: {
+                    Label("Import Wallpapers…", systemImage: "square.and.arrow.down.on.square")
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("Import videos, Wallpaper Engine scene packages or scene folders (⌘O)")
-                .accessibilityLabel("Add wallpapers")
+                Button { chooseVideos() } label: {
+                    Label("Add Videos…", systemImage: "film")
+                }
+            } label: {
+                Label("Add", systemImage: "plus")
             }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Import videos, Wallpaper Engine scene packages or scene folders (⌘O)")
+            .accessibilityLabel("Add wallpapers")
+        }
+    }
 
+    private var libraryItems: some View {
+        Group {
             if items.isEmpty {
                 noResults
             } else {
