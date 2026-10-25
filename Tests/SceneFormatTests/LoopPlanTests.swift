@@ -1,8 +1,7 @@
 import XCTest
 @testable import SceneFormat
 
-// Owner: scaffold (LoopPlan is complete). SCENEPARSE adds its tests in new files next to this one
-// (PKG/TEX/scene.json fixtures are built in memory by the tests; no Wallpaper Engine content in the repo).
+// PKG/TEX/scene.json fixtures are built in memory by the tests; no Wallpaper Engine content in the repo.
 final class LoopPlanTests: XCTestCase {
     func testSeamIsContinuous() {
         let plan = LoopPlan(loopSeconds: 20, crossfadeSeconds: 2, fps: 30)

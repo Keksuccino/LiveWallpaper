@@ -3,7 +3,7 @@ import AppKit
 import Core
 import SceneFormat
 
-// Owner: IMPORT. Brings wallpapers the user already has on disk into the library. Videos are added by
+// Brings wallpapers the user already has on disk into the library. Videos are added by
 // reference like `SettingsModel.addVideos`; Wallpaper Engine scene packages (.pkg) and scene folders are
 // copied into Library/<local-id>/ through the same SceneImporter the Workshop uses. Every addition goes
 // through SettingsModel, so each import ends as a `.commit` — the service is the one that writes

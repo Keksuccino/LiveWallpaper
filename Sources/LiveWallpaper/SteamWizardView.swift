@@ -5,7 +5,7 @@ import Core
 // The Steam sign-in wizard: cards for Install tools -> (Rosetta) -> Sign in (username,
 // password, Steam Guard) -> Wallpaper Engine check -> done, plus Sign out and the optional shared files. Only the
 // card of the current step is open; finished steps shrink to one line with a check mark. It reads `SteamSetupModel`
-// (owner STEAM) and calls its methods. The typed password and Steam Guard code live in @State of the two small
+// and calls its methods. The typed password and Steam Guard code live in @State of the two small
 // forms below, are handed to the model and cleared in the same call, and are cleared again when the form goes away.
 // Nothing here logs, stores or displays them.
 

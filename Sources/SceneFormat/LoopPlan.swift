@@ -1,6 +1,6 @@
 import Foundation
 
-// Scaffold-owned (frozen, complete): the arithmetic of the seamless lock screen loop.
+// The arithmetic of the seamless lock screen loop.
 // A scene is a function f(t) of time. The output video has `loopFrames` frames. For output frame i at t = i / fps:
 //   - i >= crossfadeFrames:  out(i) = f(t)
 //   - i <  crossfadeFrames:  out(i) = (1 - a) * f(t + T) + a * f(t)   with a = i / crossfadeFrames, T = loop length

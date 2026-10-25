@@ -2,9 +2,9 @@ import Foundation
 import Combine
 import Core
 
-// Owner: STEAM. The Steam sign-in wizard backend: installs Valve's SteamCMD itself, signs the
-// user in through a pseudo-terminal (SteamPTY.swift), checks that the account owns Wallpaper Engine, signs out, and
-// fetches the shared assets. The views (SteamWizardView.swift, owner SETTINGS) consume `SteamSetupModel` only.
+// The Steam sign-in wizard backend: installs Valve's SteamCMD itself, signs the user in through a pseudo-terminal
+// (SteamPTY.swift), checks that the account owns Wallpaper Engine, signs out, and fetches the shared assets. The
+// views (SteamWizardView.swift) consume `SteamSetupModel` only.
 //
 // Rules (non-negotiable):
 //  - SteamCMD is downloaded from Valve at the user's request, never bundled or re-hosted.

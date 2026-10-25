@@ -1,15 +1,15 @@
 import Foundation
 
-// Owner: SCENEPARSE. `scene.json` parsing and the support analysis (badge). Foundation only.
+// `scene.json` parsing and the support analysis (badge). Foundation only.
 // The parser is TOLERANT: a missing or oddly typed field falls back to its default and never throws; only an
 // unreadable file or a missing object list throws. Anything it cannot map is kept as `.other(key)` and shows up in
 // the analysis, not as an error.
-// Coordinate convention (UNVERIFIED): Wallpaper Engine files keep origin at the TOP-LEFT with
-// y down; the document model converts to the contract's space (bottom-left origin, y up, so
-// (designWidth/2, designHeight/2) is the centre) by mirroring y.
+// Coordinate convention (UNVERIFIED): Wallpaper Engine files keep origin at the TOP-LEFT with y down; the document
+// model uses a bottom-left origin with y up (so (designWidth/2, designHeight/2) is the centre) and converts by
+// mirroring y.
 
 /// What the engine can render today. SceneAnalyzer compares a scene against this; each renderer milestone flips
-/// flags here (owner of this file: SCENEPARSE; SCENERENDER asks for the flip in its report).
+/// flags here.
 public struct EngineCapabilities: Equatable, Sendable {
     public var blendModes: Set<BlendMode>
     public var cameraParallax: Bool

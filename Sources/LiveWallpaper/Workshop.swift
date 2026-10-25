@@ -5,7 +5,7 @@ import Core
 import AVFoundation
 #endif
 
-// Steam Workshop (owner: STEAM): value types and WorkshopModel (the surface WorkshopViews and SettingsModel use),
+// Steam Workshop: value types and WorkshopModel (the surface WorkshopViews and SettingsModel use),
 // then the file-private backend in `WorkshopKit` (link parsing, Steam Web API client, steamcmd runner, import).
 //
 // Legitimacy rules (non-negotiable): the only download path is Valve's steamcmd with the user's own Steam

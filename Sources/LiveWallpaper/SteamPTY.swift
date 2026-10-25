@@ -5,9 +5,9 @@ import Darwin
 import Glibc
 #endif
 
-// Owner: STEAM. One interactive steamcmd run under a pseudo-terminal, plus the helpers every
-// steamcmd run shares: the output scrubber and process-tree termination. Foundation + libc only (no AppKit or
-// SwiftUI) so the Linux harness can typecheck and run it. Design:
+// One interactive steamcmd run under a pseudo-terminal, plus the helpers every steamcmd run shares: the output
+// scrubber and process-tree termination. Foundation + libc only (no AppKit or SwiftUI) so the Linux harness can
+// typecheck and run it. Design:
 //  - posix_openpt / grantpt / unlockpt / ptsname give a master fd and a slave path. `Process` gets the slave as
 //    stdin, stdout and stderr, so steamcmd sees a terminal and prompts for the password. Nothing secret is ever
 //    in argv or the environment.

@@ -2,7 +2,6 @@ import XCTest
 @testable import Core
 
 // Pure checks only: nothing here may touch ~/Library/Application Support (these run on developers' Macs too).
-// Owner: scaffold. Workers may ADD tests in new files.
 final class CoreTests: XCTestCase {
     private func decode(_ json: String) throws -> LibraryState {
         try JSONDecoder().decode(LibraryState.self, from: Data(json.utf8))

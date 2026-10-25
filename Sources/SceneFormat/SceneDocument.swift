@@ -1,9 +1,7 @@
 import Foundation
 
-// Owner: SCENEPARSE (produces) / SCENERENDER (consumes). The document model of a parsed `scene.json`.
-// This file is the CONTRACT between the two workers: existing declarations keep their names and types; add new
-// members only with default values so the other side keeps compiling. Everything is a plain value (Sendable);
-// resolution of model/material/texture paths has already happened, so the renderer never parses JSON.
+// The document model of a parsed `scene.json`. Everything is a plain value (Sendable); resolution of
+// model/material/texture paths has already happened, so the renderer never parses JSON.
 
 public struct Vec2: Equatable, Sendable {
     public var x: Double

@@ -1,7 +1,7 @@
 import Foundation
 
-// Owner: SCENEPARSE. Foundation only (no AppKit, CoreGraphics, Metal, AVFoundation, Core): this target is built and
-// tested on Linux too. File containers: Wallpaper Engine's `.pkg` and plain folders.
+// Foundation only (no AppKit, CoreGraphics, Metal, AVFoundation, Core): this target is built and tested on Linux
+// too. File containers: Wallpaper Engine's `.pkg` and plain folders.
 // Format facts from RePKG (MIT, read for the layout; no code copied).
 
 public enum SceneFormatError: Error, Equatable, LocalizedError {

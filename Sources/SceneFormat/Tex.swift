@@ -1,8 +1,8 @@
 import Foundation
 
-// Owner: SCENEPARSE. `.tex` texture container decoding. Pixels are NOT uploaded here:
-// the decoder returns the payload as stored (raw pixels, BC-compressed blocks, or an encoded PNG/JPEG/MP4 file)
-// after LZ4 decompression, so the renderer can keep DXT data compressed on the GPU.
+// `.tex` texture container decoding. Pixels are NOT uploaded here: the decoder returns the payload as stored (raw
+// pixels, BC-compressed blocks, or an encoded PNG/JPEG/MP4 file) after LZ4 decompression, so the renderer can keep
+// DXT data compressed on the GPU.
 
 /// Pixel layout of a mipmap's bytes when the payload is not an encoded image.
 public enum TexPixelFormat: Equatable, Sendable {
