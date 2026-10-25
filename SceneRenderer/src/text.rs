@@ -792,7 +792,7 @@ mod tests {
     fn renders_hello_with_the_nier_font() {
         let home = std::env::var("HOME").expect("HOME");
         let path = std::path::Path::new(&home)
-            .join("Library/Application Support/LiveWallpaper/Library/3008153534/scene.pkg");
+            .join("Library/Application Support/WallpaperMage/Library/3008153534/scene.pkg");
         let pkg = crate::vfs::Pkg::open(&path).expect("open Nier scene package");
         let data = pkg
             .get("fonts/Nexa Light.otf")

@@ -130,11 +130,11 @@ enum WorkshopError: Error, Equatable {
             default: return String(localized: "Only video and scene wallpapers can play here.")
             }
         case .unsupportedFormat(let ext):
-            return String(localized: "This wallpaper’s video is a .\(ext) file. Live Wallpaper plays MP4, MOV and M4V and doesn’t convert other formats.")
+            return String(localized: "This wallpaper’s video is a .\(ext) file. Wallpaper Mage plays MP4, MOV and M4V and doesn’t convert other formats.")
         case .unsupportedCodec:
             return String(localized: "macOS can’t decode this video (probably VP9 or AV1). Choose a wallpaper with an H.264 or HEVC video.")
         case .steamcmdMissing:
-            return String(localized: "Open Steam Settings and choose Install Steam tools. Live Wallpaper downloads Valve’s tool for you.")
+            return String(localized: "Open Steam Settings and choose Install Steam tools. Wallpaper Mage downloads Valve’s tool for you.")
         case .rosettaMissing:
             return String(localized: "SteamCMD is an Intel program. On Apple silicon install Rosetta once: softwareupdate --install-rosetta --agree-to-license")
         case .usernameMissing:
@@ -812,11 +812,11 @@ enum WorkshopKit {
 
     /// The values the user typed in the Steam settings (never a password).
     enum Prefs: String {
-        case username = "LiveWallpaper.steam.username"
-        case steamcmd = "LiveWallpaper.steam.steamcmdPath"
-        case apiKey = "LiveWallpaper.steam.apiKey"
-        case signedOut = "LiveWallpaper.steam.signedOut"       // the user signed out; ignore a token that is still around
-        case tokenShared = "LiveWallpaper.steam.tokenShared"   // SteamCMD keeps its login outside the app's own HOME
+        case username = "WallpaperMage.steam.username"
+        case steamcmd = "WallpaperMage.steam.steamcmdPath"
+        case apiKey = "WallpaperMage.steam.apiKey"
+        case signedOut = "WallpaperMage.steam.signedOut"       // the user signed out; ignore a token that is still around
+        case tokenShared = "WallpaperMage.steam.tokenShared"   // SteamCMD keeps its login outside the app's own HOME
 
         var value: String {
             get { UserDefaults.standard.string(forKey: rawValue) ?? "" }
@@ -1009,7 +1009,7 @@ extension WorkshopKit {
         /// Ephemeral: no URL cache, no cookies (QueryFiles URLs carry the user's key).
         static let session: URLSession = {
             let configuration = URLSessionConfiguration.ephemeral
-            configuration.httpAdditionalHeaders = ["User-Agent": "LiveWallpaper/2.0"]
+            configuration.httpAdditionalHeaders = ["User-Agent": "WallpaperMage/2.0"]
             return URLSession(configuration: configuration)
         }()
 

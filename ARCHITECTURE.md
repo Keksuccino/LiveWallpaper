@@ -1,9 +1,9 @@
 # Architecture
 
-Live Wallpaper is one app bundle with two running processes:
+Wallpaper Mage is one app bundle with two running processes:
 
-- **LiveWallpaper.app** — the SwiftUI Settings app. It reads the library, edits settings, drives Steam Workshop downloads and sends commands to the service. It never plays a wallpaper and, after the one-time schema migration described below, never writes `state.json`.
-- **LiveWallpaperService.app** — the nested AppKit background service at `Contents/Library/LoginItems/`. It draws every display's wallpaper and owns the system wallpaper stills, rotation timers, the menu bar item, the Unix socket and `state.json`.
+- **WallpaperMage.app** — the SwiftUI Settings app. It reads the library, edits settings, drives Steam Workshop downloads and sends commands to the service. It never plays a wallpaper and, after the one-time schema migration described below, never writes `state.json`.
+- **WallpaperMageService.app** — the nested AppKit background service at `Contents/Library/LoginItems/`. It draws every display's wallpaper and owns the system wallpaper stills, rotation timers, the menu bar item, the Unix socket and `state.json`.
 
 The Rust/C++ scene renderer is statically linked into the service and accessed in-process through UniFFI. There is no scene-host process, no XPC service and no per-scene subprocess.
 
@@ -13,14 +13,14 @@ The outer graph is vertical; the app, playback services and renderer use horizon
 
 ```mermaid
 flowchart TB
-    subgraph APP["LiveWallpaper.app"]
+    subgraph APP["WallpaperMage.app"]
         direction LR
-        UI["LiveWallpaper Settings<br/>SwiftUI · no playback · no runtime state writes"]
+        UI["WallpaperMage Settings<br/>SwiftUI · no playback · no runtime state writes"]
         CLIENT["ServiceClient<br/>launch · SMAppService registration<br/>ServiceCommand / ServiceStatus"]
         UI --> CLIENT
     end
 
-    subgraph SERVICE["LiveWallpaperService.app / executable<br/>AppKit · menu bar · login item"]
+    subgraph SERVICE["WallpaperMageService.app / executable<br/>AppKit · menu bar · login item"]
         direction TB
         ENTRY["ServiceEntry / ServiceDelegate<br/>NSApplicationDelegate"]
         SOCK["SocketServer"]
@@ -82,8 +82,8 @@ Settings starts the nested service with `NSWorkspace.openApplication` when nothi
 
 The transport is a Unix domain socket, not NSXPC or launchd:
 
-- Preferred path: `~/Library/Application Support/LiveWallpaper/service.sock`.
-- Fallback when the path exceeds `sockaddr_un.sun_path`: `/tmp/lw-<uid>/service.sock`.
+- Preferred path: `~/Library/Application Support/WallpaperMage/service.sock`.
+- Fallback when the path exceeds `sockaddr_un.sun_path`: `/tmp/wm-<uid>/service.sock`.
 - Socket permissions are `0600`.
 - Each message is a 4-byte big-endian length followed by JSON for `ServiceEnvelope`.
 - The envelope carries a `ServiceCommand` or `ServiceStatus` payload encoded as JSON, so adding a command does not change the framing.
@@ -198,7 +198,7 @@ Build order:
 
 `build.sh` runs `scripts/build-scene-renderer.sh` first (Rust stable, `UNIVERSAL=1` merges an x86_64 slice with `lipo`), then builds the two Swift products. The renderer is a static library and uses only system frameworks, so nothing is bundled next to the service.
 
-Every part targets macOS 26 and builds against the macOS 26 SDK: `Package.swift` declares `.macOS(.v26)` (tools version 6.2, Swift 5 language mode), both `Resources/Info.plist` files set `LSMinimumSystemVersion` 26.0, and `scripts/macos-sdk.sh` exports `MACOSX_DEPLOYMENT_TARGET=26.0` (for the renderer) and `SDKROOT` (for SwiftPM, rustc and clang). `build.sh`, the renderer build and every CI job use it. It takes the active developer directory's SDK when that is a macOS 26 one, otherwise the newest `MacOSX26.x.sdk` of another Xcode or the Command Line Tools, and fails when there is none. SwiftPM's default swiftbuild build system (Swift 6.4) ignores `SDKROOT`, so for an SDK other than the active default the script adds `--build-system native` to `swift build/test/run` (`LW_SWIFTPM_FLAGS`). The renderer build cleans `SceneRenderer/target` when its stamp shows another deployment target, because cargo does not rebuild for one. `scripts/verify-bundle.sh` checks that both executables are built for macOS 26 with a macOS 26 SDK.
+Every part targets macOS 26 and builds against the macOS 26 SDK: `Package.swift` declares `.macOS(.v26)` (tools version 6.2, Swift 5 language mode), both `Resources/Info.plist` files set `LSMinimumSystemVersion` 26.0, and `scripts/macos-sdk.sh` exports `MACOSX_DEPLOYMENT_TARGET=26.0` (for the renderer) and `SDKROOT` (for SwiftPM, rustc and clang). `build.sh`, the renderer build and every CI job use it. It takes the active developer directory's SDK when that is a macOS 26 one, otherwise the newest `MacOSX26.x.sdk` of another Xcode or the Command Line Tools, and fails when there is none. SwiftPM's default swiftbuild build system (Swift 6.4) ignores `SDKROOT`, so for an SDK other than the active default the script adds `--build-system native` to `swift build/test/run` (`WM_SWIFTPM_FLAGS`). The renderer build cleans `SceneRenderer/target` when its stamp shows another deployment target, because cargo does not rebuild for one. `scripts/verify-bundle.sh` checks that both executables are built for macOS 26 with a macOS 26 SDK.
 
 CI uses `macos-26` runners (Xcode 26) for build and release.
 

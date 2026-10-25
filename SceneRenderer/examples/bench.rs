@@ -24,8 +24,8 @@ fn main() {
         w,
         h,
     );
-    // `LW_PROPS="name=json,..."` sets user properties first, to time a scene with parts off.
-    for pair in std::env::var("LW_PROPS").unwrap_or_default().split(',').filter(|p| !p.is_empty()) {
+    // `WM_PROPS="name=json,..."` sets user properties first, to time a scene with parts off.
+    for pair in std::env::var("WM_PROPS").unwrap_or_default().split(',').filter(|p| !p.is_empty()) {
         if let Some((name, value)) = pair.split_once('=') {
             r.apply_property(name.to_string(), value.to_string());
         }

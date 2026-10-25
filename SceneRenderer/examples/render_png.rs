@@ -2,12 +2,12 @@
 //!
 //! Usage: render_png <scene.pkg> <out.png> [time] [width height] [alignment]
 //! `alignment` is one of cover, fill, center, stretch, free; `+flip` and `+blur` may follow
-//! (`fill+blur`). `LW_FRAMING=position,x,y,zoom` sets the placement (defaults 0.5,0.5,0.5,1).
-//! `LW_GRADE=brightness,contrast,saturation,hue` turns the colour options on (0...1, 0.5 neutral).
-//! `LW_FILTER=name,strength` picks an image filter from `materials/lut`.
-//! `LW_AA=4` turns on multisampling with that many samples.
-//! `LW_AUDIO=0.6` feeds a test spectrum.
-//! `LW_PROPS="name=json,name=json"` sets user properties first, e.g. `LW_PROPS=clock=1`.
+//! (`fill+blur`). `WM_FRAMING=position,x,y,zoom` sets the placement (defaults 0.5,0.5,0.5,1).
+//! `WM_GRADE=brightness,contrast,saturation,hue` turns the colour options on (0...1, 0.5 neutral).
+//! `WM_FILTER=name,strength` picks an image filter from `materials/lut`.
+//! `WM_AA=4` turns on multisampling with that many samples.
+//! `WM_AUDIO=0.6` feeds a test spectrum.
+//! `WM_PROPS="name=json,name=json"` sets user properties first, e.g. `WM_PROPS=clock=1`.
 use scene_renderer::{Alignment, ColorGrade, Framing};
 
 fn main() {
@@ -34,7 +34,7 @@ fn main() {
             _ => Alignment::Cover,
         };
         let options: Vec<&str> = parts.collect();
-        let n = numbers("LW_FRAMING");
+        let n = numbers("WM_FRAMING");
         let at = |i: usize, d: f32| n.get(i).copied().unwrap_or(d);
         r.set_framing(Framing {
             alignment,
@@ -46,8 +46,8 @@ fn main() {
             blur_bars: options.contains(&"blur"),
         });
     }
-    let grade = numbers("LW_GRADE");
-    let filter = std::env::var("LW_FILTER").unwrap_or_default();
+    let grade = numbers("WM_GRADE");
+    let filter = std::env::var("WM_FILTER").unwrap_or_default();
     let (filter, strength) = filter.split_once(',').unwrap_or((filter.as_str(), "1"));
     if grade.len() == 4 || !filter.is_empty() {
         let at = |i: usize| grade.get(i).copied().unwrap_or(0.5);
@@ -61,24 +61,24 @@ fn main() {
             filter_strength: strength.parse().unwrap_or(1.0),
         });
     }
-    if let Some(samples) = std::env::var("LW_AA").ok().and_then(|v| v.parse().ok()) {
+    if let Some(samples) = std::env::var("WM_AA").ok().and_then(|v| v.parse().ok()) {
         r.apply_antialiasing(samples);
     }
-    // `LW_HIDE_TEXT=1` hides script-computed text, as the lock screen recording does.
-    r.set_hide_scripted_text(std::env::var("LW_HIDE_TEXT").is_ok());
-    for pair in std::env::var("LW_PROPS").unwrap_or_default().split(',').filter(|p| !p.is_empty()) {
+    // `WM_HIDE_TEXT=1` hides script-computed text, as the lock screen recording does.
+    r.set_hide_scripted_text(std::env::var("WM_HIDE_TEXT").is_ok());
+    for pair in std::env::var("WM_PROPS").unwrap_or_default().split(',').filter(|p| !p.is_empty()) {
         if let Some((name, value)) = pair.split_once('=') {
             r.apply_property(name.to_string(), value.to_string());
         }
     }
-    // `LW_AUDIO=0.6` feeds a flat spectrum at that level, to see audio-driven layers.
-    if let Some(level) = std::env::var("LW_AUDIO").ok().and_then(|v| v.parse::<f32>().ok()) {
+    // `WM_AUDIO=0.6` feeds a flat spectrum at that level, to see audio-driven layers.
+    if let Some(level) = std::env::var("WM_AUDIO").ok().and_then(|v| v.parse::<f32>().ok()) {
         r.set_audio_response(true);
         let bands: Vec<f32> = (0..64).map(|i| level * (1.0 - i as f32 / 128.0)).collect();
         r.set_audio_spectrum(bands.clone(), bands);
     }
-    // `LW_POINTER=0.1,0.9` puts the pointer there (0...1, top-left origin).
-    if let Some((x, y)) = std::env::var("LW_POINTER").ok().and_then(|v| {
+    // `WM_POINTER=0.1,0.9` puts the pointer there (0...1, top-left origin).
+    if let Some((x, y)) = std::env::var("WM_POINTER").ok().and_then(|v| {
         let (x, y) = v.split_once(',')?;
         Some((x.parse().ok()?, y.parse().ok()?))
     }) {

@@ -5,11 +5,11 @@ use std::path::Path;
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     let home = std::env::var("HOME").unwrap();
-    let assets = format!("{home}/Library/Application Support/LiveWallpaper/WallpaperEngineAssets");
+    let assets = format!("{home}/Library/Application Support/WallpaperMage/WallpaperEngineAssets");
     let vfs = scene_renderer::vfs::Vfs::open(Path::new(&a[1]), Some(Path::new(&assets))).unwrap();
     let data = vfs.read(&a[2]).expect("no such file");
-    if let Ok(range) = std::env::var("LW_HEX") {
-        // LW_HEX=offset,len dumps raw bytes, e.g. when a parser error names an offset.
+    if let Ok(range) = std::env::var("WM_HEX") {
+        // WM_HEX=offset,len dumps raw bytes, e.g. when a parser error names an offset.
         let (off, len) = range.split_once(',').unwrap();
         let (off, len): (usize, usize) = (off.parse().unwrap(), len.parse().unwrap());
         for (i, chunk) in data[off..off + len].chunks(16).enumerate() {

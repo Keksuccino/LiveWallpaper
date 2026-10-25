@@ -167,7 +167,7 @@ impl Host {
                 }
             })
             .map_err(js)?;
-            ctx.globals().set("__lw_log", f).map_err(js)?;
+            ctx.globals().set("__wm_log", f).map_err(js)?;
             ctx.eval::<(), _>(PRELUDE).catch(&ctx).map_err(js)?;
             Ok(())
         })?;
@@ -177,7 +177,7 @@ impl Host {
     /// Replaces the scripts' view of the scene's layers (draw order, current values).
     pub fn set_layers(&mut self, layers: &Value) -> Result<(), Error> {
         let text = layers.to_string();
-        self.call("__lw_layers", text).map(|_| ())
+        self.call("__wm_layers", text).map(|_| ())
     }
 
     /// Evaluates one script module and runs its `init`. Returns the events it caused, with the
@@ -194,14 +194,14 @@ impl Host {
         self.count += 1;
         let props = if properties.is_object() { properties.to_string() } else { "{}".into() };
         let out = self.ctx.with(|ctx| -> Result<String, Error> {
-            let begin: Function = ctx.globals().get("__lw_begin").map_err(js)?;
+            let begin: Function = ctx.globals().get("__wm_begin").map_err(js)?;
             begin.call::<_, ()>((layer_id, props)).catch(&ctx).map_err(js)?;
             let name = format!("layer{layer_id}/{field}");
             let module = Module::declare(ctx.clone(), name, source).catch(&ctx).map_err(js)?;
             let (module, done) = module.eval().catch(&ctx).map_err(js)?;
             done.finish::<()>().catch(&ctx).map_err(js)?;
             let ns: Object = module.namespace().catch(&ctx).map_err(js)?;
-            let register: Function = ctx.globals().get("__lw_register").map_err(js)?;
+            let register: Function = ctx.globals().get("__wm_register").map_err(js)?;
             register
                 .call::<_, String>((id, ns, layer_id, field, value.to_string()))
                 .catch(&ctx)
@@ -225,13 +225,13 @@ impl Host {
             "right": s.right,
             "playing": s.playing,
         });
-        let out = self.call("__lw_frame", input.to_string())?;
+        let out = self.call("__wm_frame", input.to_string())?;
         Ok(Events::parse(&out))
     }
 
     /// Puts back what the scripts kept in `localStorage` in an earlier run (a JSON object).
     pub fn set_storage(&mut self, json: &str) -> Result<(), Error> {
-        self.call("__lw_storage", json.to_string()).map(|_| ())
+        self.call("__wm_storage", json.to_string()).map(|_| ())
     }
 
     /// User property values that changed (all of them once after the scripts started), for
@@ -239,7 +239,7 @@ impl Host {
     /// colour properties, which scripts see as vectors.
     pub fn user_properties(&mut self, values: &Map<String, Value>, colors: &[String]) -> Result<Events, Error> {
         let input = serde_json::json!({ "values": values, "colors": colors });
-        let out = self.call("__lw_user_properties", input.to_string())?;
+        let out = self.call("__wm_user_properties", input.to_string())?;
         Ok(Events::parse(&out))
     }
 
@@ -247,7 +247,7 @@ impl Host {
     pub fn animated(&self) -> bool {
         self.ctx.with(|ctx| {
             ctx.globals()
-                .get::<_, Function>("__lw_animated")
+                .get::<_, Function>("__wm_animated")
                 .and_then(|f| f.call::<_, bool>(()))
                 .unwrap_or(false)
         })

@@ -227,7 +227,7 @@ final class SceneParserTests: XCTestCase {
 /// Kit: each call returns a fresh directory under the test temp area.
 func tempDirectory() -> URL {
     let url = URL(fileURLWithPath: NSTemporaryDirectory())
-        .appendingPathComponent("lw-assets-\(UUID().uuidString)")
+        .appendingPathComponent("wm-assets-\(UUID().uuidString)")
     try! FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
 }

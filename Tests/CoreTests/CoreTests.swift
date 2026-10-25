@@ -278,7 +278,7 @@ final class CoreTests: XCTestCase {
     }
 
     func testContentStampFollowsTheFile() throws {
-        let file = FileManager.default.temporaryDirectory.appendingPathComponent("lw-\(UUID().uuidString).pkg")
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("wm-\(UUID().uuidString).pkg")
         defer { try? FileManager.default.removeItem(at: file) }
         try Data("one".utf8).write(to: file)
         let item = VideoItem(path: file.path)

@@ -19,7 +19,7 @@ struct DownloadsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: LWTheme.sectionSpacing) {
+            VStack(alignment: .leading, spacing: WMTheme.sectionSpacing) {
                 header
                 if entries.isEmpty {
                     emptyState
@@ -28,18 +28,18 @@ struct DownloadsView: View {
                     if !settled.isEmpty { settledSection }
                 }
             }
-            .padding(LWTheme.contentPadding)
+            .padding(WMTheme.contentPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.visible)
-        .background(LWBackground())
-        .animation(LWMotion.content, value: entries.map(\.id))
+        .background(WMBackground())
+        .animation(WMMotion.content, value: entries.map(\.id))
     }
 
     // MARK: Header
 
     private var header: some View {
-        LWPageHeader(
+        WMPageHeader(
             title: "Downloads",
             subtitle: headerSubtitle,
             trailing: {
@@ -61,7 +61,7 @@ struct DownloadsView: View {
     }
 
     private var emptyState: some View {
-        LWEmptyState(
+        WMEmptyState(
             icon: "arrow.down.circle",
             title: "Nothing downloading",
             message: "Wallpapers you download from the Workshop appear here with their progress.",
@@ -143,12 +143,12 @@ private struct DownloadRow: View {
             trailing
         }
         .padding(14)
-        .background { glassShape(radius: LWTheme.cardRadius) }
+        .background { glassShape(radius: WMTheme.cardRadius) }
         .overlay {
-            RoundedRectangle(cornerRadius: LWTheme.cardRadius, style: .continuous)
+            RoundedRectangle(cornerRadius: WMTheme.cardRadius, style: .continuous)
                 .strokeBorder(hovering ? Color.primary.opacity(0.10) : .clear, lineWidth: 1)
         }
-        .animation(LWMotion.hover, value: hovering)
+        .animation(WMMotion.hover, value: hovering)
         .onHover { hovering = $0 }
     }
 
@@ -238,14 +238,14 @@ private struct DownloadRow: View {
     }
 
     @ViewBuilder private func kindChipView(_ chip: (text: String, tint: Color)) -> some View {
-        LWChip(text: chip.text, tint: chip.tint)
+        WMChip(text: chip.text, tint: chip.tint)
     }
 
     @ViewBuilder private var progressBar: some View {
         if case .downloading(let progress) = phase {
-            LWProgressBar(progress: progress)
+            WMProgressBar(progress: progress)
         } else {
-            LWProgressBar(progress: nil)
+            WMProgressBar(progress: nil)
         }
     }
 

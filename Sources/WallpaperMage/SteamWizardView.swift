@@ -40,10 +40,10 @@ private extension View {
         padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
-                RoundedRectangle(cornerRadius: LWTheme.cardRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: WMTheme.cardRadius, style: .continuous)
                     .fill(Color(nsColor: .controlBackgroundColor))
                     .overlay {
-                        RoundedRectangle(cornerRadius: LWTheme.cardRadius, style: .continuous)
+                        RoundedRectangle(cornerRadius: WMTheme.cardRadius, style: .continuous)
                             .strokeBorder(Color.primary.opacity(0.07), lineWidth: 1)
                     }
             }
@@ -238,17 +238,17 @@ private struct WizardCard<Content: View>: View {
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
-                RoundedRectangle(cornerRadius: LWTheme.cardRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: WMTheme.cardRadius, style: .continuous)
                     .fill(Color(nsColor: .controlBackgroundColor))
                     .overlay {
-                        RoundedRectangle(cornerRadius: LWTheme.cardRadius, style: .continuous)
+                        RoundedRectangle(cornerRadius: WMTheme.cardRadius, style: .continuous)
                             .strokeBorder(phase == .current ? Color.accentColor.opacity(0.32) : Color.primary.opacity(0.07),
                                           lineWidth: phase == .current ? 1.5 : 1)
                     }
             }
         }
         .opacity(phase == .waiting ? 0.58 : 1)
-        .animation(LWMotion.panel, value: phase)
+        .animation(WMMotion.panel, value: phase)
         .accessibilityElement(children: .contain)
     }
 
@@ -330,7 +330,7 @@ private struct ToolsContent: View {
             BusyLine("Checking…")
         case .missing:
             VStack(alignment: .leading, spacing: 10) {
-                Text("Live Wallpaper downloads Steam’s official command-line tool (SteamCMD, about 3 MB) from Valve. It is used only to download wallpapers you ask for, with your own Steam account.")
+                Text("Wallpaper Mage downloads Steam’s official command-line tool (SteamCMD, about 3 MB) from Valve. It is used only to download wallpapers you ask for, with your own Steam account.")
                     .foregroundStyle(.secondary)
                 Button("Install Steam tools") { setup.installTools() }
                     .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
@@ -446,7 +446,7 @@ private struct SignInForm: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let error = setup.lastError, error != .cancelled { ErrorLines(error: error) }
-            Text("Use the Steam account that owns Wallpaper Engine. Your password goes straight to Valve’s tool. Live Wallpaper never stores it.")
+            Text("Use the Steam account that owns Wallpaper Engine. Your password goes straight to Valve’s tool. Wallpaper Mage never stores it.")
                 .foregroundStyle(.secondary)
             TextField("Username", text: $setup.username)
                 .textFieldStyle(.roundedBorder).frame(maxWidth: 320).disableAutocorrection(true)
@@ -558,7 +558,7 @@ private struct UnrecognizedPromptContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Live Wallpaper doesn’t recognise Steam’s last message. You can sign in using Terminal instead.")
+            Text("Wallpaper Mage doesn’t recognise Steam’s last message. You can sign in using Terminal instead.")
                 .foregroundStyle(.secondary)
             Text(lastLines)
                 .font(.system(.caption, design: .monospaced)).textSelection(.enabled)

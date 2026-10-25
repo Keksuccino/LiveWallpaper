@@ -18,7 +18,7 @@ final class SystemAudioTap: @unchecked Sendable {
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
     private var procID: AudioDeviceIOProcID?
-    private let queue = DispatchQueue(label: "LiveWallpaper.audio-tap", qos: .utility)
+    private let queue = DispatchQueue(label: "WallpaperMage.audio-tap", qos: .utility)
     private var left = SpectrumAnalyzer()
     private var right = SpectrumAnalyzer()
 
@@ -42,8 +42,8 @@ final class SystemAudioTap: @unchecked Sendable {
         let channels = Int(format.mChannelsPerFrame)
 
         var aggregate: [String: Any] = [
-            kAudioAggregateDeviceNameKey: "LiveWallpaper audio response",
-            kAudioAggregateDeviceUIDKey: "LiveWallpaper-\(UUID().uuidString)",
+            kAudioAggregateDeviceNameKey: "WallpaperMage audio response",
+            kAudioAggregateDeviceUIDKey: "WallpaperMage-\(UUID().uuidString)",
             kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceIsStackedKey: false,
             kAudioAggregateDeviceTapAutoStartKey: true,

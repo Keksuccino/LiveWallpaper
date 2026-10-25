@@ -67,7 +67,7 @@ import SceneBridge
                 try NSWorkspace.shared.setDesktopImageURL(Self.defaultWallpaper, for: screen, options: [:])
                 systemWallpapers[display] = SystemWallpaper(url: Self.defaultWallpaper, stillOf: nil)
             } catch {
-                NSLog("LiveWallpaper: couldn’t set the default wallpaper: \(error.localizedDescription)")
+                NSLog("WallpaperMage: couldn’t set the default wallpaper: \(error.localizedDescription)")
             }
         }
         AgentRecordStore.update { $0.stills[display] = nil }
@@ -114,7 +114,7 @@ import SceneBridge
                     try await Self.make(Array(group.jobs.values), of: group.look)
                 } catch {
                     if Task.isCancelled { return }
-                    NSLog("LiveWallpaper: couldn’t make the wallpaper still: \(error)")
+                    NSLog("WallpaperMage: couldn’t make the wallpaper still: \(error)")
                 }
             }
             guard !Task.isCancelled, let self else { return }
@@ -152,7 +152,7 @@ import SceneBridge
                 systemWallpapers[id] = SystemWallpaper(url: target.url, stillOf: target.look.itemID)
                 applied.append(id)
             } catch {
-                NSLog("LiveWallpaper: couldn’t set the wallpaper still: \(error.localizedDescription)")
+                NSLog("WallpaperMage: couldn’t set the wallpaper still: \(error.localizedDescription)")
             }
         }
         let recorded = AgentRecordStore.load().stills

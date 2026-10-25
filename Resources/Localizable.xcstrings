@@ -3733,89 +3733,6 @@
         }
       }
     },
-    "An older copy of Live Wallpaper is still running. Quit it so the two don’t fight over your wallpaper." : {
-      "comment" : "Warning banner at the top of the window.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Eine ältere Kopie von Live Wallpaper läuft noch. Beende sie, damit sich die beiden nicht um dein Hintergrundbild streiten."
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ένα παλαιότερο αντίγραφο του Live Wallpaper εκτελείται ακόμη. Τερματίστε το, ώστε να μην ανταγωνίζονται τα δύο για την ταπετσαρία σας."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hay una copia antigua de Live Wallpaper en ejecución. Ciérrala para que las dos no se peleen por tu fondo de pantalla."
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Todavía se está ejecutando una copia anterior de Live Wallpaper. Ciérrala para que las dos no compitan por tu fondo de pantalla."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Une ancienne copie de Live Wallpaper est toujours en cours d’exécution. Quittez-la pour que les deux ne se disputent pas votre fond d’écran."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "古いバージョンのLive Wallpaperがまだ実行中です。壁紙の表示が競合しないように終了してください。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "이전 버전의 Live Wallpaper가 아직 실행 중입니다. 두 앱이 배경화면을 두고 충돌하지 않도록 이전 버전을 종료하십시오."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nadal działa starsza kopia Live Wallpaper. Zakończ ją, aby obie kopie nie walczyły o Twoją tapetę."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Uma cópia antiga do Live Wallpaper ainda está em execução. Encerre-a para que as duas não disputem o seu papel de parede."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Все еще работает старая копия Live Wallpaper. Завершите ее, чтобы две копии не конфликтовали из-за обоев."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper’ın eski bir kopyası hâlâ çalışıyor. İki kopya duvar kâğıdınız üzerinde çakışmasın diye eski kopyadan çıkın."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Досі працює старіша копія Live Wallpaper. Завершіть її, щоб дві програми не змагалися за вашу шпалеру."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "一个旧版 Live Wallpaper 仍在运行。请将其退出，以免两者争抢你的墙纸。"
-          }
-        }
-      }
-    },
     "Animal" : {
       "comment" : "Workshop topic chip.",
       "localizations" : {
@@ -7636,85 +7553,85 @@
         }
       }
     },
-    "Closes Live Wallpaper. Your live wallpapers stop, and each display keeps a still picture of its wallpaper." : {
-      "comment" : "Tooltip of “Quit Live Wallpaper”.",
+    "Closes Wallpaper Mage. Your live wallpapers stop, and each display keeps a still picture of its wallpaper." : {
+      "comment" : "Tooltip of “Quit Wallpaper Mage”. “Wallpaper Mage” is the app's name: keep it unchanged in every language.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Beendet Live Wallpaper. Deine Live-Hintergrundbilder stoppen und jedes Display behält ein Standbild seines Hintergrundbilds."
+            "value" : "Beendet Wallpaper Mage. Deine Live-Hintergrundbilder stoppen und jedes Display behält ein Standbild seines Hintergrundbilds."
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Κλείνει το Live Wallpaper. Οι ζωντανές ταπετσαρίες σας σταματούν και κάθε οθόνη διατηρεί μια στατική εικόνα της ταπετσαρίας της."
+            "value" : "Κλείνει το Wallpaper Mage. Οι ζωντανές ταπετσαρίες σας σταματούν και κάθε οθόνη διατηρεί μια στατική εικόνα της ταπετσαρίας της."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cierra Live Wallpaper. Tus fondos animados se detienen y cada pantalla conserva una imagen fija de su fondo."
+            "value" : "Cierra Wallpaper Mage. Tus fondos animados se detienen y cada pantalla conserva una imagen fija de su fondo."
           }
         },
         "es-MX" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cierra Live Wallpaper. Tus fondos animados se detienen y cada pantalla conserva una imagen fija de su fondo."
+            "value" : "Cierra Wallpaper Mage. Tus fondos animados se detienen y cada pantalla conserva una imagen fija de su fondo."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Quitte Live Wallpaper. Vos fonds d’écran animés s’arrêtent et chaque écran conserve une image fixe de son fond d’écran."
+            "value" : "Quitte Wallpaper Mage. Vos fonds d’écran animés s’arrêtent et chaque écran conserve une image fixe de son fond d’écran."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaperを終了します。ライブ壁紙は停止し、各ディスプレイには壁紙の静止画が残ります。"
+            "value" : "Wallpaper Mageを終了します。ライブ壁紙は停止し、各ディスプレイには壁紙の静止画が残ります。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper를 종료합니다. 라이브 배경화면이 멈추고 각 디스플레이에는 배경화면의 정지 이미지가 유지됩니다."
+            "value" : "Wallpaper Mage를 종료합니다. 라이브 배경화면이 멈추고 각 디스플레이에는 배경화면의 정지 이미지가 유지됩니다."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Zamyka Live Wallpaper. Animowane tapety zatrzymują się, a każdy monitor zachowuje nieruchomy obraz swojej tapety."
+            "value" : "Zamyka Wallpaper Mage. Animowane tapety zatrzymują się, a każdy monitor zachowuje nieruchomy obraz swojej tapety."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Fecha o Live Wallpaper. Seus papéis de parede animados param, e cada tela mantém uma imagem estática do seu papel de parede."
+            "value" : "Fecha o Wallpaper Mage. Seus papéis de parede animados param, e cada tela mantém uma imagem estática do seu papel de parede."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Закрывает Live Wallpaper. Живые обои останавливаются, а на каждом дисплее остается статичное изображение его обоев."
+            "value" : "Закрывает Wallpaper Mage. Живые обои останавливаются, а на каждом дисплее остается статичное изображение его обоев."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper’ı kapatır. Canlı duvar kâğıtlarınız durur ve her ekranda duvar kâğıdının hareketsiz bir görüntüsü kalır."
+            "value" : "Wallpaper Mage’i kapatır. Canlı duvar kâğıtlarınız durur ve her ekranda duvar kâğıdının hareketsiz bir görüntüsü kalır."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Закриває Live Wallpaper. Живі шпалери зупиняться, а на кожному дисплеї залишиться нерухоме зображення його шпалери."
+            "value" : "Закриває Wallpaper Mage. Живі шпалери зупиняться, а на кожному дисплеї залишиться нерухоме зображення його шпалери."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "关闭 Live Wallpaper。动态墙纸会停止，每台显示器将保留其墙纸的静态图片。"
+            "value" : "关闭 Wallpaper Mage。动态墙纸会停止，每台显示器将保留其墙纸的静态图片。"
           }
         }
       }
@@ -13895,281 +13812,6 @@
         }
       }
     },
-    "Imported %lld videos from the previous version." : {
-      "comment" : "Banner after updating the app. %lld = number of videos taken over from the previous version.",
-      "localizations" : {
-        "de" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld Video aus der vorherigen Version importiert."
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld Videos aus der vorherigen Version importiert."
-                }
-              }
-            }
-          }
-        },
-        "el" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Εισήχθη %lld βίντεο από την προηγούμενη έκδοση."
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Εισήχθησαν %lld βίντεο από την προηγούμενη έκδοση."
-                }
-              }
-            }
-          }
-        },
-        "en" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Imported %lld video from the previous version."
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Imported %lld videos from the previous version."
-                }
-              }
-            }
-          }
-        },
-        "es" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Se ha importado %lld vídeo de la versión anterior."
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Se han importado %lld vídeos de la versión anterior."
-                }
-              }
-            }
-          }
-        },
-        "es-MX" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Se importó %lld video de la versión anterior."
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Se importaron %lld videos de la versión anterior."
-                }
-              }
-            }
-          }
-        },
-        "fr" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld vidéo importée depuis la version précédente."
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld vidéos importées depuis la version précédente."
-                }
-              }
-            }
-          }
-        },
-        "ja" : {
-          "variations" : {
-            "plural" : {
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "以前のバージョンから%lld本のビデオを読み込みました。"
-                }
-              }
-            }
-          }
-        },
-        "ko" : {
-          "variations" : {
-            "plural" : {
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "이전 버전에서 비디오 %lld개를 가져왔습니다."
-                }
-              }
-            }
-          }
-        },
-        "pl" : {
-          "variations" : {
-            "plural" : {
-              "few" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Zaimportowano %lld filmy z poprzedniej wersji."
-                }
-              },
-              "many" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Zaimportowano %lld filmów z poprzedniej wersji."
-                }
-              },
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Zaimportowano %lld film z poprzedniej wersji."
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Zaimportowano %lld filmu z poprzedniej wersji."
-                }
-              }
-            }
-          }
-        },
-        "pt-BR" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld vídeo importado da versão anterior."
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld vídeos importados da versão anterior."
-                }
-              }
-            }
-          }
-        },
-        "ru" : {
-          "variations" : {
-            "plural" : {
-              "few" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Импортировано %lld видео из предыдущей версии."
-                }
-              },
-              "many" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Импортировано %lld видео из предыдущей версии."
-                }
-              },
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Импортировано %lld видео из предыдущей версии."
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Импортировано %lld видео из предыдущей версии."
-                }
-              }
-            }
-          }
-        },
-        "tr" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Önceki sürümden %lld video içe aktarıldı."
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Önceki sürümden %lld video içe aktarıldı."
-                }
-              }
-            }
-          }
-        },
-        "uk" : {
-          "variations" : {
-            "plural" : {
-              "few" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Імпортовано %lld відео з попередньої версії."
-                }
-              },
-              "many" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Імпортовано %lld відео з попередньої версії."
-                }
-              },
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Імпортовано %lld відео з попередньої версії."
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "Імпортовано %lld відео з попередньої версії."
-                }
-              }
-            }
-          }
-        },
-        "zh-Hans" : {
-          "variations" : {
-            "plural" : {
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "已从旧版本导入 %lld 个视频。"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "In Library" : {
       "comment" : "Shown on a Workshop item that is already in the library.",
       "localizations" : {
@@ -15826,338 +15468,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "列表"
-          }
-        }
-      }
-    },
-    "Live Wallpaper" : {
-      "comment" : "The app's name (window title, About section, menu bar icon description). Usually kept as is.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper"
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper"
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper"
-          }
-        }
-      }
-    },
-    "Live Wallpaper couldn’t find Wallpaper Engine’s shared files on Steam. Scenes that need them will show their preview only." : {
-      "comment" : "Message of the shared files card.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper konnte die gemeinsamen Dateien von Wallpaper Engine auf Steam nicht finden. Szenen, die sie benötigen, zeigen nur ihre Vorschau."
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Το Live Wallpaper δεν βρήκε τα κοινόχρηστα αρχεία του Wallpaper Engine στο Steam. Οι σκηνές που τα χρειάζονται θα εμφανίζουν μόνο την προεπισκόπησή τους."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper no ha encontrado los archivos compartidos de Wallpaper Engine en Steam. Las escenas que los necesitan solo mostrarán su vista previa."
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper no encontró los archivos compartidos de Wallpaper Engine en Steam. Las escenas que los necesitan solo mostrarán su vista previa."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper n’a pas trouvé les fichiers communs de Wallpaper Engine sur Steam. Les scènes qui en ont besoin n’afficheront que leur aperçu."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live WallpaperはSteam上でWallpaper Engineの共有ファイルを見つけられませんでした。共有ファイルが必要なシーンは、プレビューのみ表示されます。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper가 Steam에서 Wallpaper Engine 공유 파일을 찾을 수 없습니다. 이 파일이 필요한 씬은 미리보기만 표시됩니다."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper nie może znaleźć wspólnych plików Wallpaper Engine na Steam. Sceny, które ich wymagają, będą pokazywać tylko podgląd."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O Live Wallpaper não encontrou os arquivos compartilhados do Wallpaper Engine na Steam. As cenas que precisam deles mostrarão apenas a pré-visualização."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper не удалось найти общие файлы Wallpaper Engine в Steam. Сцены, которым они нужны, будут показывать только превью."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper, Steam’de Wallpaper Engine’in ortak dosyalarını bulamadı. Bu dosyalara ihtiyaç duyan sahnelerde yalnızca önizleme gösterilecek."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Програмі Live Wallpaper не вдалося знайти спільні файли Wallpaper Engine у Steam. Сцени, яким вони потрібні, показуватимуть лише передогляд."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper 无法在 Steam 上找到 Wallpaper Engine 的共享文件。需要这些文件的场景将仅显示预览。"
-          }
-        }
-      }
-    },
-    "Live Wallpaper doesn’t recognise Steam’s last message. You can sign in using Terminal instead." : {
-      "comment" : "Shown when SteamCMD asks something unknown; its output follows.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper erkennt die letzte Meldung von Steam nicht. Du kannst dich stattdessen über das Terminal anmelden."
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Το Live Wallpaper δεν αναγνωρίζει το τελευταίο μήνυμα του Steam. Μπορείτε να συνδεθείτε μέσω του Τερματικού."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper no reconoce el último mensaje de Steam. En su lugar, puedes iniciar sesión desde Terminal."
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper no reconoce el último mensaje de Steam. Puedes iniciar sesión con Terminal."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper ne reconnaît pas le dernier message de Steam. Vous pouvez plutôt vous connecter à l’aide de Terminal."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live WallpaperはSteamからの最後のメッセージを認識できません。代わりにターミナルを使ってサインインできます。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper가 Steam의 마지막 메시지를 인식하지 못했습니다. 대신 터미널을 사용하여 로그인할 수 있습니다."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper nie rozpoznaje ostatniego komunikatu Steam. Możesz zamiast tego zalogować się w Terminalu."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O Live Wallpaper não reconhece a última mensagem da Steam. Você pode iniciar sessão pelo Terminal."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper не распознает последнее сообщение Steam. Вместо этого можно войти через Терминал."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper, Steam’in son mesajını tanımıyor. Bunun yerine Terminal’i kullanarak giriş yapabilirsiniz."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper не розпізнає останнє повідомлення Steam. Натомість можна ввійти за допомогою Термінала."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper 无法识别 Steam 的最后一条消息。你可以改用“终端”登录。"
-          }
-        }
-      }
-    },
-    "Live Wallpaper downloads Steam’s official command-line tool (SteamCMD, about 3 MB) from Valve. It is used only to download wallpapers you ask for, with your own Steam account." : {
-      "comment" : "Explanation of setup step 1.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper lädt das offizielle Befehlszeilentool von Steam (SteamCMD, ca. 3 MB) von Valve herunter. Es wird nur verwendet, um von dir gewünschte Hintergrundbilder mit deinem eigenen Steam-Konto herunterzuladen."
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Το Live Wallpaper κάνει λήψη του επίσημου εργαλείου γραμμής εντολών του Steam (SteamCMD, περίπου 3 MB) από τη Valve. Χρησιμοποιείται μόνο για τη λήψη των ταπετσαριών που ζητάτε, με τον δικό σας λογαριασμό Steam."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper descarga de Valve la herramienta oficial de línea de comandos de Steam (SteamCMD, unos 3 MB). Solo se usa para descargar los fondos de pantalla que pidas, con tu propia cuenta de Steam."
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper descarga de Valve la herramienta oficial de línea de comandos de Steam (SteamCMD, unos 3 MB). Solo se usa para descargar los fondos que pidas, con tu propia cuenta de Steam."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper télécharge l’outil en ligne de commande officiel de Steam (SteamCMD, environ 3 Mo) auprès de Valve. Il sert uniquement à télécharger les fonds d’écran que vous demandez, avec votre propre compte Steam."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaperは、Steamの公式コマンドラインツール（SteamCMD、約3 MB）をValveからダウンロードします。このツールは、お使いのSteamアカウントで、指定した壁紙をダウンロードするためだけに使用されます。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper는 Valve에서 Steam의 공식 명령줄 도구(SteamCMD, 약 3MB)를 다운로드합니다. 이 도구는 본인의 Steam 계정으로 요청한 배경화면을 다운로드하는 데만 사용됩니다."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper pobiera od firmy Valve oficjalne narzędzie wiersza poleceń Steam (SteamCMD, około 3 MB). Służy ono wyłącznie do pobierania tapet, o które poprosisz, przy użyciu Twojego własnego konta Steam."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O Live Wallpaper baixa da Valve a ferramenta oficial de linha de comando da Steam (SteamCMD, cerca de 3 MB). Ela é usada apenas para baixar os papéis de parede que você solicitar, com a sua própria conta Steam."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper загружает официальный инструмент командной строки Steam (SteamCMD, около 3 МБ) с серверов Valve. Он используется только для загрузки выбранных вами обоев с вашей учетной записью Steam."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper, Steam’in resmi komut satırı aracını (SteamCMD, yaklaşık 3 MB) Valve’dan indirir. Bu araç yalnızca istediğiniz duvar kâğıtlarını kendi Steam hesabınızla indirmek için kullanılır."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper викачує від Valve офіційний інструмент командного рядка Steam (SteamCMD, близько 3 МБ). Він використовується лише для викачування вибраних вами шпалер через ваш власний обліковий запис Steam."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live Wallpaper 会从 Valve 下载 Steam 的官方命令行工具（SteamCMD，约 3 MB）。它仅用于通过你自己的 Steam 账户下载你请求的墙纸。"
           }
         }
       }
@@ -20146,85 +19456,85 @@
         }
       }
     },
-    "Only needed if you already have SteamCMD somewhere else. Live Wallpaper installs its own copy otherwise." : {
-      "comment" : "Explanation in Settings > Steam > Advanced.",
+    "Only needed if you already have SteamCMD somewhere else. Wallpaper Mage installs its own copy otherwise." : {
+      "comment" : "Explanation in Settings > Steam > Advanced. “Wallpaper Mage” is the app's name: keep it unchanged in every language.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nur nötig, wenn du SteamCMD bereits an anderer Stelle hast. Andernfalls installiert Live Wallpaper eine eigene Kopie."
+            "value" : "Nur nötig, wenn du SteamCMD bereits an anderer Stelle hast. Andernfalls installiert Wallpaper Mage eine eigene Kopie."
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Χρειάζεται μόνο αν έχετε ήδη το SteamCMD σε άλλη θέση. Διαφορετικά, το Live Wallpaper εγκαθιστά το δικό του αντίγραφο."
+            "value" : "Χρειάζεται μόνο αν έχετε ήδη το SteamCMD σε άλλη θέση. Διαφορετικά, το Wallpaper Mage εγκαθιστά το δικό του αντίγραφο."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Solo es necesario si ya tienes SteamCMD en otro lugar. De lo contrario, Live Wallpaper instala su propia copia."
+            "value" : "Solo es necesario si ya tienes SteamCMD en otro lugar. De lo contrario, Wallpaper Mage instala su propia copia."
           }
         },
         "es-MX" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Solo es necesario si ya tienes SteamCMD en otro lugar. De lo contrario, Live Wallpaper instala su propia copia."
+            "value" : "Solo es necesario si ya tienes SteamCMD en otro lugar. De lo contrario, Wallpaper Mage instala su propia copia."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nécessaire uniquement si SteamCMD est déjà installé ailleurs. Sinon, Live Wallpaper installe sa propre copie."
+            "value" : "Nécessaire uniquement si SteamCMD est déjà installé ailleurs. Sinon, Wallpaper Mage installe sa propre copie."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "SteamCMDがすでに別の場所にある場合のみ必要です。それ以外の場合は、Live Wallpaperが専用のコピーをインストールします。"
+            "value" : "SteamCMDがすでに別の場所にある場合のみ必要です。それ以外の場合は、Wallpaper Mageが専用のコピーをインストールします。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "다른 위치에 SteamCMD가 이미 있는 경우에만 필요합니다. 그렇지 않으면 Live Wallpaper가 자체 사본을 설치합니다."
+            "value" : "다른 위치에 SteamCMD가 이미 있는 경우에만 필요합니다. 그렇지 않으면 Wallpaper Mage가 자체 사본을 설치합니다."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Potrzebne tylko, jeśli masz już SteamCMD w innym miejscu. W przeciwnym razie Live Wallpaper zainstaluje własną kopię."
+            "value" : "Potrzebne tylko, jeśli masz już SteamCMD w innym miejscu. W przeciwnym razie Wallpaper Mage zainstaluje własną kopię."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Só é necessário se você já tem o SteamCMD em outro lugar. Caso contrário, o Live Wallpaper instala a própria cópia."
+            "value" : "Só é necessário se você já tem o SteamCMD em outro lugar. Caso contrário, o Wallpaper Mage instala a própria cópia."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Нужно, только если SteamCMD уже установлен в другом месте. Иначе Live Wallpaper установит собственную копию."
+            "value" : "Нужно, только если SteamCMD уже установлен в другом месте. Иначе Wallpaper Mage установит собственную копию."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Yalnızca SteamCMD başka bir yerde zaten yüklüyse gerekir. Aksi takdirde Live Wallpaper kendi kopyasını yükler."
+            "value" : "Yalnızca SteamCMD başka bir yerde zaten yüklüyse gerekir. Aksi takdirde Wallpaper Mage kendi kopyasını yükler."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Потрібно, лише якщо SteamCMD уже є у вас в іншому місці. Інакше Live Wallpaper інсталює власну копію."
+            "value" : "Потрібно, лише якщо SteamCMD уже є у вас в іншому місці. Інакше Wallpaper Mage інсталює власну копію."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "仅在你已在其他位置安装了 SteamCMD 时需要。否则，Live Wallpaper 会安装自己的副本。"
+            "value" : "仅在你已在其他位置安装了 SteamCMD 时需要。否则，Wallpaper Mage 会安装自己的副本。"
           }
         }
       }
@@ -20811,49 +20121,49 @@
         }
       }
     },
-    "Open Steam Settings and choose Install Steam tools. Live Wallpaper downloads Valve’s tool for you." : {
-      "comment" : "Error message. “Steam Settings” is the Steam tab of Settings, “Install Steam tools” its button: use the same words as there.",
+    "Open Steam Settings and choose Install Steam tools. Wallpaper Mage downloads Valve’s tool for you." : {
+      "comment" : "Error message. “Steam Settings” is the Steam tab of Settings, “Install Steam tools” its button: use the same words as there. “Wallpaper Mage” is the app's name: keep it unchanged in every language.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Öffne die Steam-Einstellungen und wähle „Steam-Tools installieren“. Live Wallpaper lädt das Tool von Valve für dich herunter."
+            "value" : "Öffne die Steam-Einstellungen und wähle „Steam-Tools installieren“. Wallpaper Mage lädt das Tool von Valve für dich herunter."
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ανοίξτε τις Ρυθμίσεις Steam και επιλέξτε «Εγκατάσταση εργαλείων Steam». Το Live Wallpaper κάνει λήψη του εργαλείου της Valve για εσάς."
+            "value" : "Ανοίξτε τις Ρυθμίσεις Steam και επιλέξτε «Εγκατάσταση εργαλείων Steam». Το Wallpaper Mage κάνει λήψη του εργαλείου της Valve για εσάς."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Abre Ajustes de Steam y selecciona “Instalar herramientas de Steam”. Live Wallpaper descargará la herramienta de Valve por ti."
+            "value" : "Abre Ajustes de Steam y selecciona “Instalar herramientas de Steam”. Wallpaper Mage descargará la herramienta de Valve por ti."
           }
         },
         "es-MX" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Abre Configuración de Steam y elige Instalar herramientas de Steam. Live Wallpaper descargará la herramienta de Valve por ti."
+            "value" : "Abre Configuración de Steam y elige Instalar herramientas de Steam. Wallpaper Mage descargará la herramienta de Valve por ti."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ouvrez les réglages Steam et choisissez « Installer les outils Steam ». Live Wallpaper télécharge l’outil de Valve pour vous."
+            "value" : "Ouvrez les réglages Steam et choisissez « Installer les outils Steam ». Wallpaper Mage télécharge l’outil de Valve pour vous."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam設定を開いて「Steamツールをインストール」を選択してください。Live WallpaperがValveのツールをダウンロードします。"
+            "value" : "Steam設定を開いて「Steamツールをインストール」を選択してください。Wallpaper MageがValveのツールをダウンロードします。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam 설정을 열고 Steam 도구 설치를 선택하십시오. Live Wallpaper가 Valve의 도구를 대신 다운로드합니다."
+            "value" : "Steam 설정을 열고 Steam 도구 설치를 선택하십시오. Wallpaper Mage가 Valve의 도구를 대신 다운로드합니다."
           }
         },
         "pl" : {
@@ -20865,31 +20175,31 @@
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Abra os Ajustes da Steam e escolha Instalar ferramentas da Steam. O Live Wallpaper baixa a ferramenta da Valve para você."
+            "value" : "Abra os Ajustes da Steam e escolha Instalar ferramentas da Steam. O Wallpaper Mage baixa a ferramenta da Valve para você."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Откройте настройки Steam и выберите «Установить инструменты Steam». Live Wallpaper загрузит инструмент Valve за вас."
+            "value" : "Откройте настройки Steam и выберите «Установить инструменты Steam». Wallpaper Mage загрузит инструмент Valve за вас."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam Ayarları’nı açıp “Steam araçlarını yükle” düğmesini tıklayın. Live Wallpaper, Valve’ın aracını sizin için indirir."
+            "value" : "Steam Ayarları’nı açıp “Steam araçlarını yükle” düğmesini tıklayın. Wallpaper Mage, Valve’ın aracını sizin için indirir."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Відкрийте Параметри Steam і виберіть «Інсталювати інструменти Steam». Live Wallpaper викачає інструмент Valve автоматично."
+            "value" : "Відкрийте Параметри Steam і виберіть «Інсталювати інструменти Steam». Wallpaper Mage викачає інструмент Valve автоматично."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "请打开 Steam 设置并选择“安装 Steam 工具”。Live Wallpaper 会为你下载 Valve 的工具。"
+            "value" : "请打开 Steam 设置并选择“安装 Steam 工具”。Wallpaper Mage 会为你下载 Valve 的工具。"
           }
         }
       }
@@ -23494,85 +22804,85 @@
         }
       }
     },
-    "Quit Live Wallpaper" : {
-      "comment" : "Menu bar menu item that quits the background service.",
+    "Quit Wallpaper Mage" : {
+      "comment" : "Menu bar menu item that quits the background service. “Wallpaper Mage” is the app's name: keep it unchanged in every language.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper beenden"
+            "value" : "Wallpaper Mage beenden"
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Τερματισμός Live Wallpaper"
+            "value" : "Τερματισμός Wallpaper Mage"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Salir de Live Wallpaper"
+            "value" : "Salir de Wallpaper Mage"
           }
         },
         "es-MX" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Salir de Live Wallpaper"
+            "value" : "Salir de Wallpaper Mage"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Quitter Live Wallpaper"
+            "value" : "Quitter Wallpaper Mage"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaperを終了"
+            "value" : "Wallpaper Mageを終了"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper 종료"
+            "value" : "Wallpaper Mage 종료"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Zakończ Live Wallpaper"
+            "value" : "Zakończ Wallpaper Mage"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Encerrar Live Wallpaper"
+            "value" : "Encerrar Wallpaper Mage"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Завершить Live Wallpaper"
+            "value" : "Завершить Wallpaper Mage"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper’dan Çık"
+            "value" : "Wallpaper Mage’den Çık"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Завершити Live Wallpaper"
+            "value" : "Завершити Wallpaper Mage"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "退出 Live Wallpaper"
+            "value" : "退出 Wallpaper Mage"
           }
         }
       }
@@ -37131,85 +36441,85 @@
         }
       }
     },
-    "The wallpaper service didn’t understand that request. Update Live Wallpaper." : {
-      "comment" : "Error of the background service.",
+    "The wallpaper service didn’t understand that request. Update Wallpaper Mage." : {
+      "comment" : "Error of the background service. “Wallpaper Mage” is the app's name: keep it unchanged in every language.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Der Hintergrundbild-Dienst hat die Anfrage nicht verstanden. Aktualisiere Live Wallpaper."
+            "value" : "Der Hintergrundbild-Dienst hat die Anfrage nicht verstanden. Aktualisiere Wallpaper Mage."
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Η υπηρεσία ταπετσαριών δεν κατανόησε το αίτημα. Ενημερώστε το Live Wallpaper."
+            "value" : "Η υπηρεσία ταπετσαριών δεν κατανόησε το αίτημα. Ενημερώστε το Wallpaper Mage."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "El servicio de fondos de pantalla no ha entendido esa solicitud. Actualiza Live Wallpaper."
+            "value" : "El servicio de fondos de pantalla no ha entendido esa solicitud. Actualiza Wallpaper Mage."
           }
         },
         "es-MX" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "El servicio de fondos de pantalla no entendió esa solicitud. Actualiza Live Wallpaper."
+            "value" : "El servicio de fondos de pantalla no entendió esa solicitud. Actualiza Wallpaper Mage."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le service de fonds d’écran n’a pas compris cette requête. Mettez à jour Live Wallpaper."
+            "value" : "Le service de fonds d’écran n’a pas compris cette requête. Mettez à jour Wallpaper Mage."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "壁紙サービスがリクエストを認識できませんでした。Live Wallpaperをアップデートしてください。"
+            "value" : "壁紙サービスがリクエストを認識できませんでした。Wallpaper Mageをアップデートしてください。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "배경화면 서비스가 요청을 이해하지 못했습니다. Live Wallpaper를 업데이트하십시오."
+            "value" : "배경화면 서비스가 요청을 이해하지 못했습니다. Wallpaper Mage를 업데이트하십시오."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Usługa tapet nie zrozumiała tego żądania. Uaktualnij Live Wallpaper."
+            "value" : "Usługa tapet nie zrozumiała tego żądania. Uaktualnij Wallpaper Mage."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "O serviço de papel de parede não entendeu essa solicitação. Atualize o Live Wallpaper."
+            "value" : "O serviço de papel de parede não entendeu essa solicitação. Atualize o Wallpaper Mage."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Служба обоев не поняла этот запрос. Обновите Live Wallpaper."
+            "value" : "Служба обоев не поняла этот запрос. Обновите Wallpaper Mage."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Duvar kâğıdı servisi bu isteği anlamadı. Live Wallpaper’ı güncelleyin."
+            "value" : "Duvar kâğıdı servisi bu isteği anlamadı. Wallpaper Mage’i güncelleyin."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Служба шпалер не розпізнала запит. Оновіть Live Wallpaper."
+            "value" : "Служба шпалер не розпізнала запит. Оновіть Wallpaper Mage."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "墙纸服务无法理解该请求。请更新 Live Wallpaper。"
+            "value" : "墙纸服务无法理解该请求。请更新 Wallpaper Mage。"
           }
         }
       }
@@ -37463,85 +36773,85 @@
         }
       }
     },
-    "This copy of Live Wallpaper is incomplete, so your live wallpapers can’t be shown. Reinstall Live Wallpaper to fix it." : {
-      "comment" : "Warning in the sidebar, below “Wallpaper service missing”.",
+    "This copy of Wallpaper Mage is incomplete, so your live wallpapers can’t be shown. Reinstall Wallpaper Mage to fix it." : {
+      "comment" : "Warning in the sidebar, below “Wallpaper service missing”. “Wallpaper Mage” is the app's name: keep it unchanged in every language.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Diese Kopie von Live Wallpaper ist unvollständig, daher können deine Live-Hintergrundbilder nicht angezeigt werden. Installiere Live Wallpaper neu, um das zu beheben."
+            "value" : "Diese Kopie von Wallpaper Mage ist unvollständig, daher können deine Live-Hintergrundbilder nicht angezeigt werden. Installiere Wallpaper Mage neu, um das zu beheben."
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Αυτό το αντίγραφο του Live Wallpaper είναι ελλιπές, γι’ αυτό οι ζωντανές ταπετσαρίες σας δεν μπορούν να εμφανιστούν. Εγκαταστήστε ξανά το Live Wallpaper για να διορθωθεί."
+            "value" : "Αυτό το αντίγραφο του Wallpaper Mage είναι ελλιπές, γι’ αυτό οι ζωντανές ταπετσαρίες σας δεν μπορούν να εμφανιστούν. Εγκαταστήστε ξανά το Wallpaper Mage για να διορθωθεί."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Esta copia de Live Wallpaper está incompleta, por lo que no se pueden mostrar tus fondos animados. Vuelve a instalar Live Wallpaper para solucionarlo."
+            "value" : "Esta copia de Wallpaper Mage está incompleta, por lo que no se pueden mostrar tus fondos animados. Vuelve a instalar Wallpaper Mage para solucionarlo."
           }
         },
         "es-MX" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Esta copia de Live Wallpaper está incompleta, por lo que no se pueden mostrar tus fondos animados. Reinstala Live Wallpaper para solucionarlo."
+            "value" : "Esta copia de Wallpaper Mage está incompleta, por lo que no se pueden mostrar tus fondos animados. Reinstala Wallpaper Mage para solucionarlo."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cette copie de Live Wallpaper est incomplète : vos fonds d’écran animés ne peuvent donc pas être affichés. Réinstallez Live Wallpaper pour corriger le problème."
+            "value" : "Cette copie de Wallpaper Mage est incomplète : vos fonds d’écran animés ne peuvent donc pas être affichés. Réinstallez Wallpaper Mage pour corriger le problème."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "このLive Wallpaperは不完全なため、ライブ壁紙を表示できません。Live Wallpaperを再インストールしてください。"
+            "value" : "このWallpaper Mageは不完全なため、ライブ壁紙を表示できません。Wallpaper Mageを再インストールしてください。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "이 Live Wallpaper 사본이 불완전하여 라이브 배경화면을 표시할 수 없습니다. 문제를 해결하려면 Live Wallpaper를 다시 설치하십시오."
+            "value" : "이 Wallpaper Mage 사본이 불완전하여 라이브 배경화면을 표시할 수 없습니다. 문제를 해결하려면 Wallpaper Mage를 다시 설치하십시오."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ta kopia Live Wallpaper jest niekompletna, więc animowane tapety nie mogą być wyświetlane. Zainstaluj ponownie Live Wallpaper, aby to naprawić."
+            "value" : "Ta kopia Wallpaper Mage jest niekompletna, więc animowane tapety nie mogą być wyświetlane. Zainstaluj ponownie Wallpaper Mage, aby to naprawić."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Esta cópia do Live Wallpaper está incompleta, por isso seus papéis de parede animados não podem ser mostrados. Reinstale o Live Wallpaper para corrigir."
+            "value" : "Esta cópia do Wallpaper Mage está incompleta, por isso seus papéis de parede animados não podem ser mostrados. Reinstale o Wallpaper Mage para corrigir."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Эта копия Live Wallpaper неполная, поэтому живые обои не могут отображаться. Чтобы исправить это, переустановите Live Wallpaper."
+            "value" : "Эта копия Wallpaper Mage неполная, поэтому живые обои не могут отображаться. Чтобы исправить это, переустановите Wallpaper Mage."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bu Live Wallpaper kopyası eksik olduğu için canlı duvar kâğıtlarınız gösterilemiyor. Sorunu düzeltmek için Live Wallpaper’ı yeniden yükleyin."
+            "value" : "Bu Wallpaper Mage kopyası eksik olduğu için canlı duvar kâğıtlarınız gösterilemiyor. Sorunu düzeltmek için Wallpaper Mage’i yeniden yükleyin."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ця копія Live Wallpaper неповна, тому живі шпалери неможливо показати. Щоб виправити це, інсталюйте Live Wallpaper повторно."
+            "value" : "Ця копія Wallpaper Mage неповна, тому живі шпалери неможливо показати. Щоб виправити це, інсталюйте Wallpaper Mage повторно."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "此 Live Wallpaper 副本不完整，因此无法显示你的动态墙纸。请重新安装 Live Wallpaper 以修复此问题。"
+            "value" : "此 Wallpaper Mage 副本不完整，因此无法显示你的动态墙纸。请重新安装 Wallpaper Mage 以修复此问题。"
           }
         }
       }
@@ -38294,85 +37604,85 @@
         }
       }
     },
-    "This wallpaper’s video is a .%@ file. Live Wallpaper plays MP4, MOV and M4V and doesn’t convert other formats." : {
-      "comment" : "Error message. %@ = a file extension without the dot, e.g. “webm”. Keep the format names.",
+    "This wallpaper’s video is a .%@ file. Wallpaper Mage plays MP4, MOV and M4V and doesn’t convert other formats." : {
+      "comment" : "Error message. %@ = a file extension without the dot, e.g. “webm”. Keep the format names. “Wallpaper Mage” is the app's name: keep it unchanged in every language.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Das Video dieses Hintergrundbilds ist eine .%@-Datei. Live Wallpaper spielt MP4, MOV und M4V ab und konvertiert keine anderen Formate."
+            "value" : "Das Video dieses Hintergrundbilds ist eine .%@-Datei. Wallpaper Mage spielt MP4, MOV und M4V ab und konvertiert keine anderen Formate."
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Το βίντεο αυτής της ταπετσαρίας είναι αρχείο .%@. Το Live Wallpaper αναπαράγει MP4, MOV και M4V και δεν μετατρέπει άλλες μορφές."
+            "value" : "Το βίντεο αυτής της ταπετσαρίας είναι αρχείο .%@. Το Wallpaper Mage αναπαράγει MP4, MOV και M4V και δεν μετατρέπει άλλες μορφές."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "El vídeo de este fondo de pantalla es un archivo .%@. Live Wallpaper reproduce MP4, MOV y M4V, y no convierte otros formatos."
+            "value" : "El vídeo de este fondo de pantalla es un archivo .%@. Wallpaper Mage reproduce MP4, MOV y M4V, y no convierte otros formatos."
           }
         },
         "es-MX" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "El video de este fondo es un archivo .%@. Live Wallpaper reproduce MP4, MOV y M4V, y no convierte otros formatos."
+            "value" : "El video de este fondo es un archivo .%@. Wallpaper Mage reproduce MP4, MOV y M4V, y no convierte otros formatos."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La vidéo de ce fond d’écran est un fichier .%@. Live Wallpaper lit les formats MP4, MOV et M4V et ne convertit pas les autres formats."
+            "value" : "La vidéo de ce fond d’écran est un fichier .%@. Wallpaper Mage lit les formats MP4, MOV et M4V et ne convertit pas les autres formats."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "この壁紙のビデオは.%@ファイルです。Live WallpaperはMP4、MOV、M4Vを再生でき、ほかのフォーマットは変換しません。"
+            "value" : "この壁紙のビデオは.%@ファイルです。Wallpaper MageはMP4、MOV、M4Vを再生でき、ほかのフォーマットは変換しません。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "이 배경화면의 비디오는 .%@ 파일입니다. Live Wallpaper는 MP4, MOV 및 M4V를 재생하며 다른 포맷은 변환하지 않습니다."
+            "value" : "이 배경화면의 비디오는 .%@ 파일입니다. Wallpaper Mage는 MP4, MOV 및 M4V를 재생하며 다른 포맷은 변환하지 않습니다."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Film tej tapety jest plikiem .%@. Live Wallpaper odtwarza pliki MP4, MOV i M4V i nie konwertuje innych formatów."
+            "value" : "Film tej tapety jest plikiem .%@. Wallpaper Mage odtwarza pliki MP4, MOV i M4V i nie konwertuje innych formatów."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "O vídeo deste papel de parede é um arquivo .%@. O Live Wallpaper reproduz MP4, MOV e M4V e não converte outros formatos."
+            "value" : "O vídeo deste papel de parede é um arquivo .%@. O Wallpaper Mage reproduz MP4, MOV e M4V e não converte outros formatos."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Видео этих обоев — файл .%@. Live Wallpaper воспроизводит MP4, MOV и M4V и не конвертирует другие форматы."
+            "value" : "Видео этих обоев — файл .%@. Wallpaper Mage воспроизводит MP4, MOV и M4V и не конвертирует другие форматы."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bu duvar kâğıdının videosu bir .%@ dosyası. Live Wallpaper MP4, MOV ve M4V dosyalarını oynatır, diğer biçimleri dönüştürmez."
+            "value" : "Bu duvar kâğıdının videosu bir .%@ dosyası. Wallpaper Mage MP4, MOV ve M4V dosyalarını oynatır, diğer biçimleri dönüştürmez."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Відео цієї шпалери має формат .%@. Live Wallpaper відтворює MP4, MOV і M4V та не конвертує інші формати."
+            "value" : "Відео цієї шпалери має формат .%@. Wallpaper Mage відтворює MP4, MOV і M4V та не конвертує інші формати."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "此墙纸的视频为 .%@ 文件。Live Wallpaper 支持播放 MP4、MOV 和 M4V，不会转换其他格式。"
+            "value" : "此墙纸的视频为 .%@ 文件。Wallpaper Mage 支持播放 MP4、MOV 和 M4V，不会转换其他格式。"
           }
         }
       }
@@ -39539,85 +38849,85 @@
         }
       }
     },
-    "Use the Steam account that owns Wallpaper Engine. Your password goes straight to Valve’s tool. Live Wallpaper never stores it." : {
-      "comment" : "Explanation of the Steam sign-in form.",
+    "Use the Steam account that owns Wallpaper Engine. Your password goes straight to Valve’s tool. Wallpaper Mage never stores it." : {
+      "comment" : "Explanation of the Steam sign-in form. “Wallpaper Mage” is the app's name: keep it unchanged in every language.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Verwende das Steam-Konto, das Wallpaper Engine besitzt. Dein Passwort geht direkt an das Tool von Valve. Live Wallpaper speichert es nie."
+            "value" : "Verwende das Steam-Konto, das Wallpaper Engine besitzt. Dein Passwort geht direkt an das Tool von Valve. Wallpaper Mage speichert es nie."
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Χρησιμοποιήστε τον λογαριασμό Steam που διαθέτει το Wallpaper Engine. Το συνθηματικό σας αποστέλλεται απευθείας στο εργαλείο της Valve. Το Live Wallpaper δεν το αποθηκεύει ποτέ."
+            "value" : "Χρησιμοποιήστε τον λογαριασμό Steam που διαθέτει το Wallpaper Engine. Το συνθηματικό σας αποστέλλεται απευθείας στο εργαλείο της Valve. Το Wallpaper Mage δεν το αποθηκεύει ποτέ."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Usa la cuenta de Steam que tiene Wallpaper Engine. Tu contraseña va directamente a la herramienta de Valve. Live Wallpaper nunca la guarda."
+            "value" : "Usa la cuenta de Steam que tiene Wallpaper Engine. Tu contraseña va directamente a la herramienta de Valve. Wallpaper Mage nunca la guarda."
           }
         },
         "es-MX" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Usa la cuenta de Steam que tiene Wallpaper Engine. Tu contraseña va directamente a la herramienta de Valve. Live Wallpaper nunca la guarda."
+            "value" : "Usa la cuenta de Steam que tiene Wallpaper Engine. Tu contraseña va directamente a la herramienta de Valve. Wallpaper Mage nunca la guarda."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Utilisez le compte Steam qui possède Wallpaper Engine. Votre mot de passe est transmis directement à l’outil de Valve. Live Wallpaper ne l’enregistre jamais."
+            "value" : "Utilisez le compte Steam qui possède Wallpaper Engine. Votre mot de passe est transmis directement à l’outil de Valve. Wallpaper Mage ne l’enregistre jamais."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Wallpaper Engineを所有しているSteamアカウントを使用してください。パスワードはValveのツールに直接渡され、Live Wallpaperに保存されることはありません。"
+            "value" : "Wallpaper Engineを所有しているSteamアカウントを使用してください。パスワードはValveのツールに直接渡され、Wallpaper Mageに保存されることはありません。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Wallpaper Engine을 보유한 Steam 계정을 사용하십시오. 암호는 Valve의 도구로 바로 전달되며 Live Wallpaper에는 저장되지 않습니다."
+            "value" : "Wallpaper Engine을 보유한 Steam 계정을 사용하십시오. 암호는 Valve의 도구로 바로 전달되며 Wallpaper Mage에는 저장되지 않습니다."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Użyj konta Steam, które posiada Wallpaper Engine. Hasło trafia bezpośrednio do narzędzia firmy Valve. Live Wallpaper nigdy go nie przechowuje."
+            "value" : "Użyj konta Steam, które posiada Wallpaper Engine. Hasło trafia bezpośrednio do narzędzia firmy Valve. Wallpaper Mage nigdy go nie przechowuje."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Use a conta Steam que possui o Wallpaper Engine. Sua senha vai direto para a ferramenta da Valve. O Live Wallpaper nunca a armazena."
+            "value" : "Use a conta Steam que possui o Wallpaper Engine. Sua senha vai direto para a ferramenta da Valve. O Wallpaper Mage nunca a armazena."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Используйте учетную запись Steam, на которой есть Wallpaper Engine. Пароль передается напрямую инструменту Valve. Live Wallpaper никогда его не сохраняет."
+            "value" : "Используйте учетную запись Steam, на которой есть Wallpaper Engine. Пароль передается напрямую инструменту Valve. Wallpaper Mage никогда его не сохраняет."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Wallpaper Engine’e sahip Steam hesabını kullanın. Parolanız doğrudan Valve’ın aracına gider. Live Wallpaper parolanızı asla saklamaz."
+            "value" : "Wallpaper Engine’e sahip Steam hesabını kullanın. Parolanız doğrudan Valve’ın aracına gider. Wallpaper Mage parolanızı asla saklamaz."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Використовуйте обліковий запис Steam, у якому є Wallpaper Engine. Пароль передається безпосередньо інструменту Valve. Live Wallpaper ніколи його не зберігає."
+            "value" : "Використовуйте обліковий запис Steam, у якому є Wallpaper Engine. Пароль передається безпосередньо інструменту Valve. Wallpaper Mage ніколи його не зберігає."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "请使用拥有 Wallpaper Engine 的 Steam 账户。你的密码会直接发送给 Valve 的工具，Live Wallpaper 绝不会存储密码。"
+            "value" : "请使用拥有 Wallpaper Engine 的 Steam 账户。你的密码会直接发送给 Valve 的工具，Wallpaper Mage 绝不会存储密码。"
           }
         }
       }
@@ -41117,6 +40427,255 @@
         }
       }
     },
+    "Wallpaper Mage couldn’t find Wallpaper Engine’s shared files on Steam. Scenes that need them will show their preview only." : {
+      "comment" : "Message of the shared files card. “Wallpaper Mage” is the app's name: keep it unchanged in every language.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage konnte die gemeinsamen Dateien von Wallpaper Engine auf Steam nicht finden. Szenen, die sie benötigen, zeigen nur ihre Vorschau."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Το Wallpaper Mage δεν βρήκε τα κοινόχρηστα αρχεία του Wallpaper Engine στο Steam. Οι σκηνές που τα χρειάζονται θα εμφανίζουν μόνο την προεπισκόπησή τους."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage no ha encontrado los archivos compartidos de Wallpaper Engine en Steam. Las escenas que los necesitan solo mostrarán su vista previa."
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage no encontró los archivos compartidos de Wallpaper Engine en Steam. Las escenas que los necesitan solo mostrarán su vista previa."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage n’a pas trouvé les fichiers communs de Wallpaper Engine sur Steam. Les scènes qui en ont besoin n’afficheront que leur aperçu."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper MageはSteam上でWallpaper Engineの共有ファイルを見つけられませんでした。共有ファイルが必要なシーンは、プレビューのみ表示されます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage가 Steam에서 Wallpaper Engine 공유 파일을 찾을 수 없습니다. 이 파일이 필요한 씬은 미리보기만 표시됩니다."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage nie może znaleźć wspólnych plików Wallpaper Engine na Steam. Sceny, które ich wymagają, będą pokazywać tylko podgląd."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Wallpaper Mage não encontrou os arquivos compartilhados do Wallpaper Engine na Steam. As cenas que precisam deles mostrarão apenas a pré-visualização."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage не удалось найти общие файлы Wallpaper Engine в Steam. Сцены, которым они нужны, будут показывать только превью."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage, Steam’de Wallpaper Engine’in ortak dosyalarını bulamadı. Bu dosyalara ihtiyaç duyan sahnelerde yalnızca önizleme gösterilecek."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Програмі Wallpaper Mage не вдалося знайти спільні файли Wallpaper Engine у Steam. Сцени, яким вони потрібні, показуватимуть лише передогляд."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage 无法在 Steam 上找到 Wallpaper Engine 的共享文件。需要这些文件的场景将仅显示预览。"
+          }
+        }
+      }
+    },
+    "Wallpaper Mage doesn’t recognise Steam’s last message. You can sign in using Terminal instead." : {
+      "comment" : "Shown when SteamCMD asks something unknown; its output follows. “Wallpaper Mage” is the app's name: keep it unchanged in every language.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage erkennt die letzte Meldung von Steam nicht. Du kannst dich stattdessen über das Terminal anmelden."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Το Wallpaper Mage δεν αναγνωρίζει το τελευταίο μήνυμα του Steam. Μπορείτε να συνδεθείτε μέσω του Τερματικού."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage no reconoce el último mensaje de Steam. En su lugar, puedes iniciar sesión desde Terminal."
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage no reconoce el último mensaje de Steam. Puedes iniciar sesión con Terminal."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage ne reconnaît pas le dernier message de Steam. Vous pouvez plutôt vous connecter à l’aide de Terminal."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper MageはSteamからの最後のメッセージを認識できません。代わりにターミナルを使ってサインインできます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage가 Steam의 마지막 메시지를 인식하지 못했습니다. 대신 터미널을 사용하여 로그인할 수 있습니다."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage nie rozpoznaje ostatniego komunikatu Steam. Możesz zamiast tego zalogować się w Terminalu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Wallpaper Mage não reconhece a última mensagem da Steam. Você pode iniciar sessão pelo Terminal."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage не распознает последнее сообщение Steam. Вместо этого можно войти через Терминал."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage, Steam’in son mesajını tanımıyor. Bunun yerine Terminal’i kullanarak giriş yapabilirsiniz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage не розпізнає останнє повідомлення Steam. Натомість можна ввійти за допомогою Термінала."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage 无法识别 Steam 的最后一条消息。你可以改用“终端”登录。"
+          }
+        }
+      }
+    },
+    "Wallpaper Mage downloads Steam’s official command-line tool (SteamCMD, about 3 MB) from Valve. It is used only to download wallpapers you ask for, with your own Steam account." : {
+      "comment" : "Explanation of setup step 1. “Wallpaper Mage” is the app's name: keep it unchanged in every language.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage lädt das offizielle Befehlszeilentool von Steam (SteamCMD, ca. 3 MB) von Valve herunter. Es wird nur verwendet, um von dir gewünschte Hintergrundbilder mit deinem eigenen Steam-Konto herunterzuladen."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Το Wallpaper Mage κάνει λήψη του επίσημου εργαλείου γραμμής εντολών του Steam (SteamCMD, περίπου 3 MB) από τη Valve. Χρησιμοποιείται μόνο για τη λήψη των ταπετσαριών που ζητάτε, με τον δικό σας λογαριασμό Steam."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage descarga de Valve la herramienta oficial de línea de comandos de Steam (SteamCMD, unos 3 MB). Solo se usa para descargar los fondos de pantalla que pidas, con tu propia cuenta de Steam."
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage descarga de Valve la herramienta oficial de línea de comandos de Steam (SteamCMD, unos 3 MB). Solo se usa para descargar los fondos que pidas, con tu propia cuenta de Steam."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage télécharge l’outil en ligne de commande officiel de Steam (SteamCMD, environ 3 Mo) auprès de Valve. Il sert uniquement à télécharger les fonds d’écran que vous demandez, avec votre propre compte Steam."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mageは、Steamの公式コマンドラインツール（SteamCMD、約3 MB）をValveからダウンロードします。このツールは、お使いのSteamアカウントで、指定した壁紙をダウンロードするためだけに使用されます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage는 Valve에서 Steam의 공식 명령줄 도구(SteamCMD, 약 3MB)를 다운로드합니다. 이 도구는 본인의 Steam 계정으로 요청한 배경화면을 다운로드하는 데만 사용됩니다."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage pobiera od firmy Valve oficjalne narzędzie wiersza poleceń Steam (SteamCMD, około 3 MB). Służy ono wyłącznie do pobierania tapet, o które poprosisz, przy użyciu Twojego własnego konta Steam."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Wallpaper Mage baixa da Valve a ferramenta oficial de linha de comando da Steam (SteamCMD, cerca de 3 MB). Ela é usada apenas para baixar os papéis de parede que você solicitar, com a sua própria conta Steam."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage загружает официальный инструмент командной строки Steam (SteamCMD, около 3 МБ) с серверов Valve. Он используется только для загрузки выбранных вами обоев с вашей учетной записью Steam."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage, Steam’in resmi komut satırı aracını (SteamCMD, yaklaşık 3 MB) Valve’dan indirir. Bu araç yalnızca istediğiniz duvar kâğıtlarını kendi Steam hesabınızla indirmek için kullanılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage викачує від Valve офіційний інструмент командного рядка Steam (SteamCMD, близько 3 МБ). Він використовується лише для викачування вибраних вами шпалер через ваш власний обліковий запис Steam."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage 会从 Valve 下载 Steam 的官方命令行工具（SteamCMD，约 3 MB）。它仅用于通过你自己的 Steam 账户下载你请求的墙纸。"
+          }
+        }
+      }
+    },
     "Wallpaper Settings" : {
       "comment" : "Link that opens macOS System Settings > Wallpaper (Settings > General > About). Use the name macOS uses for that settings pane.",
       "localizations" : {
@@ -42362,85 +41921,85 @@
         }
       }
     },
-    "Your live wallpapers can’t be shown right now. Press %@ below to try again. If that doesn’t help, reinstall Live Wallpaper." : {
-      "comment" : "Warning in the sidebar. %@ = the restart icon (a circular arrow) of the button below the text.",
+    "Your live wallpapers can’t be shown right now. Press %@ below to try again. If that doesn’t help, reinstall Wallpaper Mage." : {
+      "comment" : "Warning in the sidebar. %@ = the restart icon (a circular arrow) of the button below the text. “Wallpaper Mage” is the app's name: keep it unchanged in every language.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Deine Live-Hintergrundbilder können gerade nicht angezeigt werden. Klicke unten auf %@, um es erneut zu versuchen. Wenn das nicht hilft, installiere Live Wallpaper neu."
+            "value" : "Deine Live-Hintergrundbilder können gerade nicht angezeigt werden. Klicke unten auf %@, um es erneut zu versuchen. Wenn das nicht hilft, installiere Wallpaper Mage neu."
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Οι ζωντανές ταπετσαρίες σας δεν μπορούν να εμφανιστούν αυτή τη στιγμή. Πατήστε %@ παρακάτω για να δοκιμάσετε ξανά. Αν αυτό δεν βοηθήσει, εγκαταστήστε ξανά το Live Wallpaper."
+            "value" : "Οι ζωντανές ταπετσαρίες σας δεν μπορούν να εμφανιστούν αυτή τη στιγμή. Πατήστε %@ παρακάτω για να δοκιμάσετε ξανά. Αν αυτό δεν βοηθήσει, εγκαταστήστε ξανά το Wallpaper Mage."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ahora mismo no se pueden mostrar tus fondos animados. Haz clic en %@ abajo para volver a intentarlo. Si no funciona, vuelve a instalar Live Wallpaper."
+            "value" : "Ahora mismo no se pueden mostrar tus fondos animados. Haz clic en %@ abajo para volver a intentarlo. Si no funciona, vuelve a instalar Wallpaper Mage."
           }
         },
         "es-MX" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tus fondos animados no se pueden mostrar en este momento. Presiona %@ abajo para intentarlo de nuevo. Si eso no funciona, reinstala Live Wallpaper."
+            "value" : "Tus fondos animados no se pueden mostrar en este momento. Presiona %@ abajo para intentarlo de nuevo. Si eso no funciona, reinstala Wallpaper Mage."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vos fonds d’écran animés ne peuvent pas être affichés pour le moment. Cliquez sur %@ ci-dessous pour réessayer. Si le problème persiste, réinstallez Live Wallpaper."
+            "value" : "Vos fonds d’écran animés ne peuvent pas être affichés pour le moment. Cliquez sur %@ ci-dessous pour réessayer. Si le problème persiste, réinstallez Wallpaper Mage."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "現在、ライブ壁紙を表示できません。下の%@を押して再試行してください。解決しない場合は、Live Wallpaperを再インストールしてください。"
+            "value" : "現在、ライブ壁紙を表示できません。下の%@を押して再試行してください。解決しない場合は、Wallpaper Mageを再インストールしてください。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "지금은 라이브 배경화면을 표시할 수 없습니다. 아래의 %@ 버튼을 눌러 다시 시도하십시오. 문제가 계속되면 Live Wallpaper를 다시 설치하십시오."
+            "value" : "지금은 라이브 배경화면을 표시할 수 없습니다. 아래의 %@ 버튼을 눌러 다시 시도하십시오. 문제가 계속되면 Wallpaper Mage를 다시 설치하십시오."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Animowanych tapet nie można teraz wyświetlić. Naciśnij %@ poniżej, aby spróbować ponownie. Jeśli to nie pomoże, zainstaluj ponownie Live Wallpaper."
+            "value" : "Animowanych tapet nie można teraz wyświetlić. Naciśnij %@ poniżej, aby spróbować ponownie. Jeśli to nie pomoże, zainstaluj ponownie Wallpaper Mage."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Seus papéis de parede animados não podem ser mostrados agora. Clique em %@ abaixo para tentar novamente. Se isso não ajudar, reinstale o Live Wallpaper."
+            "value" : "Seus papéis de parede animados não podem ser mostrados agora. Clique em %@ abaixo para tentar novamente. Se isso não ajudar, reinstale o Wallpaper Mage."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Сейчас живые обои не могут отображаться. Нажмите %@ ниже, чтобы повторить попытку. Если это не поможет, переустановите Live Wallpaper."
+            "value" : "Сейчас живые обои не могут отображаться. Нажмите %@ ниже, чтобы повторить попытку. Если это не поможет, переустановите Wallpaper Mage."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Canlı duvar kâğıtlarınız şu anda gösterilemiyor. Yeniden denemek için aşağıdaki %@ düğmesine basın. Bu işe yaramazsa Live Wallpaper’ı yeniden yükleyin."
+            "value" : "Canlı duvar kâğıtlarınız şu anda gösterilemiyor. Yeniden denemek için aşağıdaki %@ düğmesine basın. Bu işe yaramazsa Wallpaper Mage’i yeniden yükleyin."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Зараз неможливо показати живі шпалери. Натисніть %@ нижче, щоб спробувати ще раз. Якщо це не допоможе, інсталюйте Live Wallpaper повторно."
+            "value" : "Зараз неможливо показати живі шпалери. Натисніть %@ нижче, щоб спробувати ще раз. Якщо це не допоможе, інсталюйте Wallpaper Mage повторно."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "目前无法显示你的动态墙纸。请按下方的 %@ 再试一次。如果仍无效，请重新安装 Live Wallpaper。"
+            "value" : "目前无法显示你的动态墙纸。请按下方的 %@ 再试一次。如果仍无效，请重新安装 Wallpaper Mage。"
           }
         }
       }

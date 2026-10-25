@@ -24,7 +24,7 @@ import Core
 
     private func handle(_ data: Data) -> Result<Data, ServiceSocketError> {
         guard let command = ServiceCoding.decode(ServiceCommand.self, from: data) else {
-            return .failure(ServiceSocketError(String(localized: "The wallpaper service didn’t understand that request. Update Live Wallpaper.")))
+            return .failure(ServiceSocketError(String(localized: "The wallpaper service didn’t understand that request. Update Wallpaper Mage.")))
         }
         guard let perform else {
             return .failure(ServiceSocketError(String(localized: "The wallpaper service is still starting.")))

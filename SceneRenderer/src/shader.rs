@@ -49,13 +49,13 @@ const PRELUDE: &str = "\
 // WE's compiler promotes mixed vector sizes in mix(); GLSL does not. Overloads for those pairs.
 vec4 mix(vec3 a, vec4 b, float t) { return mix(vec4(a, 1.0), b, t); }
 vec4 mix(vec4 a, vec3 b, float t) { return mix(a, vec4(b, 1.0), t); }
-mat2 lw_inverse(mat2 m) { return mat2(m[1][1], -m[0][1], -m[1][0], m[0][0]) / determinant(m); }
-mat3 lw_inverse(mat3 m) {
+mat2 wm_inverse(mat2 m) { return mat2(m[1][1], -m[0][1], -m[1][0], m[0][0]) / determinant(m); }
+mat3 wm_inverse(mat3 m) {
     vec3 a = m[0], b = m[1], c = m[2];
     vec3 r0 = cross(b, c), r1 = cross(c, a), r2 = cross(a, b);
     return transpose(mat3(r0, r1, r2)) / dot(a, r0);
 }
-mat4 lw_inverse(mat4 m) {
+mat4 wm_inverse(mat4 m) {
     float a00 = m[0][0], a01 = m[0][1], a02 = m[0][2], a03 = m[0][3];
     float a10 = m[1][0], a11 = m[1][1], a12 = m[1][2], a13 = m[1][3];
     float a20 = m[2][0], a21 = m[2][1], a22 = m[2][2], a23 = m[2][3];
@@ -790,9 +790,9 @@ fn rewrite(text: &str, stage: Stage, varyings_in: &[(String, u32)]) -> RewriteOu
             // own definition is renamed out of the way.
             let own = line.trim_start().starts_with("mat") && line.contains(" inverse(");
             let line = if own {
-                line.replace(" inverse(", " lw_own_inverse(")
+                line.replace(" inverse(", " wm_own_inverse(")
             } else {
-                line.replace("inverse(", "lw_inverse(")
+                line.replace("inverse(", "wm_inverse(")
             };
             body.push_str(&rename_reserved(&line));
             body.push('\n');
@@ -893,7 +893,7 @@ fn rewrite(text: &str, stage: Stage, varyings_in: &[(String, u32)]) -> RewriteOu
                             } else {
                                 // 1.20 shaders may write to their inputs, so read them into globals.
                                 let suffix = name.strip_prefix(base.as_str()).unwrap_or("");
-                                let _ = writeln!(decls, "layout(location = {loc}) {flat}in {ty} lw_in_{base}{suffix};\n{ty} {name};");
+                                let _ = writeln!(decls, "layout(location = {loc}) {flat}in {ty} wm_in_{base}{suffix};\n{ty} {name};");
                                 copies.push(base.clone());
                             }
                         }
@@ -907,7 +907,7 @@ fn rewrite(text: &str, stage: Stage, varyings_in: &[(String, u32)]) -> RewriteOu
     out.push_str(PRELUDE);
     if stage == Stage::Fragment {
         out.push_str(
-            "layout(location = 0) out vec4 lw_FragColor;\n#define gl_FragColor lw_FragColor\n",
+            "layout(location = 0) out vec4 wm_FragColor;\n#define gl_FragColor wm_FragColor\n",
         );
     }
     // Macros the declarations depend on (e.g. array sizes) are defined in the body, so keep the
@@ -922,7 +922,7 @@ fn rewrite(text: &str, stage: Stage, varyings_in: &[(String, u32)]) -> RewriteOu
     if !block.is_empty() {
         let _ = writeln!(
             out,
-            "layout(std140, set = 0, binding = 0) uniform LwUniforms {{\n{block}}};"
+            "layout(std140, set = 0, binding = 0) uniform WmUniforms {{\n{block}}};"
         );
     }
     out.push_str(&decls);
@@ -940,7 +940,7 @@ fn rewrite(text: &str, stage: Stage, varyings_in: &[(String, u32)]) -> RewriteOu
         {
             let init: String = copies
                 .iter()
-                .map(|n| format!(" {n} = lw_in_{n};"))
+                .map(|n| format!(" {n} = wm_in_{n};"))
                 .collect();
             code.insert_str(open, &init);
         }
@@ -976,7 +976,7 @@ fn rename_reserved(line: &str) -> String {
     let mut word = String::new();
     let flush = |word: &mut String, out: &mut String| {
         if RESERVED.contains(&word.as_str()) {
-            out.push_str("lw_");
+            out.push_str("wm_");
         }
         out.push_str(word);
         word.clear();
@@ -1906,7 +1906,7 @@ fn cache_key(texts: &[&str], defines: &BTreeMap<String, i64>) -> String {
 
 fn cache_dir() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
-    Some(PathBuf::from(home).join("Library/Caches/LiveWallpaper/shaders"))
+    Some(PathBuf::from(home).join("Library/Caches/WallpaperMage/shaders"))
 }
 
 /// Cache format: line 1 `entry ubo_size`, line 2 uniforms, line 3 textures, then MSL.

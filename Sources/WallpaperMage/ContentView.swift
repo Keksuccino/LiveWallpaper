@@ -153,16 +153,16 @@ struct HomeView: View {
     private var gallery: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 26) {
-                LWPageHeader(title: "Home", subtitle: subtitle)
+                WMPageHeader(title: "Home", subtitle: subtitle)
                 DisplayPicker(model: model)
                 libraryHeader
             }
-            .padding([.horizontal, .top], LWTheme.contentPadding)
+            .padding([.horizontal, .top], WMTheme.contentPadding)
             .padding(.bottom, 8)
             ScrollViewReader { proxy in
                 ScrollView {
                     libraryItems
-                        .padding([.horizontal, .bottom], LWTheme.contentPadding)
+                        .padding([.horizontal, .bottom], WMTheme.contentPadding)
                         .padding(.top, 6)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -172,7 +172,7 @@ struct HomeView: View {
                 .onChange(of: model.focusedID) { reveal(with: proxy) }
             }
         }
-        .animation(LWMotion.panel, value: selectionMode)
+        .animation(WMMotion.panel, value: selectionMode)
         .overlay(alignment: .top) {
             if isTargeted {
                 Text("Drop wallpapers to add them")
@@ -194,10 +194,10 @@ struct HomeView: View {
         searchText = ""
         Task { @MainActor in
             await Task.yield()  // the cards exist after this layout pass
-            withAnimation(LWMotion.content) { proxy.scrollTo(id, anchor: .center) }
-            withAnimation(LWMotion.select) { highlightedID = id }
+            withAnimation(WMMotion.content) { proxy.scrollTo(id, anchor: .center) }
+            withAnimation(WMMotion.select) { highlightedID = id }
             try? await Task.sleep(nanoseconds: 1_600_000_000)
-            withAnimation(LWMotion.content) { if highlightedID == id { highlightedID = nil } }
+            withAnimation(WMMotion.content) { if highlightedID == id { highlightedID = nil } }
         }
     }
 
@@ -240,9 +240,9 @@ struct HomeView: View {
             } else {
                 switch layout {
                 case .grid:
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: LWTheme.cardMinWidth, maximum: 340),
-                                                 spacing: LWTheme.gridSpacing)],
-                              alignment: .leading, spacing: LWTheme.gridSpacing) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: WMTheme.cardMinWidth, maximum: 340),
+                                                 spacing: WMTheme.gridSpacing)],
+                              alignment: .leading, spacing: WMTheme.gridSpacing) {
                         ForEach(items) { item in
                             LibraryCard(item: item, broken: isBroken(item), state: cardState(item),
                                         actions: actions(item))
@@ -261,8 +261,8 @@ struct HomeView: View {
                 }
             }
         }
-        .animation(LWMotion.content, value: items.map(\.id))
-        .animation(LWMotion.select, value: currentID)
+        .animation(WMMotion.content, value: items.map(\.id))
+        .animation(WMMotion.select, value: currentID)
     }
 
     private func cardState(_ item: VideoItem) -> CardState {
@@ -281,7 +281,7 @@ struct HomeView: View {
     }
 
     private var emptyState: some View {
-        LWEmptyState(icon: "play.rectangle.on.rectangle",
+        WMEmptyState(icon: "play.rectangle.on.rectangle",
                      title: "Your wallpaper library is empty",
                      message: "Drop videos, Wallpaper Engine scene packages (.pkg) or scene folders here — or choose files from your Mac.",
                      actionTitle: "Import Wallpapers…", action: importWallpapers,
@@ -448,7 +448,7 @@ private struct LibraryCard: View {
                         .strokeBorder(state.ringColor, lineWidth: state.ringWidth)
                 }
                 .shadow(color: .black.opacity(hovering || state.current ? 0.20 : 0), radius: 16, y: 8)
-                .animation(LWMotion.hover, value: state)
+                .animation(WMMotion.hover, value: state)
 
                 Text(item.name)
                     .font(.subheadline.weight(.medium))
@@ -470,7 +470,7 @@ private struct LibraryCard: View {
             }
         }
         .onHover { inside in
-            withAnimation(LWMotion.hover) { hovering = inside }
+            withAnimation(WMMotion.hover) { hovering = inside }
         }
         .contextMenu { CardMenu(actions: actions) }
         .help(broken ? String(localized: "This file was moved, deleted, or can’t be played.") : item.name)
@@ -558,7 +558,7 @@ private struct LibraryListRow: View {
                                                                                     : .clear,
                               lineWidth: 1)
         }
-        .onHover { inside in withAnimation(LWMotion.hover) { hovering = inside } }
+        .onHover { inside in withAnimation(WMMotion.hover) { hovering = inside } }
         .contextMenu { CardMenu(actions: actions) }
         .accessibilityAddTraits(state.current || state.selected ? .isSelected : [])
     }
@@ -580,7 +580,7 @@ struct DisplayInspectorView: View {
             }
         }
         .scrollIndicators(.visible)
-        .animation(LWMotion.content, value: model.selectedDisplayID)
+        .animation(WMMotion.content, value: model.selectedDisplayID)
     }
 
     private func content(_ screen: ScreenInfo) -> some View {
@@ -607,7 +607,7 @@ struct DisplayInspectorView: View {
             }
         }
         .padding(18)
-        // The panel starts at the window's top edge, in the toolbar strip (see `lwInspectorPanel`).
+        // The panel starts at the window's top edge, in the toolbar strip (see `wmInspectorPanel`).
         .padding(.top, 22)
     }
 
@@ -642,7 +642,7 @@ struct SceneSupportBadge: View {
     private var tint: Color { info.support == .previewOnly ? .orange : .secondary }
 
     var body: some View {
-        LWChip(text: title, tint: tint, icon: "sparkles")
+        WMChip(text: title, tint: tint, icon: "sparkles")
             .help(info.localizedNotes.joined(separator: "\n"))
     }
 }
@@ -691,7 +691,7 @@ struct RotationBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            LWSwitchRow("Rotate wallpaper", isOn: rotateBinding)
+            WMSwitchRow("Rotate wallpaper", isOn: rotateBinding)
                 .disabled(!canRotate)
                 .help("Automatically switch this display between the wallpapers of your playlist, in playlist order.")
             if config.rotateEnabled && canRotate { intervalRow }
@@ -701,7 +701,7 @@ struct RotationBlock: View {
                     .foregroundStyle(helper.warning ? Color.orange : Color.secondary)
             }
         }
-        .animation(LWMotion.panel, value: config.rotateEnabled && canRotate)
+        .animation(WMMotion.panel, value: config.rotateEnabled && canRotate)
         .onChange(of: config.intervalValue) { _, value in intervalText = String(value) }
     }
 

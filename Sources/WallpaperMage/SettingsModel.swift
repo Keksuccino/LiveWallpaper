@@ -34,10 +34,6 @@ import SceneFormat
     @Published var focusedID: VideoItem.ID? = nil
 
     // Service mirror (read-only for views).
-    /// Videos imported from the phase-1 app on this launch (0 = none). Drives a dismissible banner.
-    @Published private(set) var importedFromPhase1: Int = 0
-    /// A phase-1 copy of the app is running; it would fight the service over the wallpaper.
-    @Published private(set) var legacyAppRunning: Bool = false
     /// A command the service answered with an error; cleared by clearStatus(). A service that cannot be reached
     /// is ServiceClient.problem instead.
     @Published private(set) var localMessage: String? = nil
@@ -177,15 +173,13 @@ import SceneFormat
     // MARK: Lifecycle (called by AppDelegate)
 
     /// Once, from applicationDidFinishLaunching: reads the library (to show it before the service answers),
-    /// checks for a phase-1 copy and connects to the service. Never writes state.json.
+    /// and connects to the service. Never writes state.json.
     func bootstrap() {
         let loaded = StateStore.loadOrMigrate()
-        batch(persisting: false) { apply(loaded.state) }
-        written = loaded.state
+        batch(persisting: false) { apply(loaded) }
+        written = loaded
         refreshScreens()
         reanalyzeStaleScenes()
-        importedFromPhase1 = loaded.importedCount
-        legacyAppRunning = Self.otherInstances().contains { $0.legacy }
         clientWatch = [
             client.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() },
             client.$status.compactMap { $0 }.sink { [weak self] status in self?.statusReceived(status) },
@@ -249,10 +243,6 @@ import SceneFormat
 
     func clearStatus() {
         localMessage = nil
-    }
-
-    func dismissImportNotice() {
-        importedFromPhase1 = 0
     }
 
     // MARK: Persistence
@@ -368,30 +358,15 @@ import SceneFormat
             Task { @MainActor [weak self] in self?.refreshScreens() }
         }
         observers.append((NotificationCenter.default, screens))
-        let workspace = NSWorkspace.shared.notificationCenter
-        let appKey = NSWorkspace.applicationUserInfoKey
-        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
-            let token = workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
-                let bundleID = (note.userInfo?[appKey] as? NSRunningApplication)?.bundleIdentifier
-                Task { @MainActor [weak self] in
-                    if bundleID == AppIdentity.settingsBundleID { self?.legacyAppRunning = Self.otherInstances().contains { $0.legacy } }
-                }
-            }
-            observers.append((workspace, token))
-        }
     }
 
     // MARK: Other processes
 
-    /// Other running copies of this app's bundle id. `legacy`: a phase-1 build (its Info.plist has no LWRole key).
-    static func otherInstances() -> [(app: NSRunningApplication, legacy: Bool)] {
+    /// Other running copies of this app's bundle id.
+    static func otherInstances() -> [NSRunningApplication] {
         let me = ProcessInfo.processInfo.processIdentifier
         return NSRunningApplication.runningApplications(withBundleIdentifier: AppIdentity.settingsBundleID)
-            .compactMap { app -> (app: NSRunningApplication, legacy: Bool)? in
-                guard app.processIdentifier != me, !app.isTerminated else { return nil }
-                let role = app.bundleURL.flatMap { Bundle(url: $0) }?.object(forInfoDictionaryKey: AppIdentity.roleKey)
-                return (app, role == nil)
-            }
+            .filter { $0.processIdentifier != me && !$0.isTerminated }
     }
 }
 

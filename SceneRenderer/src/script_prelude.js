@@ -1,7 +1,7 @@
 // The SceneScript environment: the globals a scene script expects, written for this renderer.
 // The API surface (names and behaviour) follows Wallpaper Engine's public SceneScript
 // documentation and the scripts found in real scenes. The host talks to this file through the
-// `__lw_*` functions only, always with JSON strings.
+// `__wm_*` functions only, always with JSON strings.
 'use strict';
 
 function __num(v, d) {
@@ -360,7 +360,7 @@ globalThis.input = input;
 
 globalThis.shared = {};
 
-// Kept between runs: the host restores it with __lw_storage and receives it whenever it changed.
+// Kept between runs: the host restores it with __wm_storage and receives it whenever it changed.
 // The location argument (global or per screen) is accepted; there is one store per scene.
 const __store = new Map();
 let __storeChanged = false;
@@ -374,10 +374,10 @@ globalThis.localStorage = {
 };
 
 globalThis.console = {
-	log(...a) { __lw_log(a.map(String).join(' ')); },
-	info(...a) { __lw_log(a.map(String).join(' ')); },
-	warn(...a) { __lw_log(a.map(String).join(' ')); },
-	error(...a) { __lw_log(a.map(String).join(' ')); },
+	log(...a) { __wm_log(a.map(String).join(' ')); },
+	info(...a) { __wm_log(a.map(String).join(' ')); },
+	warn(...a) { __wm_log(a.map(String).join(' ')); },
+	error(...a) { __wm_log(a.map(String).join(' ')); },
 };
 
 // Helper modules some scripts import by name.
@@ -427,7 +427,7 @@ const __scripts = [];
 let __currentWorkshop = '';
 
 // Replaces the layer table, e.g. after a property change rebuilt the scene.
-globalThis.__lw_layers = function (json) {
+globalThis.__wm_layers = function (json) {
 	const list = JSON.parse(json);
 	__order = list.filter((s) => !s.sound).map((s) => s.id);
 	for (const s of list) {
@@ -444,7 +444,7 @@ globalThis.__lw_layers = function (json) {
 
 // User properties: `all` replaces engine.userProperties; `changed` (all of them on the first
 // call) goes to every script's applyUserProperties. Colours arrive as vectors.
-globalThis.__lw_user_properties = function (json) {
+globalThis.__wm_user_properties = function (json) {
 	const { values, colors } = JSON.parse(json);
 	const changed = {};
 	for (const [k, v] of Object.entries(values)) {
@@ -455,19 +455,19 @@ globalThis.__lw_user_properties = function (json) {
 	return __takeEvents({ values: {} });
 };
 
-globalThis.__lw_storage = function (json) {
+globalThis.__wm_storage = function (json) {
 	for (const [k, v] of Object.entries(JSON.parse(json) || {})) __store.set(k, v);
 	return '';
 };
 
 // Called before a script module is evaluated: its layer and its stored properties.
-globalThis.__lw_begin = function (layerId, propsJson) {
+globalThis.__wm_begin = function (layerId, propsJson) {
 	globalThis.thisLayer = __layers.get(layerId) || null;
 	globalThis.thisObject = globalThis.thisLayer;
 	__overrides = JSON.parse(propsJson) || {};
 };
 
-globalThis.__lw_register = function (id, ns, layerId, field, valueJson) {
+globalThis.__wm_register = function (id, ns, layerId, field, valueJson) {
 	const layer = __layers.get(layerId) || null;
 	const effect = /^effects\[(\d+)\]/.exec(field);
 	const s = {
@@ -483,7 +483,7 @@ globalThis.__lw_register = function (id, ns, layerId, field, valueJson) {
 			if (r !== undefined) s.value = r;
 		} catch (e) {
 			s.failed = true;
-			__lw_log(`script ${field}: init: ${e}`);
+			__wm_log(`script ${field}: init: ${e}`);
 		}
 	}
 	__currentWorkshop = '';
@@ -543,7 +543,7 @@ function __enter(s) {
 function __send(s, name, event) {
 	if (s.failed || typeof s.ns[name] !== 'function') return;
 	__enter(s);
-	try { s.ns[name](event); } catch (e) { __lw_log(`script ${s.field}: ${name}: ${e}`); }
+	try { s.ns[name](event); } catch (e) { __wm_log(`script ${s.field}: ${name}: ${e}`); }
 }
 
 // cursorDown/cursorUp/cursorClick go to scripts whose layer is under the pointer when the button
@@ -568,7 +568,7 @@ function __cursorEvents(down) {
 
 let __screen = null;
 
-globalThis.__lw_frame = function (json) {
+globalThis.__wm_frame = function (json) {
 	const f = JSON.parse(json);
 	engine.frametime = f.dt;
 	engine.runtime = f.time;
@@ -591,7 +591,7 @@ globalThis.__lw_frame = function (json) {
 	for (let i = 0; i < __timers.length; i++) {
 		const t = __timers[i];
 		if (engine.runtime < t.at) continue;
-		try { t.fn(); } catch (e) { __lw_log(`timer: ${e}`); }
+		try { t.fn(); } catch (e) { __wm_log(`timer: ${e}`); }
 		if (t.every > 0) t.at += t.every; else { __timers.splice(i, 1); i--; }
 	}
 	const values = {};
@@ -606,13 +606,13 @@ globalThis.__lw_frame = function (json) {
 			}
 		} catch (e) {
 			s.failed = true;
-			__lw_log(`script ${s.field}: update: ${e}`);
+			__wm_log(`script ${s.field}: update: ${e}`);
 		}
 	}
 	return __takeEvents({ values });
 };
 
 // A script that needs nothing per frame lets the renderer stop drawing a still scene.
-globalThis.__lw_animated = function () {
+globalThis.__wm_animated = function () {
 	return __scripts.some((s) => !s.failed && typeof s.ns.update === 'function') || __timers.length > 0;
 };

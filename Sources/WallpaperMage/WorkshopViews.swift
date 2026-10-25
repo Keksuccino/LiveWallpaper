@@ -129,7 +129,7 @@ struct WorkshopChip: View {
     var tint: Color? = nil
 
     var body: some View {
-        LWChip(text: text, tint: tint)
+        WMChip(text: text, tint: tint)
     }
 }
 
@@ -261,7 +261,7 @@ struct WorkshopCardActions: View {
                           cancellable: Bool = true) -> some View {
         HStack(spacing: 8) {
             if let fraction {
-                LWProgressBar(progress: fraction, height: 4)
+                WMProgressBar(progress: fraction, height: 4)
                     .frame(width: compact ? 90 : 150)
             }
             if spinner { ProgressView().controlSize(.small) }
@@ -299,9 +299,9 @@ private struct ResultCard<Actions: View>: View {
             }
         }
         .padding(18)
-        .background { glassShape(radius: LWTheme.cardRadius) }
+        .background { glassShape(radius: WMTheme.cardRadius) }
         .scaleEffect(hovering ? 1.005 : 1)
-        .animation(LWMotion.hover, value: hovering)
+        .animation(WMMotion.hover, value: hovering)
         .onHover { hovering = $0 }
         .contentShape(Rectangle())
     }
@@ -325,11 +325,11 @@ private struct CompactCard<Actions: View>: View {
         VStack(alignment: .leading, spacing: 10) {
             PreviewImage(url: item.previewURL)
                 .scaleEffect(hovering ? 1.02 : 1, anchor: .center)
-                .animation(LWMotion.hover, value: hovering)
+                .animation(WMMotion.hover, value: hovering)
             Text(item.title).font(.subheadline.weight(.semibold)).lineLimit(2, reservesSpace: true)
             HStack(spacing: 5) {
                 ForEach(topicTags(of: item, limit: 2), id: \.self) { tag in
-                    LWChip(text: tag)
+                    WMChip(text: tag)
                 }
             }
             .frame(height: 16, alignment: .top)
@@ -337,7 +337,7 @@ private struct CompactCard<Actions: View>: View {
             actions
         }
         .padding(14)
-        .background { glassShape(radius: LWTheme.cardRadius) }
+        .background { glassShape(radius: WMTheme.cardRadius) }
         .onHover { hovering = $0 }
         .contentShape(Rectangle())
     }
@@ -374,7 +374,7 @@ struct WorkshopView: View {
         GeometryReader { proxy in
             content(wide: proxy.size.width >= 760)
         }
-        .animation(LWMotion.content, value: detail?.id)
+        .animation(WMMotion.content, value: detail?.id)
         .onAppear { workshop.recheckSetup() }
         .task(id: workshop.searchKey) { await refreshBrowse() }
     }
@@ -411,8 +411,8 @@ struct WorkshopView: View {
     /// pane narrows or widens it.
     private var resultsColumn: some View {
         AnchoredScrollView(order: workshop.results.map(\.id), keepingVisible: detail?.id) {
-            VStack(alignment: .leading, spacing: LWTheme.sectionSpacing) {
-                LWPageHeader(
+            VStack(alignment: .leading, spacing: WMTheme.sectionSpacing) {
+                WMPageHeader(
                     title: "Workshop",
                     subtitle: "Video and scene wallpapers from Steam, downloaded with your own account.",
                     trailing: { downloadsStrip })
@@ -422,11 +422,11 @@ struct WorkshopView: View {
                 lookupSection
                 if workshop.canBrowse { browseSection } else { keyHint }
             }
-            .padding(LWTheme.contentPadding)
+            .padding(WMTheme.contentPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.visible)
-        .background(LWBackground())
+        .background(WMBackground())
     }
 
     /// Live "N downloads in progress" strip in the header; jumps to the Downloads page.
@@ -464,7 +464,7 @@ struct WorkshopView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .lwGlassCard(radius: 12)
+        .wmGlassCard(radius: 12)
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(Color.orange.opacity(0.25), lineWidth: 1)
@@ -537,7 +537,7 @@ struct WorkshopView: View {
                 .onTapGesture { detail = item }
         case .failed(let error):
             WorkshopFailureView(error: error, workshop: workshop, retry: { workshop.lookUp() }, openSteamSetup: openSteamSetup)
-                .lwGlassCard()
+                .wmGlassCard()
         }
     }
 
@@ -552,7 +552,7 @@ struct WorkshopView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 42)
-        .background { glassShape(radius: LWTheme.cardRadius) }
+        .background { glassShape(radius: WMTheme.cardRadius) }
     }
 
     private func actions(for item: WorkshopItem, compact: Bool) -> some View {
@@ -613,12 +613,12 @@ struct WorkshopView: View {
     private var topicRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                LWTopicChip(title: String(localized: "All"),
+                WMTopicChip(title: String(localized: "All"),
                             selected: workshop.searchText.isEmpty) {
                     workshop.searchText = ""
                 }
                 ForEach(WorkshopTopic.allCases) { topic in
-                    LWTopicChip(title: topic.label,
+                    WMTopicChip(title: topic.label,
                                 selected: workshop.searchText.caseInsensitiveCompare(topic.rawValue) == .orderedSame) {
                         toggleTopic(topic)
                     }
@@ -652,13 +652,13 @@ struct WorkshopView: View {
                   ? "Order of the browse grid"
                   : "Steam decides the order while a search is active")
 
-            LWSearchField(prompt: "Search wallpapers", text: $workshop.searchText)
+            WMSearchField(prompt: "Search wallpapers", text: $workshop.searchText)
 
             HStack(spacing: 2) {
                 ForEach(WorkshopKindFilter.allCases) { kind in
-                    LWTopicChip(title: kind.label,
+                    WMTopicChip(title: kind.label,
                                 selected: workshop.kindFilter == kind) {
-                        withAnimation(LWMotion.hover) { workshop.kindFilter = kind }
+                        withAnimation(WMMotion.hover) { workshop.kindFilter = kind }
                     }
                 }
             }
@@ -689,7 +689,7 @@ struct WorkshopView: View {
         if !workshop.results.isEmpty {
             resultGrid
                 .opacity(workshop.listState == .loading ? 0.55 : 1)
-                .animation(LWMotion.content, value: workshop.listState == .loading)
+                .animation(WMMotion.content, value: workshop.listState == .loading)
         }
         if workshop.listState == .loading {
             if workshop.results.isEmpty {
@@ -713,8 +713,8 @@ struct WorkshopView: View {
     }
 
     private var resultGrid: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 240, maximum: 320), spacing: LWTheme.gridSpacing)],
-                  alignment: .leading, spacing: LWTheme.gridSpacing) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 240, maximum: 320), spacing: WMTheme.gridSpacing)],
+                  alignment: .leading, spacing: WMTheme.gridSpacing) {
             ForEach(workshop.results) { item in
                 CompactCard(item: item, actions: actions(for: item, compact: true))
                     .contentShape(Rectangle())
@@ -725,8 +725,8 @@ struct WorkshopView: View {
     }
 
     private var skeletonGrid: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 240, maximum: 320), spacing: LWTheme.gridSpacing)],
-                  alignment: .leading, spacing: LWTheme.gridSpacing) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 240, maximum: 320), spacing: WMTheme.gridSpacing)],
+                  alignment: .leading, spacing: WMTheme.gridSpacing) {
             ForEach(0..<6, id: \.self) { _ in
                 VStack(alignment: .leading, spacing: 10) {
                     SkeletonBlock(height: 132, radius: 12)
@@ -734,7 +734,7 @@ struct WorkshopView: View {
                     SkeletonBlock(height: 10, width: 110)
                 }
                 .padding(14)
-                .background { glassShape(radius: LWTheme.cardRadius) }
+                .background { glassShape(radius: WMTheme.cardRadius) }
             }
         }
     }
@@ -761,7 +761,7 @@ struct SteamSetupView: View {
                     advanced.padding(.top, 10)
                 }
                 .font(.callout)
-                .lwGlassCard()
+                .wmGlassCard()
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -809,7 +809,7 @@ struct SteamSetupView: View {
                 Button("Choose…") { chooseSteamcmd() }
                 Button("Use automatic") { useAutomaticPath() }.disabled(workshop.steamcmdPathOverride.isEmpty)
             }
-            Text("Only needed if you already have SteamCMD somewhere else. Live Wallpaper installs its own copy otherwise.")
+            Text("Only needed if you already have SteamCMD somewhere else. Wallpaper Mage installs its own copy otherwise.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

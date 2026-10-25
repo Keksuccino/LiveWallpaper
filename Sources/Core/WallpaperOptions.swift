@@ -1,7 +1,7 @@
 import Foundation
 
 // How wallpapers look and sound on one display: per wallpaper (DisplayConfig.wallpaperOptions) and for all scenes of
-// the display (DisplayConfig.power). Edited in the settings app, applied by LiveWallpaperService: scenes through
+// the display (DisplayConfig.power). Edited in the settings app, applied by WallpaperMageService: scenes through
 // SceneBridge, videos through AVFoundation and Core Image. Every field has a default, so older files load.
 
 /// Where a wallpaper sits on its display: Wallpaper Engine's alignment options.

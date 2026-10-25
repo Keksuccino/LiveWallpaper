@@ -1290,7 +1290,7 @@ mod tests {
 
     fn library() -> Option<std::path::PathBuf> {
         let home = std::env::var("HOME").ok()?;
-        Some(std::path::Path::new(&home).join("Library/Application Support/LiveWallpaper/Library"))
+        Some(std::path::Path::new(&home).join("Library/Application Support/WallpaperMage/Library"))
     }
 
     #[test]

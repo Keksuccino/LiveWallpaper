@@ -1754,7 +1754,7 @@ mod tests {
             return;
         };
         let root = std::path::PathBuf::from(home)
-            .join("Library/Application Support/LiveWallpaper/WallpaperEngineAssets");
+            .join("Library/Application Support/WallpaperMage/WallpaperEngineAssets");
         let mut stack = vec![root];
         let (mut systems, mut unknown) = (0usize, Vec::new());
         while let Some(dir) = stack.pop() {

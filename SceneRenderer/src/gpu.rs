@@ -60,14 +60,14 @@ using namespace metal;
 struct VIn { float2 pos [[attribute(0)]]; float2 uv [[attribute(1)]]; float4 col [[attribute(2)]]; };
 struct VOut { float4 pos [[position]]; float2 uv; float4 col; };
 struct U { float4x4 mvp; };
-vertex VOut lw_puppet_vs(VIn v [[stage_in]], constant U& u [[buffer(0)]]) {
+vertex VOut wm_puppet_vs(VIn v [[stage_in]], constant U& u [[buffer(0)]]) {
     VOut o;
     o.pos = u.mvp * float4(v.pos, 0.0, 1.0);
     o.uv = v.uv;
     o.col = v.col;
     return o;
 }
-fragment float4 lw_puppet_fs(VOut i [[stage_in]], texture2d<float> t [[texture(0)]],
+fragment float4 wm_puppet_fs(VOut i [[stage_in]], texture2d<float> t [[texture(0)]],
                            sampler s [[sampler(0)]]) {
     float4 c = t.sample(s, i.uv);
     return float4(c.rgb * i.col.rgb, c.a * i.col.a);
@@ -80,10 +80,10 @@ using namespace metal;
 struct VIn { float3 pos [[attribute(0)]]; float2 uv [[attribute(1)]]; };
 struct VOut { float4 pos [[position]]; float2 uv; };
 struct U { float4x4 mvp; float4 color; };
-vertex VOut lw_composite_vs(VIn v [[stage_in]], constant U& u [[buffer(0)]]) {
+vertex VOut wm_composite_vs(VIn v [[stage_in]], constant U& u [[buffer(0)]]) {
     VOut o; o.pos = u.mvp * float4(v.pos, 1.0); o.uv = v.uv; return o;
 }
-fragment float4 lw_composite_fs(VOut i [[stage_in]], constant U& u [[buffer(0)]],
+fragment float4 wm_composite_fs(VOut i [[stage_in]], constant U& u [[buffer(0)]],
                                 texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]]) {
     return t.sample(s, i.uv) * u.color;
 }
@@ -93,28 +93,28 @@ fragment float4 lw_composite_fs(VOut i [[stage_in]], constant U& u [[buffer(0)]]
 // `params`: value scale, contrast, saturation scale, hue shift (in turns).
 // `grade`: x = 1 with the colour options on, y = filter strength (0 = no filter).
 struct G { float4x4 mvp; float4 color; float4 params; float4 grade; };
-float3 lw_rgb2hsv(float3 c) {
+float3 wm_rgb2hsv(float3 c) {
     float4 p = c.g < c.b ? float4(c.bg, -1.0, 2.0 / 3.0) : float4(c.gb, 0.0, -1.0 / 3.0);
     float4 q = c.r < p.x ? float4(p.xyw, c.r) : float4(c.r, p.yzx);
     float chroma = q.x - min(q.w, q.y);
     float hue = abs((q.w - q.y) / (6.0 * chroma + 1e-10) + q.z);
     return float3(hue, chroma / (q.x + 1e-10), q.x);
 }
-float3 lw_hsv2rgb(float3 c) {
+float3 wm_hsv2rgb(float3 c) {
     float3 p = abs(fract(c.xxx + float3(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
     return c.z * mix(float3(1.0), saturate(p - 1.0), c.y);
 }
-fragment float4 lw_grade_fs(VOut i [[stage_in]], constant G& u [[buffer(0)]],
+fragment float4 wm_grade_fs(VOut i [[stage_in]], constant G& u [[buffer(0)]],
                             texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]],
                             texture3d<float> lut [[texture(1)]], sampler ls [[sampler(1)]]) {
     float4 c = t.sample(s, i.uv);
     if (u.grade.x > 0.5) {
         c.rgb = mix(float3(0.5), c.rgb, u.params.y);
-        float3 hsv = lw_rgb2hsv(c.rgb);
+        float3 hsv = wm_rgb2hsv(c.rgb);
         hsv.z *= u.params.x;
         hsv.y *= u.params.z;
         hsv.x += u.params.w;
-        c.rgb = lw_hsv2rgb(hsv);
+        c.rgb = wm_hsv2rgb(hsv);
     }
     if (u.grade.y > 0.0) {
         c.rgb = mix(c.rgb, lut.sample(ls, c.rgb).rgb, u.grade.y);
@@ -131,10 +131,10 @@ using namespace metal;
 struct VIn { float3 pos [[attribute(0)]]; float2 uv [[attribute(1)]]; };
 struct VOut { float4 pos [[position]]; float2 uv; };
 struct U { float4x4 mvp; float4 rect; float2 dir; float2 tp; };
-vertex VOut lw_blur_vs(VIn v [[stage_in]], constant U& u [[buffer(0)]]) {
+vertex VOut wm_blur_vs(VIn v [[stage_in]], constant U& u [[buffer(0)]]) {
     VOut o; o.pos = u.mvp * float4(v.pos, 1.0); o.uv = v.uv; return o;
 }
-fragment float4 lw_blur_fs(VOut i [[stage_in]], constant U& u [[buffer(0)]],
+fragment float4 wm_blur_fs(VOut i [[stage_in]], constant U& u [[buffer(0)]],
                            texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]]) {
     float2 c = u.rect.xy + i.uv * u.rect.zw;
     float3 sum = t.sample(s, c).rgb * 0.2270270270;
@@ -146,7 +146,7 @@ fragment float4 lw_blur_fs(VOut i [[stage_in]], constant U& u [[buffer(0)]],
 }
 // Bloom source: a four-tap box average (for downsampling) keeping only what is brighter than
 // the threshold `tp.x`, scaled by `tp.y`.
-fragment float4 lw_bright_fs(VOut i [[stage_in]], constant U& u [[buffer(0)]],
+fragment float4 wm_bright_fs(VOut i [[stage_in]], constant U& u [[buffer(0)]],
                              texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]]) {
     float2 c = u.rect.xy + i.uv * u.rect.zw;
     float3 x = (t.sample(s, c + u.dir).rgb + t.sample(s, c - u.dir).rgb
@@ -482,22 +482,22 @@ impl Gpu {
         if let Some(p) = self.composite.get(&(blend, format, samples)) {
             return Ok(p.clone());
         }
-        let p = self.composite_library_pipeline("lw_composite_fs", blend, format, samples)?;
+        let p = self.composite_library_pipeline("wm_composite_fs", blend, format, samples)?;
         let _ = self.composite.insert((blend, format, samples), p.clone());
         Ok(p)
     }
 
-    /// The composite with Wallpaper Engine's colour options and image filter (`lw_grade_fs`).
+    /// The composite with Wallpaper Engine's colour options and image filter (`wm_grade_fs`).
     pub fn grade(&mut self, blend: Blend, format: MTLPixelFormat) -> Result<Retained<Pipeline>, Error> {
         if let Some(p) = self.grade.get(&(blend, format)) {
             return Ok(p.clone());
         }
-        let p = self.composite_library_pipeline("lw_grade_fs", blend, format, 1)?;
+        let p = self.composite_library_pipeline("wm_grade_fs", blend, format, 1)?;
         let _ = self.grade.insert((blend, format), p.clone());
         Ok(p)
     }
 
-    /// A pipeline of `lw_composite_vs` and a fragment function of the composite library.
+    /// A pipeline of `wm_composite_vs` and a fragment function of the composite library.
     fn composite_library_pipeline(
         &self,
         fragment: &str,
@@ -505,7 +505,7 @@ impl Gpu {
         format: MTLPixelFormat,
         samples: usize,
     ) -> Result<Retained<Pipeline>, Error> {
-        let vs = function(&self.composite_lib, "lw_composite_vs")?;
+        let vs = function(&self.composite_lib, "wm_composite_vs")?;
         let fs = function(&self.composite_lib, fragment)?;
         let vd = MTLVertexDescriptor::new();
         for (i, (format, offset)) in [(MTLVertexFormat::Float3, 0), (MTLVertexFormat::Float2, 12)]
@@ -564,12 +564,12 @@ impl Gpu {
         Ok(texture)
     }
 
-    /// Pipeline for a blur-library pass (`lw_blur_fs` or `lw_bright_fs`), without blending.
+    /// Pipeline for a blur-library pass (`wm_blur_fs` or `wm_bright_fs`), without blending.
     pub fn blur_pipeline(&mut self, fragment: &'static str, samples: usize) -> Result<Retained<Pipeline>, Error> {
         if let Some(p) = self.blur.get(&(fragment, samples)) {
             return Ok(p.clone());
         }
-        let vs = function(&self.blur_lib, "lw_blur_vs")?;
+        let vs = function(&self.blur_lib, "wm_blur_vs")?;
         let fs = function(&self.blur_lib, fragment)?;
         let vd = MTLVertexDescriptor::new();
         for (i, (format, offset)) in [(MTLVertexFormat::Float3, 0), (MTLVertexFormat::Float2, 12)]
@@ -600,8 +600,8 @@ impl Gpu {
         if let Some(p) = self.puppet.get(&key) {
             return Ok(p.clone());
         }
-        let vs = function(&self.puppet_lib, "lw_puppet_vs")?;
-        let fs = function(&self.puppet_lib, "lw_puppet_fs")?;
+        let vs = function(&self.puppet_lib, "wm_puppet_vs")?;
+        let fs = function(&self.puppet_lib, "wm_puppet_fs")?;
         let vd = MTLVertexDescriptor::new();
         for (i, (format, offset)) in [
             (MTLVertexFormat::Float2, 0),

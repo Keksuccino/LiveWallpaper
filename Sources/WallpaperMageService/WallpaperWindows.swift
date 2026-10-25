@@ -261,7 +261,7 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
             self.compositionTask = nil
             // Without a composition the frames stay as they are; the next change of the options tries again.
             guard let built else {
-                NSLog("LiveWallpaper: colour options unavailable for this video")
+                NSLog("WallpaperMage: colour options unavailable for this video")
                 return
             }
             self.composition = built

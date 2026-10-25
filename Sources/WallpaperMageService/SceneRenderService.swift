@@ -81,7 +81,7 @@ final class RendererBox: @unchecked Sendable {
             let renderer = box.renderer
             self.renderer = renderer
             for message in renderer.loadErrors() {
-                NSLog("LiveWallpaper: \(item.name): \(message)")
+                NSLog("WallpaperMage: \(item.name): \(message)")
             }
             windows.open()
             attachDisplay()
@@ -267,7 +267,7 @@ final class RendererBox: @unchecked Sendable {
                 try tap.start()
                 audio = tap
             } catch {
-                NSLog("LiveWallpaper: audio response unavailable: \(error)")
+                NSLog("WallpaperMage: audio response unavailable: \(error)")
             }
         } else if !on, let tap = audio {
             tap.stop()

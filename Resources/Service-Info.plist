@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key>
-	<string>com.noob3301.LiveWallpaper.service</string>
+	<string>com.noob3301.WallpaperMage.service</string>
 	<key>CFBundleName</key>
-	<string>Live Wallpaper Service</string>
+	<string>Wallpaper Mage Service</string>
 	<key>CFBundleDisplayName</key>
-	<string>Live Wallpaper Service</string>
+	<string>Wallpaper Mage Service</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleLocalizations</key>
@@ -28,7 +28,7 @@
 		<string>fr</string>
 	</array>
 	<key>CFBundleExecutable</key>
-	<string>LiveWallpaperService</string>
+	<string>WallpaperMageService</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleInfoDictionaryVersion</key>
@@ -47,21 +47,21 @@
 	<true/>
 	<key>LSMultipleInstancesProhibited</key>
 	<true/>
-	<key>LWRole</key>
+	<key>WMRole</key>
 	<string>service</string>
 	<key>NSSupportsAutomaticTermination</key>
 	<false/>
 	<key>NSSupportsSuddenTermination</key>
 	<false/>
 	<key>NSDesktopFolderUsageDescription</key>
-	<string>Live Wallpaper needs access to play the videos you chose.</string>
+	<string>Wallpaper Mage needs access to play the videos you chose.</string>
 	<key>NSDocumentsFolderUsageDescription</key>
-	<string>Live Wallpaper needs access to play the videos you chose.</string>
+	<string>Wallpaper Mage needs access to play the videos you chose.</string>
 	<key>NSDownloadsFolderUsageDescription</key>
-	<string>Live Wallpaper needs access to play the videos you chose.</string>
+	<string>Wallpaper Mage needs access to play the videos you chose.</string>
 	<key>NSRemovableVolumesUsageDescription</key>
-	<string>Live Wallpaper needs access to play the videos you chose.</string>
+	<string>Wallpaper Mage needs access to play the videos you chose.</string>
 	<key>NSAudioCaptureUsageDescription</key>
-	<string>Live Wallpaper uses system audio so scene wallpapers can react to the music you play.</string>
+	<string>Wallpaper Mage uses system audio so scene wallpapers can react to the music you play.</string>
 </dict>
 </plist>

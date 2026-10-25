@@ -1,7 +1,7 @@
 import AppKit
 import Core
 
-// Entry point, socket server and status item of the background service (adapted from LiveWallpaperAgent/AgentMain).
+// Entry point, socket server and status item of the background service.
 // The UI launches it when nothing answers on ServiceSocket.path; it may also be registered as a login item.
 // AppKit only: never import SwiftUI or Combine here.
 
@@ -17,7 +17,7 @@ enum ServiceEntry {
 }
 
 @MainActor final class ServiceDelegate: NSObject, NSApplicationDelegate {
-    private static let bundleID = "com.noob3301.LiveWallpaper.service"
+    private static let bundleID = "com.noob3301.WallpaperMage.service"
 
     private let orchestrator = Orchestrator()
     private let server = SocketServer()
@@ -54,7 +54,7 @@ enum ServiceEntry {
             try? await Task.sleep(nanoseconds: 250_000_000)
         }
         guard !ServiceSocket.isServing(), !hasLowerPidPeer() else {
-            NSLog("LiveWallpaperService: another copy is already running; exiting.")
+            NSLog("WallpaperMageService: another copy is already running; exiting.")
             NSApp.terminate(nil)
             return
         }
@@ -64,7 +64,7 @@ enum ServiceEntry {
         orchestrator.onChange = { [weak self] in self?.orchestratorChanged() }
         server.perform = { [weak self] command in self?.perform(command) ?? (ServiceStatus(), nil) }
         do { try server.start() } catch {
-            NSLog("LiveWallpaperService: can’t listen on \(ServiceSocket.path): \(error.localizedDescription)")
+            NSLog("WallpaperMageService: can’t listen on \(ServiceSocket.path): \(error.localizedDescription)")
         }
         refreshMenu()
     }
@@ -139,10 +139,10 @@ enum ServiceEntry {
         let settings = NSMenuItem(title: String(localized: "Open Settings…"), action: #selector(openSettings),
                                   keyEquivalent: ",")
         settings.target = self
-        let quit = NSMenuItem(title: String(localized: "Quit Live Wallpaper"), action: #selector(quitLiveWallpaper),
+        let quit = NSMenuItem(title: String(localized: "Quit Wallpaper Mage"), action: #selector(quitWallpaperMage),
                               keyEquivalent: "q")
         quit.target = self
-        quit.toolTip = String(localized: "Closes Live Wallpaper. Your live wallpapers stop, and each display keeps a still picture of its wallpaper.")
+        quit.toolTip = String(localized: "Closes Wallpaper Mage. Your live wallpapers stop, and each display keeps a still picture of its wallpaper.")
         [statusLine, messageItem, .separator(), settings, .separator(),
          pauseItem, nextItem, muteItem, .separator(), quit].forEach(menu.addItem)
         item.menu = menu
@@ -157,7 +157,7 @@ enum ServiceEntry {
     private func refreshMenu() {
         let live = orchestrator.isLive
         let symbol = live ? (orchestrator.isPaused ? "pause.rectangle.fill" : "play.rectangle.fill") : "play.rectangle"
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: String(localized: "Live Wallpaper"))
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: AppIdentity.name)
         image?.isTemplate = true
         statusItem?.button?.image = image
 
@@ -191,7 +191,7 @@ enum ServiceEntry {
     @objc private func nextWallpaper() { orchestrator.next() }
     @objc private func toggleMute() { orchestrator.setMuted(!orchestrator.muted) }
     /// Quits the whole app: Settings first, so it does not start the service again, then the service.
-    @objc private func quitLiveWallpaper() {
+    @objc private func quitWallpaperMage() {
         for app in NSRunningApplication.runningApplications(withBundleIdentifier: AppIdentity.settingsBundleID) {
             let role = app.bundleURL.flatMap { Bundle(url: $0) }?.object(forInfoDictionaryKey: AppIdentity.roleKey)
             if role as? String == "settings" { app.terminate() }
@@ -199,7 +199,7 @@ enum ServiceEntry {
         quitService()
     }
 
-    // The service lives at <LiveWallpaper.app>/Contents/Library/LoginItems/LiveWallpaperService.app.
+    // The service lives at <WallpaperMage.app>/Contents/Library/LoginItems/WallpaperMageService.app.
     @objc private func openSettings() {
         let nested = Bundle.main.bundleURL
             .deletingLastPathComponent().deletingLastPathComponent()

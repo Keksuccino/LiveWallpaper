@@ -165,13 +165,13 @@ struct WallpaperSettingsCard: View {
             ForEach(items.filter { visible($0, sheet, values) }) { property in
                 row(property, sheet)
                 if property.key == "volume" {
-                    LWSwitchRow(isOn: Binding(get: { options.muted }, set: { on in update { $0.muted = on } }),
+                    WMSwitchRow(isOn: Binding(get: { options.muted }, set: { on in update { $0.muted = on } }),
                                 accessibilityLabel: Text("Mute")) { Label("Mute", systemImage: "speaker.slash") }
                         .help("Silences this wallpaper on this display.")
                     appSoundWarning
                 }
                 if property.key == "alignmentz", options.alignment.canLeaveBars {
-                    LWSwitchRow(isOn: Binding(get: { options.blurBars }, set: { on in update { $0.blurBars = on } }),
+                    WMSwitchRow(isOn: Binding(get: { options.blurBars }, set: { on in update { $0.blurBars = on } }),
                                 accessibilityLabel: Text("Blur empty space")) {
                         Label("Blur empty space", systemImage: "drop.halffull")
                     }
@@ -250,7 +250,7 @@ struct WallpaperSettingsCard: View {
         }
         switch property.kind {
         case .bool:
-            LWSwitchRow(isOn: Binding(get: { if case .bool(let b)? = value(property) { return b }; return false },
+            WMSwitchRow(isOn: Binding(get: { if case .bool(let b)? = value(property) { return b }; return false },
                                       set: { set(property, .bool($0)) }),
                         accessibilityLabel: Text(verbatim: text)) { label }
         case .slider(let lo, let hi, let step, let digits):
@@ -390,9 +390,9 @@ struct WallpaperSettingsCard: View {
                     .monospacedDigit().foregroundStyle(.secondary).frame(width: 44, alignment: .trailing)
             }
             .help("Share of the display’s pixels the scene is drawn at. Lower is lighter on the GPU.")
-            LWSwitchRow("Antialiasing", isOn: binding(\.antialiasing))
+            WMSwitchRow("Antialiasing", isOn: binding(\.antialiasing))
                 .help("Smooths jagged edges. Costs some GPU time.")
-            LWSwitchRow("Scene responds to music", isOn: binding(\.audioResponse))
+            WMSwitchRow("Scene responds to music", isOn: binding(\.audioResponse))
                 .help("Lets audio visualisers in the scene follow what your Mac plays.")
         }
     }
@@ -462,8 +462,8 @@ struct ScenePowerRows: View {
                     }.labelsHidden().columnControl()
                 }
             }
-            LWSwitchRow("Skip repeated frames", isOn: binding(\.skipRepeatedFrames))
-            LWSwitchRow("Update only when the scene changes", isOn: binding(\.renderOnlyOnChange))
+            WMSwitchRow("Skip repeated frames", isOn: binding(\.skipRepeatedFrames))
+            WMSwitchRow("Update only when the scene changes", isOn: binding(\.renderOnlyOnChange))
                 .help("Stops idle scenes completely until something in them moves.")
         }
     }

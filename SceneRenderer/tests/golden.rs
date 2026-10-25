@@ -2,12 +2,12 @@
 //!
 //! Ignored by default: it needs the scenes installed in the local library. It renders every scene
 //! in `Library/` at 640x360, t = 1.0 s, and compares the result against a golden PNG stored in
-//! `~/Library/Caches/LiveWallpaper/golden/<id>.png`. Goldens are our own renders of copyrighted
+//! `~/Library/Caches/WallpaperMage/golden/<id>.png`. Goldens are our own renders of copyrighted
 //! scenes, so they never enter git; a missing golden is created on the first run and must be
 //! looked at before it is trusted.
 //!
 //! ```bash
-//! LW_GOLDEN_UPDATE=1 cargo +stable test --offline --test golden -- --ignored --nocapture
+//! WM_GOLDEN_UPDATE=1 cargo +stable test --offline --test golden -- --ignored --nocapture
 //! cargo +stable test --offline --test golden -- --ignored
 //! ```
 
@@ -25,12 +25,12 @@ const MAX_CHANGED: f64 = 0.01;
 
 fn library_dir() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
-    Some(PathBuf::from(home).join("Library/Application Support/LiveWallpaper/Library"))
+    Some(PathBuf::from(home).join("Library/Application Support/WallpaperMage/Library"))
 }
 
 fn golden_dir() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
-    Some(PathBuf::from(home).join("Library/Caches/LiveWallpaper/golden"))
+    Some(PathBuf::from(home).join("Library/Caches/WallpaperMage/golden"))
 }
 
 /// Scene folders that contain something the renderer can open.
@@ -99,7 +99,7 @@ fn diff(got: &[u8], want: &[u8]) -> (f64, f64) {
 
 /// Renders every installed scene and compares it with its golden.
 ///
-/// Scenes without a golden are written on the first run (or with `LW_GOLDEN_UPDATE=1`) and then
+/// Scenes without a golden are written on the first run (or with `WM_GOLDEN_UPDATE=1`) and then
 /// need a look by a human before they count as a baseline.
 #[test]
 #[ignore = "needs the local scene library"]
@@ -114,7 +114,7 @@ fn golden_scenes() {
         library.display()
     );
     let golden = golden_dir().expect("HOME is not set");
-    let update = std::env::var_os("LW_GOLDEN_UPDATE").is_some_and(|v| v == "1");
+    let update = std::env::var_os("WM_GOLDEN_UPDATE").is_some_and(|v| v == "1");
 
     let mut failures = Vec::new();
     for (id, path) in &scenes {

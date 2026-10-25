@@ -11,7 +11,7 @@ import Core
 
 // MARK: - Tokens
 
-enum LWTheme {
+enum WMTheme {
     static let contentPadding: CGFloat = 28
     static let cardRadius: CGFloat = 18
     static let panelRadius: CGFloat = 22
@@ -31,7 +31,7 @@ enum LWTheme {
         startPoint: .top, endPoint: .bottom)
 }
 
-enum LWMotion {
+enum WMMotion {
     static let hover = Animation.easeOut(duration: 0.16)
     static let select = Animation.spring(response: 0.28, dampingFraction: 0.86)
     static let hero = Animation.spring(response: 0.42, dampingFraction: 0.88)
@@ -44,7 +44,7 @@ enum LWMotion {
 
 /// The page background every content area sits on. Deliberately plain: the window colour and nothing else.
 /// The depth in this app comes from the glass surfaces and their hairlines, not from colour washes.
-struct LWBackground: View {
+struct WMBackground: View {
     var body: some View {
         Color(nsColor: .windowBackgroundColor)
             .ignoresSafeArea()
@@ -55,9 +55,9 @@ struct LWBackground: View {
 
 /// The content surface: a translucent card with a light-catching top edge and a soft shadow. This is the
 /// app's glass — solid fill when the user asked for reduced transparency.
-struct LWCard<Content: View>: View {
+struct WMCard<Content: View>: View {
     var padding: CGFloat = 16
-    var radius: CGFloat = LWTheme.cardRadius
+    var radius: CGFloat = WMTheme.cardRadius
     @ViewBuilder var content: Content
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
@@ -80,13 +80,13 @@ func glassShape(radius: CGFloat, cornerStyle: RoundedCornerStyle = .continuous,
                        startPoint: .top, endPoint: .center)
             .clipShape(shape)
     }
-    .overlay(shape.strokeBorder(LWTheme.edgeGradient, lineWidth: 1))
+    .overlay(shape.strokeBorder(WMTheme.edgeGradient, lineWidth: 1))
     .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
 }
 
 extension View {
     /// Wraps the view in the standard glass card.
-    func lwGlassCard(padding cardPadding: CGFloat = 16, radius: CGFloat = LWTheme.cardRadius) -> some View {
+    func wmGlassCard(padding cardPadding: CGFloat = 16, radius: CGFloat = WMTheme.cardRadius) -> some View {
         self.padding(cardPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background { glassShape(radius: radius) }
@@ -118,7 +118,7 @@ struct GlassPanel<Content: View>: View {
 // MARK: - Page header
 
 /// The big page title and a quiet subtitle, used to open every page. Typography-led: no icons, no colour.
-struct LWPageHeader<Trailing: View>: View {
+struct WMPageHeader<Trailing: View>: View {
     let title: LocalizedStringKey
     var subtitle: LocalizedStringKey? = nil
     @ViewBuilder let trailing: () -> Trailing
@@ -142,7 +142,7 @@ struct LWPageHeader<Trailing: View>: View {
     }
 }
 
-extension LWPageHeader where Trailing == EmptyView {
+extension WMPageHeader where Trailing == EmptyView {
     /// Header without trailing actions.
     init(title: LocalizedStringKey, subtitle: LocalizedStringKey? = nil) {
         self.init(title: title, subtitle: subtitle, trailing: { EmptyView() })
@@ -175,7 +175,7 @@ struct InspectorSection<Content: View>: View {
 
 // MARK: - Chips
 
-struct LWChip: View {
+struct WMChip: View {
     let text: String
     var tint: Color? = nil
     var filled: Bool = false
@@ -208,7 +208,7 @@ struct LWChip: View {
 }
 
 /// A tappable capsule used for topic chips and filter segments. Text only, system accent when selected.
-struct LWTopicChip: View {
+struct WMTopicChip: View {
     let title: String
     var selected: Bool = false
     let action: () -> Void
@@ -232,7 +232,7 @@ struct LWTopicChip: View {
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .animation(LWMotion.hover, value: selected)
+        .animation(WMMotion.hover, value: selected)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
@@ -292,7 +292,7 @@ struct ProgressRing: View {
 }
 
 /// A chunky linear progress bar for downloads. `progress` nil = indeterminate (a travelling highlight).
-struct LWProgressBar: View {
+struct WMProgressBar: View {
     let progress: Double?
     var height: CGFloat = 6
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -327,7 +327,7 @@ struct LWProgressBar: View {
 // MARK: - Search field
 
 /// Glass capsule search field with icon, clear button and an escape-to-clear shortcut.
-struct LWSearchField: View {
+struct WMSearchField: View {
     let prompt: LocalizedStringKey
     @Binding var text: String
 
@@ -372,13 +372,13 @@ extension View {
     /// A fixed inspector panel on the trailing side, always shown. Like the sidebar it reaches up into the toolbar strip,
     /// which has no items above it (a page using it hides the toolbar's background there, and its content needs top
     /// padding for the strip). SwiftUI's `inspector` would take over the toolbar's trailing items (the search field).
-    func lwInspectorPanel<Inspector: View>(@ViewBuilder _ inspector: () -> Inspector) -> some View {
+    func wmInspectorPanel<Inspector: View>(@ViewBuilder _ inspector: () -> Inspector) -> some View {
         HStack(spacing: 0) {
             frame(maxWidth: .infinity, maxHeight: .infinity)
             Group {
                 Divider()
                 inspector()
-                    .frame(width: LWTheme.inspectorWidth)
+                    .frame(width: WMTheme.inspectorWidth)
                     .frame(maxHeight: .infinity)
             }
             .ignoresSafeArea(.container, edges: .top)
@@ -413,7 +413,7 @@ private struct HoverLiftModifier: ViewModifier {
         content
             .scaleEffect(enabled && hovering && !reduceMotion ? 1.015 : 1)
             .shadow(color: .black.opacity(hovering && enabled ? 0.22 : 0), radius: hovering ? 16 : 0, y: hovering ? 8 : 0)
-            .animation(LWMotion.hover, value: hovering)
+            .animation(WMMotion.hover, value: hovering)
             .onHover { hovering = $0 }
     }
 }
@@ -488,7 +488,7 @@ struct ItemThumbnail: View {
 
 /// A drop-in empty state used by the library and Workshop. One card: the dashed border and the surface
 /// are the same rounded rectangle, so the border always contains everything inside it.
-struct LWEmptyState: View {
+struct WMEmptyState: View {
     let icon: String
     let title: LocalizedStringKey
     let message: LocalizedStringKey
@@ -543,14 +543,14 @@ struct LWEmptyState: View {
                 .strokeBorder(targeted ? Color.accentColor : Color.secondary.opacity(0.22),
                               style: StrokeStyle(lineWidth: targeted ? 2 : 1,
                                                  dash: targeted ? [] : [6, 6]))
-                .animation(LWMotion.hover, value: targeted)
+                .animation(WMMotion.hover, value: targeted)
         }
     }
 }
 
 // MARK: - Settings rows
 
-struct LWSettingRow<Content: View>: View {
+struct WMSettingRow<Content: View>: View {
     let title: LocalizedStringKey
     var help: LocalizedStringKey? = nil
     @ViewBuilder var content: Content
@@ -566,7 +566,7 @@ struct LWSettingRow<Content: View>: View {
 }
 
 /// An on/off setting: the label leading (wrapping in a narrow column), a small switch trailing.
-struct LWSwitchRow<Label: View>: View {
+struct WMSwitchRow<Label: View>: View {
     @Binding var isOn: Bool
     /// The label's words for VoiceOver: the switch itself shows no label.
     let accessibilityLabel: Text
@@ -585,7 +585,7 @@ struct LWSwitchRow<Label: View>: View {
     }
 }
 
-extension LWSwitchRow where Label == Text {
+extension WMSwitchRow where Label == Text {
     /// A row labelled `title`.
     init(_ title: LocalizedStringKey, isOn: Binding<Bool>) {
         self.init(isOn: isOn, accessibilityLabel: Text(title)) { Text(title) }
@@ -596,7 +596,7 @@ extension View {
     /// A control beside a label in a narrow column (the inspector): its natural width, but never more than
     /// `maxWidth`, truncating longer content (a long choice, a long translation) so the column never grows. The label
     /// beside it wraps instead.
-    func columnControl(maxWidth: CGFloat = LWTheme.inspectorWidth / 2) -> some View {
+    func columnControl(maxWidth: CGFloat = WMTheme.inspectorWidth / 2) -> some View {
         ViewThatFits(in: .horizontal) {
             fixedSize()
             self

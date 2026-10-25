@@ -8,13 +8,13 @@ import Core
 // is active. There is no menu bar extra here; the agent owns the status item.
 
 @main
-struct LiveWallpaperApp: App {
+struct WallpaperMageApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = SettingsModel.shared
     @StateObject private var workshop = WorkshopModel.shared
 
     var body: some Scene {
-        Window("Live Wallpaper", id: "main") {
+        Window(AppIdentity.name, id: "main") {
             RootView(model: model, workshop: workshop)
         }
         .defaultSize(width: 1200, height: 780)
@@ -57,8 +57,7 @@ struct LiveWallpaperApp: App {
     /// A second copy hands over to the first (lowest process id wins, as with the agent) and quits.
     private func yieldToRunningSettings() -> Bool {
         let me = ProcessInfo.processInfo.processIdentifier
-        let peers = SettingsModel.otherInstances().filter { !$0.legacy }.map { $0.app }
-        guard let first = peers.min(by: { $0.processIdentifier < $1.processIdentifier }),
+        guard let first = SettingsModel.otherInstances().min(by: { $0.processIdentifier < $1.processIdentifier }),
               first.processIdentifier < me else { return false }
         first.activate(options: [.activateAllWindows])
         NSApp.terminate(nil)
@@ -106,7 +105,7 @@ struct RootView: View {
     var body: some View {
         NavigationSplitView {
             sidebar
-                .navigationSplitViewColumnWidth(min: 208, ideal: LWTheme.sidebarWidth, max: 300)
+                .navigationSplitViewColumnWidth(min: 208, ideal: WMTheme.sidebarWidth, max: 300)
         } detail: {
             detail
         }
@@ -162,25 +161,17 @@ struct RootView: View {
 
     // MARK: Detail
 
+    // Pages switch without a transition: a page's toolbar items (Home's) would fade with it, and AppKit can leave
+    // them half transparent, looking disabled, until the pointer passes over them.
     private var detail: some View {
-        VStack(spacing: 0) {
-            if let banner = banner {
-                BannerBar(banner: banner)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-            // Pages switch without a transition: a page's toolbar items (Home's) would fade with it, and AppKit
-            // can leave them half transparent, looking disabled, until the pointer passes over them.
-            content
-        }
-        .background(LWBackground())
-        .animation(LWMotion.content, value: banner?.text)
+        content.background(WMBackground())
     }
 
     @ViewBuilder private var content: some View {
         switch selection {
         case .home:
             HomeView(model: model, openWorkshop: { selection = .workshop })
-                .lwInspectorPanel {
+                .wmInspectorPanel {
                     DisplayInspectorView(model: model)
                 }
                 // The panel reaches up into the toolbar strip, where the toolbar's background would blur it. Nothing
@@ -202,63 +193,6 @@ struct RootView: View {
 
     private func openSteamSettings() {
         SettingsNavigator.shared.open(.steam)
-    }
-
-    /// One banner at a time, in priority order.
-    private var banner: Banner? {
-        if model.legacyAppRunning {
-            return Banner(text: String(localized: "An older copy of Live Wallpaper is still running. Quit it so the two don’t fight over your wallpaper."))
-        }
-        if model.importedFromPhase1 > 0 {
-            return Banner(text: String(localized: "Imported \(model.importedFromPhase1) videos from the previous version."),
-                          warning: false, dismiss: { model.dismissImportNotice() })
-        }
-        return nil
-    }
-}
-
-fileprivate struct Banner {
-    let text: String
-    var warning = true
-    var action: (title: String, run: () -> Void)? = nil
-    var dismiss: (() -> Void)? = nil
-}
-
-@MainActor
-fileprivate struct BannerBar: View {
-    let banner: Banner
-
-    private var tint: Color { banner.warning ? .orange : .accentColor }
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: banner.warning ? "exclamationmark.triangle.fill" : "info.circle.fill")
-                .foregroundStyle(tint)
-            Text(banner.text)
-                .font(.callout)
-                .lineLimit(2)
-            Spacer(minLength: 8)
-            if let action = banner.action {
-                Button(action.title, action: action.run).buttonStyle(.link)
-            }
-            if let dismiss = banner.dismiss {
-                Button(action: dismiss) { Image(systemName: "xmark") }
-                    .buttonStyle(.borderless)
-                    .accessibilityLabel("Dismiss")
-            }
-        }
-        .padding(.horizontal, 14)
-        .frame(minHeight: 42)
-        .background {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(tint.opacity(0.12))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(tint.opacity(0.25), lineWidth: 1)
-                }
-        }
-        .padding(.horizontal, 18)
-        .padding(.top, 10)
     }
 }
 
@@ -303,8 +237,8 @@ private struct SidebarFooter: View {
             }
             .buttonStyle(SidebarIconButtonStyle())
         }
-        .animation(LWMotion.content, value: warning?.title)
-        .animation(LWMotion.content, value: model.client.isRestarting)
+        .animation(WMMotion.content, value: warning?.title)
+        .animation(WMMotion.content, value: model.client.isRestarting)
     }
 
     /// What is wrong, in the user's words, and what fixes it. Nothing while a restart is under way.
@@ -314,10 +248,10 @@ private struct SidebarFooter: View {
         switch model.client.problem {
         case .missing:
             return Warning(title: String(localized: "Wallpaper service missing"),
-                           message: Text("This copy of Live Wallpaper is incomplete, so your live wallpapers can’t be shown. Reinstall Live Wallpaper to fix it."))
+                           message: Text("This copy of Wallpaper Mage is incomplete, so your live wallpapers can’t be shown. Reinstall Wallpaper Mage to fix it."))
         case .didNotStart:
             return Warning(title: String(localized: "Wallpaper service didn’t start"),
-                           message: Text("Your live wallpapers can’t be shown right now. Press \(restart) below to try again. If that doesn’t help, reinstall Live Wallpaper."))
+                           message: Text("Your live wallpapers can’t be shown right now. Press \(restart) below to try again. If that doesn’t help, reinstall Wallpaper Mage."))
         case .noAnswer:
             return Warning(title: String(localized: "Wallpaper service not responding"),
                            message: Text("Your live wallpapers may have stopped, and changes you make here can’t reach them. Press \(restart) below to fix it."))
@@ -388,7 +322,7 @@ private struct SidebarIconButton: View {
             .frame(width: 28, height: 28)
             .background(shape.fill(Color.primary.opacity(highlight)))
             .contentShape(shape)
-            .onHover { inside in withAnimation(LWMotion.hover) { hovering = inside } }
+            .onHover { inside in withAnimation(WMMotion.hover) { hovering = inside } }
     }
 
     private var highlight: Double {

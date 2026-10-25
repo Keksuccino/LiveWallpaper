@@ -4,81 +4,41 @@
             "type": "swift",
             "request": "launch",
             "args": [],
-            "cwd": "${workspaceFolder:LiveWallpaper}",
-            "name": "Debug LiveWallpaper",
-            "target": "LiveWallpaper",
+            "cwd": "${workspaceFolder:WallpaperMage}",
+            "name": "Debug WallpaperMage",
+            "target": "WallpaperMage",
             "configuration": "debug",
-            "preLaunchTask": "swift: Build Debug LiveWallpaper"
+            "preLaunchTask": "swift: Build Debug WallpaperMage"
         },
         {
             "type": "swift",
             "request": "launch",
             "args": [],
-            "cwd": "${workspaceFolder:LiveWallpaper}",
-            "name": "Release LiveWallpaper",
-            "target": "LiveWallpaper",
+            "cwd": "${workspaceFolder:WallpaperMage}",
+            "name": "Release WallpaperMage",
+            "target": "WallpaperMage",
             "configuration": "release",
-            "preLaunchTask": "swift: Build Release LiveWallpaper"
+            "preLaunchTask": "swift: Build Release WallpaperMage"
         },
         {
             "type": "swift",
             "request": "launch",
             "args": [],
-            "cwd": "${workspaceFolder:LiveWallpaper}",
-            "name": "Debug LiveWallpaperAgent",
-            "target": "LiveWallpaperAgent",
+            "cwd": "${workspaceFolder:WallpaperMage}",
+            "name": "Debug WallpaperMageService",
+            "target": "WallpaperMageService",
             "configuration": "debug",
-            "preLaunchTask": "swift: Build Debug LiveWallpaperAgent"
+            "preLaunchTask": "swift: Build Debug WallpaperMageService"
         },
         {
             "type": "swift",
             "request": "launch",
             "args": [],
-            "cwd": "${workspaceFolder:LiveWallpaper}",
-            "name": "Release LiveWallpaperAgent",
-            "target": "LiveWallpaperAgent",
+            "cwd": "${workspaceFolder:WallpaperMage}",
+            "name": "Release WallpaperMageService",
+            "target": "WallpaperMageService",
             "configuration": "release",
-            "preLaunchTask": "swift: Build Release LiveWallpaperAgent"
-        },
-        {
-            "type": "swift",
-            "request": "launch",
-            "args": [],
-            "cwd": "${workspaceFolder:LiveWallpaper}",
-            "name": "Debug LiveWallpaperSceneHost",
-            "target": "LiveWallpaperSceneHost",
-            "configuration": "debug",
-            "preLaunchTask": "swift: Build Debug LiveWallpaperSceneHost"
-        },
-        {
-            "type": "swift",
-            "request": "launch",
-            "args": [],
-            "cwd": "${workspaceFolder:LiveWallpaper}",
-            "name": "Release LiveWallpaperSceneHost",
-            "target": "LiveWallpaperSceneHost",
-            "configuration": "release",
-            "preLaunchTask": "swift: Build Release LiveWallpaperSceneHost"
-        },
-        {
-            "type": "swift",
-            "request": "launch",
-            "args": [],
-            "cwd": "${workspaceFolder:LiveWallpaper}",
-            "name": "Debug LiveWallpaperService",
-            "target": "LiveWallpaperService",
-            "configuration": "debug",
-            "preLaunchTask": "swift: Build Debug LiveWallpaperService"
-        },
-        {
-            "type": "swift",
-            "request": "launch",
-            "args": [],
-            "cwd": "${workspaceFolder:LiveWallpaper}",
-            "name": "Release LiveWallpaperService",
-            "target": "LiveWallpaperService",
-            "configuration": "release",
-            "preLaunchTask": "swift: Build Release LiveWallpaperService"
+            "preLaunchTask": "swift: Build Release WallpaperMageService"
         }
     ]
 }

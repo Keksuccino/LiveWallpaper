@@ -2,7 +2,7 @@ import AppKit
 import ServiceManagement
 import Core
 
-// The UI's only link to the background service (LiveWallpaperService): one ServiceSocketClient connection to
+// The UI's only link to the background service (WallpaperMageService): one ServiceSocketClient connection to
 // ServiceSocket.path. When nothing answers, the UI launches the nested service app itself (no launchd), sends
 // ServiceCommands and publishes the ServiceStatus it reports.
 
@@ -23,7 +23,7 @@ struct ServiceError: LocalizedError {
 
     /// Why the service is unavailable. It stays while the client keeps trying, until the service answers.
     enum Problem: Equatable {
-        case missing          // the service app is not inside this copy of Live Wallpaper
+        case missing          // the service app is not inside this copy of Wallpaper Mage
         case didNotStart      // it was launched but never answered
         case noAnswer         // it does not answer on its socket
     }
@@ -40,9 +40,9 @@ struct ServiceError: LocalizedError {
     private var loginItemTried = false
     private var quitRequested = false   // the service was asked to quit (restart): its going away is no crash
 
-    /// <LiveWallpaper.app>/Contents/Library/LoginItems/LiveWallpaperService.app
+    /// <WallpaperMage.app>/Contents/Library/LoginItems/WallpaperMageService.app
     private static let serviceApp = Bundle.main.bundleURL
-        .appendingPathComponent("Contents/Library/LoginItems/LiveWallpaperService.app", isDirectory: true)
+        .appendingPathComponent("Contents/Library/LoginItems/WallpaperMageService.app", isDirectory: true)
 
     // MARK: Lifecycle
 
@@ -123,7 +123,7 @@ struct ServiceError: LocalizedError {
         configuration.activates = false
         configuration.addsToRecentItems = false
         NSWorkspace.shared.openApplication(at: Self.serviceApp, configuration: configuration) { _, error in
-            if let error { NSLog("LiveWallpaper: couldn’t launch the service: \(error.localizedDescription)") }
+            if let error { NSLog("WallpaperMage: couldn’t launch the service: \(error.localizedDescription)") }
         }
         return true
     }
@@ -132,13 +132,13 @@ struct ServiceError: LocalizedError {
     private func registerLoginItem() {
         guard !loginItemTried else { return }
         loginItemTried = true
-        let item = SMAppService.loginItem(identifier: "com.noob3301.LiveWallpaper.service")
+        let item = SMAppService.loginItem(identifier: "com.noob3301.WallpaperMage.service")
         guard item.status == .notRegistered else {
-            if item.status != .enabled { NSLog("LiveWallpaper: service login item status \(item.status.rawValue)") }
+            if item.status != .enabled { NSLog("WallpaperMage: service login item status \(item.status.rawValue)") }
             return
         }
         do { try item.register() } catch {
-            NSLog("LiveWallpaper: couldn’t register the service as a login item: \(error.localizedDescription)")
+            NSLog("WallpaperMage: couldn’t register the service as a login item: \(error.localizedDescription)")
         }
     }
 
@@ -189,7 +189,7 @@ struct ServiceError: LocalizedError {
     }
 
     private func fail(_ problem: Problem, _ detail: String) {
-        NSLog("LiveWallpaper: wallpaper service unavailable (\(problem)): \(detail)")
+        NSLog("WallpaperMage: wallpaper service unavailable (\(problem)): \(detail)")
         connection?.close()
         connection = nil
         self.problem = problem

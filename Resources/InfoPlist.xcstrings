@@ -2,451 +2,451 @@
   "sourceLanguage" : "en",
   "strings" : {
     "NSAudioCaptureUsageDescription" : {
-      "comment" : "macOS permission prompt for recording system audio, which scenes use to react to music.",
+      "comment" : "macOS permission prompt for recording system audio, which scenes use to react to music. “Wallpaper Mage” is the app's name: keep it unchanged in every language.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper uses system audio so scene wallpapers can react to the music you play."
+            "value" : "Wallpaper Mage uses system audio so scene wallpapers can react to the music you play."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper verwendet das Systemaudio, damit Szenen-Hintergrundbilder auf die Musik reagieren können, die du abspielst."
+            "value" : "Wallpaper Mage verwendet das Systemaudio, damit Szenen-Hintergrundbilder auf die Musik reagieren können, die du abspielst."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaperはシステムオーディオを使用して、シーン壁紙を再生中の音楽に反応させます。"
+            "value" : "Wallpaper Mageはシステムオーディオを使用して、シーン壁紙を再生中の音楽に反応させます。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper는 씬 배경화면이 사용자가 재생하는 음악에 반응할 수 있도록 시스템 오디오를 사용합니다."
+            "value" : "Wallpaper Mage는 씬 배경화면이 사용자가 재생하는 음악에 반응할 수 있도록 시스템 오디오를 사용합니다."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper 使用系统音频，让场景墙纸能够随你播放的音乐做出反应。"
+            "value" : "Wallpaper Mage 使用系统音频，让场景墙纸能够随你播放的音乐做出反应。"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper korzysta z dźwięku systemowego, aby sceny mogły reagować na odtwarzaną przez Ciebie muzykę."
+            "value" : "Wallpaper Mage korzysta z dźwięku systemowego, aby sceny mogły reagować na odtwarzaną przez Ciebie muzykę."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper использует системный звук, чтобы обои-сцены могли реагировать на воспроизводимую вами музыку."
+            "value" : "Wallpaper Mage использует системный звук, чтобы обои-сцены могли реагировать на воспроизводимую вами музыку."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper використовує системний звук, щоб сцени могли реагувати на музику, яку ви відтворюєте."
+            "value" : "Wallpaper Mage використовує системний звук, щоб сцени могли реагувати на музику, яку ви відтворюєте."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper usa el audio del sistema para que los fondos de escena puedan reaccionar a la música que reproduces."
+            "value" : "Wallpaper Mage usa el audio del sistema para que los fondos de escena puedan reaccionar a la música que reproduces."
           }
         },
         "es-MX" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper usa el audio del sistema para que los fondos de escena reaccionen a la música que reproduces."
+            "value" : "Wallpaper Mage usa el audio del sistema para que los fondos de escena reaccionen a la música que reproduces."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "O Live Wallpaper usa o áudio do sistema para que os papéis de parede de cena possam reagir à música que você reproduz."
+            "value" : "O Wallpaper Mage usa o áudio do sistema para que os papéis de parede de cena possam reagir à música que você reproduz."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper, sahne duvar kâğıtlarının çaldığınız müziğe tepki verebilmesi için sistem sesini kullanır."
+            "value" : "Wallpaper Mage, sahne duvar kâğıtlarının çaldığınız müziğe tepki verebilmesi için sistem sesini kullanır."
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Το Live Wallpaper χρησιμοποιεί τον ήχο του συστήματος, ώστε οι ταπετσαρίες σκηνής να αντιδρούν στη μουσική που αναπαράγετε."
+            "value" : "Το Wallpaper Mage χρησιμοποιεί τον ήχο του συστήματος, ώστε οι ταπετσαρίες σκηνής να αντιδρούν στη μουσική που αναπαράγετε."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper utilise l’audio du système pour que les scènes puissent réagir à la musique que vous écoutez."
+            "value" : "Wallpaper Mage utilise l’audio du système pour que les scènes puissent réagir à la musique que vous écoutez."
           }
         }
       }
     },
     "NSDesktopFolderUsageDescription" : {
-      "comment" : "macOS permission prompt when a wallpaper video is in the Desktop folder.",
+      "comment" : "macOS permission prompt when a wallpaper video is in the Desktop folder. “Wallpaper Mage” is the app's name: keep it unchanged in every language.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper needs access to play the videos you chose."
+            "value" : "Wallpaper Mage needs access to play the videos you chose."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper benötigt Zugriff, um die von dir ausgewählten Videos abzuspielen."
+            "value" : "Wallpaper Mage benötigt Zugriff, um die von dir ausgewählten Videos abzuspielen."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "選択したビデオを再生するために、Live Wallpaperにアクセスを許可する必要があります。"
+            "value" : "選択したビデオを再生するために、Wallpaper Mageにアクセスを許可する必要があります。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "선택한 비디오를 재생하려면 Live Wallpaper에 접근 권한이 필요합니다."
+            "value" : "선택한 비디오를 재생하려면 Wallpaper Mage에 접근 권한이 필요합니다."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper 需要访问权限才能播放你选择的视频。"
+            "value" : "Wallpaper Mage 需要访问权限才能播放你选择的视频。"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper potrzebuje dostępu, aby odtwarzać wybrane przez Ciebie filmy."
+            "value" : "Wallpaper Mage potrzebuje dostępu, aby odtwarzać wybrane przez Ciebie filmy."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper нужен доступ для воспроизведения выбранных вами видео."
+            "value" : "Wallpaper Mage нужен доступ для воспроизведения выбранных вами видео."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Програмі Live Wallpaper потрібен доступ, щоб відтворювати вибрані вами відео."
+            "value" : "Програмі Wallpaper Mage потрібен доступ, щоб відтворювати вибрані вами відео."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper necesita acceso para reproducir los vídeos que has elegido."
+            "value" : "Wallpaper Mage necesita acceso para reproducir los vídeos que has elegido."
           }
         },
         "es-MX" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper necesita acceso para reproducir los videos que elegiste."
+            "value" : "Wallpaper Mage necesita acceso para reproducir los videos que elegiste."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "O Live Wallpaper precisa de acesso para reproduzir os vídeos que você escolheu."
+            "value" : "O Wallpaper Mage precisa de acesso para reproduzir os vídeos que você escolheu."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper’ın seçtiğiniz videoları oynatabilmesi için erişim izni gerekir."
+            "value" : "Wallpaper Mage’in seçtiğiniz videoları oynatabilmesi için erişim izni gerekir."
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Το Live Wallpaper χρειάζεται πρόσβαση για να αναπαράγει τα βίντεο που επιλέξατε."
+            "value" : "Το Wallpaper Mage χρειάζεται πρόσβαση για να αναπαράγει τα βίντεο που επιλέξατε."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper a besoin d’un accès pour lire les vidéos que vous avez choisies."
+            "value" : "Wallpaper Mage a besoin d’un accès pour lire les vidéos que vous avez choisies."
           }
         }
       }
     },
     "NSDocumentsFolderUsageDescription" : {
-      "comment" : "macOS permission prompt when a wallpaper video is in the Documents folder.",
+      "comment" : "macOS permission prompt when a wallpaper video is in the Documents folder. “Wallpaper Mage” is the app's name: keep it unchanged in every language.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper needs access to play the videos you chose."
+            "value" : "Wallpaper Mage needs access to play the videos you chose."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper benötigt Zugriff, um die von dir ausgewählten Videos abzuspielen."
+            "value" : "Wallpaper Mage benötigt Zugriff, um die von dir ausgewählten Videos abzuspielen."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "選択したビデオを再生するために、Live Wallpaperにアクセスを許可する必要があります。"
+            "value" : "選択したビデオを再生するために、Wallpaper Mageにアクセスを許可する必要があります。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "선택한 비디오를 재생하려면 Live Wallpaper에 접근 권한이 필요합니다."
+            "value" : "선택한 비디오를 재생하려면 Wallpaper Mage에 접근 권한이 필요합니다."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper 需要访问权限才能播放你选择的视频。"
+            "value" : "Wallpaper Mage 需要访问权限才能播放你选择的视频。"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper potrzebuje dostępu, aby odtwarzać wybrane przez Ciebie filmy."
+            "value" : "Wallpaper Mage potrzebuje dostępu, aby odtwarzać wybrane przez Ciebie filmy."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper нужен доступ для воспроизведения выбранных вами видео."
+            "value" : "Wallpaper Mage нужен доступ для воспроизведения выбранных вами видео."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Програмі Live Wallpaper потрібен доступ, щоб відтворювати вибрані вами відео."
+            "value" : "Програмі Wallpaper Mage потрібен доступ, щоб відтворювати вибрані вами відео."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper necesita acceso para reproducir los vídeos que has elegido."
+            "value" : "Wallpaper Mage necesita acceso para reproducir los vídeos que has elegido."
           }
         },
         "es-MX" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper necesita acceso para reproducir los videos que elegiste."
+            "value" : "Wallpaper Mage necesita acceso para reproducir los videos que elegiste."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "O Live Wallpaper precisa de acesso para reproduzir os vídeos que você escolheu."
+            "value" : "O Wallpaper Mage precisa de acesso para reproduzir os vídeos que você escolheu."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper’ın seçtiğiniz videoları oynatabilmesi için erişim izni gerekir."
+            "value" : "Wallpaper Mage’in seçtiğiniz videoları oynatabilmesi için erişim izni gerekir."
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Το Live Wallpaper χρειάζεται πρόσβαση για να αναπαράγει τα βίντεο που επιλέξατε."
+            "value" : "Το Wallpaper Mage χρειάζεται πρόσβαση για να αναπαράγει τα βίντεο που επιλέξατε."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper a besoin d’un accès pour lire les vidéos que vous avez choisies."
+            "value" : "Wallpaper Mage a besoin d’un accès pour lire les vidéos que vous avez choisies."
           }
         }
       }
     },
     "NSDownloadsFolderUsageDescription" : {
-      "comment" : "macOS permission prompt when a wallpaper video is in the Downloads folder.",
+      "comment" : "macOS permission prompt when a wallpaper video is in the Downloads folder. “Wallpaper Mage” is the app's name: keep it unchanged in every language.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper needs access to play the videos you chose."
+            "value" : "Wallpaper Mage needs access to play the videos you chose."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper benötigt Zugriff, um die von dir ausgewählten Videos abzuspielen."
+            "value" : "Wallpaper Mage benötigt Zugriff, um die von dir ausgewählten Videos abzuspielen."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "選択したビデオを再生するために、Live Wallpaperにアクセスを許可する必要があります。"
+            "value" : "選択したビデオを再生するために、Wallpaper Mageにアクセスを許可する必要があります。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "선택한 비디오를 재생하려면 Live Wallpaper에 접근 권한이 필요합니다."
+            "value" : "선택한 비디오를 재생하려면 Wallpaper Mage에 접근 권한이 필요합니다."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper 需要访问权限才能播放你选择的视频。"
+            "value" : "Wallpaper Mage 需要访问权限才能播放你选择的视频。"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper potrzebuje dostępu, aby odtwarzać wybrane przez Ciebie filmy."
+            "value" : "Wallpaper Mage potrzebuje dostępu, aby odtwarzać wybrane przez Ciebie filmy."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper нужен доступ для воспроизведения выбранных вами видео."
+            "value" : "Wallpaper Mage нужен доступ для воспроизведения выбранных вами видео."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Програмі Live Wallpaper потрібен доступ, щоб відтворювати вибрані вами відео."
+            "value" : "Програмі Wallpaper Mage потрібен доступ, щоб відтворювати вибрані вами відео."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper necesita acceso para reproducir los vídeos que has elegido."
+            "value" : "Wallpaper Mage necesita acceso para reproducir los vídeos que has elegido."
           }
         },
         "es-MX" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper necesita acceso para reproducir los videos que elegiste."
+            "value" : "Wallpaper Mage necesita acceso para reproducir los videos que elegiste."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "O Live Wallpaper precisa de acesso para reproduzir os vídeos que você escolheu."
+            "value" : "O Wallpaper Mage precisa de acesso para reproduzir os vídeos que você escolheu."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper’ın seçtiğiniz videoları oynatabilmesi için erişim izni gerekir."
+            "value" : "Wallpaper Mage’in seçtiğiniz videoları oynatabilmesi için erişim izni gerekir."
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Το Live Wallpaper χρειάζεται πρόσβαση για να αναπαράγει τα βίντεο που επιλέξατε."
+            "value" : "Το Wallpaper Mage χρειάζεται πρόσβαση για να αναπαράγει τα βίντεο που επιλέξατε."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper a besoin d’un accès pour lire les vidéos que vous avez choisies."
+            "value" : "Wallpaper Mage a besoin d’un accès pour lire les vidéos que vous avez choisies."
           }
         }
       }
     },
     "NSRemovableVolumesUsageDescription" : {
-      "comment" : "macOS permission prompt when a wallpaper video is on a removable drive.",
+      "comment" : "macOS permission prompt when a wallpaper video is on a removable drive. “Wallpaper Mage” is the app's name: keep it unchanged in every language.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper needs access to play the videos you chose."
+            "value" : "Wallpaper Mage needs access to play the videos you chose."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper benötigt Zugriff, um die von dir ausgewählten Videos abzuspielen."
+            "value" : "Wallpaper Mage benötigt Zugriff, um die von dir ausgewählten Videos abzuspielen."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "選択したビデオを再生するために、Live Wallpaperにアクセスを許可する必要があります。"
+            "value" : "選択したビデオを再生するために、Wallpaper Mageにアクセスを許可する必要があります。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "선택한 비디오를 재생하려면 Live Wallpaper에 접근 권한이 필요합니다."
+            "value" : "선택한 비디오를 재생하려면 Wallpaper Mage에 접근 권한이 필요합니다."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper 需要访问权限才能播放你选择的视频。"
+            "value" : "Wallpaper Mage 需要访问权限才能播放你选择的视频。"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper potrzebuje dostępu, aby odtwarzać wybrane przez Ciebie filmy."
+            "value" : "Wallpaper Mage potrzebuje dostępu, aby odtwarzać wybrane przez Ciebie filmy."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper нужен доступ для воспроизведения выбранных вами видео."
+            "value" : "Wallpaper Mage нужен доступ для воспроизведения выбранных вами видео."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Програмі Live Wallpaper потрібен доступ, щоб відтворювати вибрані вами відео."
+            "value" : "Програмі Wallpaper Mage потрібен доступ, щоб відтворювати вибрані вами відео."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper necesita acceso para reproducir los vídeos que has elegido."
+            "value" : "Wallpaper Mage necesita acceso para reproducir los vídeos que has elegido."
           }
         },
         "es-MX" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper necesita acceso para reproducir los videos que elegiste."
+            "value" : "Wallpaper Mage necesita acceso para reproducir los videos que elegiste."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "O Live Wallpaper precisa de acesso para reproduzir os vídeos que você escolheu."
+            "value" : "O Wallpaper Mage precisa de acesso para reproduzir os vídeos que você escolheu."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper’ın seçtiğiniz videoları oynatabilmesi için erişim izni gerekir."
+            "value" : "Wallpaper Mage’in seçtiğiniz videoları oynatabilmesi için erişim izni gerekir."
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Το Live Wallpaper χρειάζεται πρόσβαση για να αναπαράγει τα βίντεο που επιλέξατε."
+            "value" : "Το Wallpaper Mage χρειάζεται πρόσβαση για να αναπαράγει τα βίντεο που επιλέξατε."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Live Wallpaper a besoin d’un accès pour lire les vidéos que vous avez choisies."
+            "value" : "Wallpaper Mage a besoin d’un accès pour lire les vidéos que vous avez choisies."
           }
         }
       }

@@ -5,12 +5,12 @@ import PackageDescription
 //   Core                    (library)    settings model, state file, XPC/socket messages; no SwiftUI/AppKit
 //   SceneFormat             (library)    scene package, texture and scene.json parsing; Foundation only
 //   SceneRendererFFI/SceneBridge         Rust + Metal scene renderer (SceneRenderer/, built by scripts/build-scene-renderer.sh)
-//   LiveWallpaperService    (executable) background service: menu bar, playback, lock screen, socket server
-//   LiveWallpaper           (executable) settings app, SwiftUI; Steam sign-in and Workshop downloads
+//   WallpaperMageService    (executable) background service: menu bar, playback, lock screen, socket server
+//   WallpaperMage           (executable) settings app, SwiftUI; Steam sign-in and Workshop downloads
 // Every target is built for macOS 26 with the macOS 26 SDK (build.sh and CI pin the SDK via scripts/macos-sdk.sh).
 // Swift 5 language mode for every target (no Swift 6 strict concurrency checking).
 let package = Package(
-    name: "LiveWallpaper",
+    name: "WallpaperMage",
     platforms: [.macOS(.v26)],
     products: [
         .library(name: "Core", targets: ["Core"]),
@@ -48,14 +48,14 @@ let package = Package(
         ),
         // Background service: the only writer of state.json, plays wallpapers, XPC to the UI. AppKit only.
         .executableTarget(
-            name: "LiveWallpaperService",
+            name: "WallpaperMageService",
             dependencies: ["Core", "SceneBridge"],
-            path: "Sources/LiveWallpaperService"
+            path: "Sources/WallpaperMageService"
         ),
         .executableTarget(
-            name: "LiveWallpaper",
+            name: "WallpaperMage",
             dependencies: ["Core", "SceneFormat"],
-            path: "Sources/LiveWallpaper"
+            path: "Sources/WallpaperMage"
         ),
         .testTarget(
             name: "CoreTests",

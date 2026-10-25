@@ -428,9 +428,9 @@ public enum AppPaths {
     private static let applicationSupport = FileManager.default
         .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
 
-    /// ~/Library/Application Support/LiveWallpaper
+    /// ~/Library/Application Support/WallpaperMage
     public static let supportDirectory = applicationSupport
-        .appendingPathComponent("LiveWallpaper", isDirectory: true)
+        .appendingPathComponent("WallpaperMage", isDirectory: true)
     public static let stateFile = supportDirectory.appendingPathComponent("state.json")
     public static let agentFile = supportDirectory.appendingPathComponent("agent.json")
     /// Imported Workshop items: Library/<workshop id>/<video, preview, project.json>.
@@ -449,7 +449,7 @@ public enum AppPaths {
     /// Transient steamcmd download area. No spaces in the path on purpose (steamcmd argument parsing).
     public static let steamStagingDirectory = FileManager.default
         .urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("LiveWallpaperSteam", isDirectory: true)
+        .appendingPathComponent("WallpaperMageSteam", isDirectory: true)
 
     /// Where the app installs Valve's SteamCMD itself (downloaded on first use, never bundled).
     public static let steamToolsDirectory = supportDirectory.appendingPathComponent("SteamCMD", isDirectory: true)
@@ -473,9 +473,6 @@ public enum AppPaths {
 // MARK: - State store
 
 public enum StateStore {
-    public static let phase1DefaultsKey = "LiveWallpaper.state.v1"
-    private static let importedFlagKey = "LiveWallpaper.v2.importedPhase1"
-
     /// Reads state.json (files of older schemas are migrated in memory). Returns nil if it is missing; an unreadable
     /// file is moved aside (never overwritten).
     public static func load() -> LibraryState? {
@@ -531,9 +528,8 @@ public enum StateStore {
     }
 
     /// Settings app only: loads state.json (rewriting a file of an older schema once, after keeping a copy as
-    /// state.v<schema>-backup.json), or imports the phase-1 library from its UserDefaults once
-    /// (the Settings app has the phase-1 bundle id, so `.standard` is the phase-1 domain).
-    public static func loadOrMigrate(defaults: UserDefaults = .standard) -> (state: LibraryState, importedCount: Int) {
+    /// state.v<schema>-backup.json), or writes an empty library when there is none.
+    public static func loadOrMigrate() -> LibraryState {
         if var state = load() {
             if let schema = diskSchema(), schema < LibraryState.currentSchema {
                 let backup = AppPaths.supportDirectory.appendingPathComponent("state.v\(schema)-backup.json")
@@ -542,32 +538,11 @@ public enum StateStore {
                 }
                 commit(&state)
             }
-            return (state, 0)
+            return state
         }
         var state = LibraryState()
-        var imported = 0
-        if !defaults.bool(forKey: importedFlagKey),
-           let data = defaults.data(forKey: phase1DefaultsKey),
-           let old = try? JSONDecoder().decode(Phase1State.self, from: data) {
-            let desktop = DisplayConfig(wallpaperID: old.applyToDesktop ? old.selectedID : nil,
-                                        rotateEnabled: old.rotateEnabled, intervalValue: old.intervalValue,
-                                        intervalUnit: old.intervalUnit)
-            state = LibraryState(videos: old.videos, displays: LibraryState.everyDisplay(desktop))
-            imported = old.videos.count
-        }
-        defaults.set(true, forKey: importedFlagKey)
         commit(&state)
-        return (state, imported)
-    }
-
-    // Shape of the phase-1 UserDefaults blob (LiveWallpaper.state.v1).
-    private struct Phase1State: Decodable {
-        var videos: [VideoItem]
-        var selectedID: UUID?
-        var rotateEnabled: Bool
-        var intervalValue: Int
-        var intervalUnit: IntervalUnit
-        var applyToDesktop: Bool
+        return state
     }
 }
 
@@ -596,10 +571,7 @@ public struct AgentRecord: Codable, Equatable, Sendable {
 }
 
 public enum AgentRecordStore {
-    private static let legacyDomain = "com.noob3301.LiveWallpaper"
-
-    /// Never fails. The first call without agent.json imports the phase-1 Aerial backup record from the old app's
-    /// preferences domain, which the old app never clears on its own.
+    /// Never fails. Without a readable agent.json it starts (and writes) an empty record.
     public static func load() -> AgentRecord {
         if let data = try? Data(contentsOf: AppPaths.agentFile) {
             if let record = try? JSONDecoder().decode(AgentRecord.self, from: data) { return record }
@@ -607,11 +579,7 @@ public enum AgentRecordStore {
                 .appendingPathComponent("agent.corrupt-\(Int(Date().timeIntervalSince1970)).json")
             try? FileManager.default.moveItem(at: AppPaths.agentFile, to: aside)
         }
-        var record = AgentRecord()
-        if let data = legacyData("LiveWallpaper.aerialBackup.v1"),
-           let backup = try? JSONDecoder().decode(LegacyBackup.self, from: data) {
-            record.aerialSlots = backup.slots
-        }
+        let record = AgentRecord()
         save(record)
         return record
     }
@@ -636,23 +604,6 @@ public enum AgentRecordStore {
         let files = (try? FileManager.default.contentsOfDirectory(
             at: AppPaths.backupsDirectory, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
         return files.filter { $0.pathExtension.lowercased() == "mov" }.map(\.lastPathComponent).sorted()
-    }
-
-    private static func legacyData(_ key: String) -> Data? {
-        CFPreferencesCopyAppValue(key as CFString, legacyDomain as CFString) as? Data
-    }
-
-    // Phase 1 recorded a single `slot` before it recorded `slots`.
-    private struct LegacyBackup: Decodable {
-        var slots: [String]
-
-        private enum CodingKeys: String, CodingKey { case slots, slot }
-
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            slots = try container.decodeIfPresent([String].self, forKey: .slots)
-                ?? [container.decode(String.self, forKey: .slot)]
-        }
     }
 }
 

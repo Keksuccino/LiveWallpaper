@@ -110,7 +110,7 @@ final class VideoGrader: @unchecked Sendable {
             let table = try lookupTable(assets: AppPaths.sharedAssetsDirectory.path, name: name)
             return (Int(table.size), Array(table.rgba))
         } catch {
-            NSLog("LiveWallpaper: image filter \(name) unavailable: \(error)")
+            NSLog("WallpaperMage: image filter \(name) unavailable: \(error)")
             return nil
         }
     }
@@ -135,14 +135,14 @@ final class VideoGrader: @unchecked Sendable {
     }
 
     /// The colour options: contrast around mid grey, then value, saturation and hue in HSV, as the renderer's
-    /// `lw_grade_fs`.
+    /// `wm_grade_fs`.
     private static let kernel: CIColorKernel? = {
         let source = """
             #include <metal_stdlib>
             #include <CoreImage/CoreImage.h>
             using namespace metal;
             extern "C" { namespace coreimage {
-            float4 lw_video_grade(sample_t s, float4 p) {
+            float4 wm_video_grade(sample_t s, float4 p) {
                 float3 c = mix(float3(0.5), s.rgb, p.y);
                 float4 a = c.g < c.b ? float4(c.bg, -1.0, 2.0 / 3.0) : float4(c.gb, 0.0, -1.0 / 3.0);
                 float4 q = c.r < a.x ? float4(a.xyw, c.r) : float4(c.r, a.yzx);
@@ -159,7 +159,7 @@ final class VideoGrader: @unchecked Sendable {
         do {
             return try CIKernel.kernels(withMetalString: source).first as? CIColorKernel
         } catch {
-            NSLog("LiveWallpaper: video colour options unavailable: \(error)")
+            NSLog("WallpaperMage: video colour options unavailable: \(error)")
             return nil
         }
     }()

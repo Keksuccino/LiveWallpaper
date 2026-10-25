@@ -28,7 +28,7 @@ final class ScreenLockObserver: NSObject {
 /// WallpaperStills keeps a still of the desktop. This puts Apple's Aerials back and deletes the leftovers. It finds
 /// nothing to do on a Mac that never ran such a version, so it runs at every launch.
 enum LegacyLockScreen {
-    private static let temporaryPrefix = "livewallpaper-lockscreen-"
+    private static let temporaryPrefix = "wallpapermage-lockscreen-"
 
     static func cleanUp(library: [VideoItem]) {
         restoreAerials()

@@ -15,7 +15,7 @@ struct DisplayPicker: View {
             DisplayArrangement(model: model)
             if let screen = model.selectedScreen { caption(screen) }
         }
-        .lwGlassCard()
+        .wmGlassCard()
     }
 
     private func caption(_ screen: ScreenInfo) -> some View {
@@ -40,7 +40,7 @@ struct DisplayPicker: View {
             .disabled(model.wallpaper(on: screen.id) == nil)
             .help("Stop the live wallpaper on this display and go back to the macOS default wallpaper.")
         }
-        .animation(LWMotion.content, value: item?.id)
+        .animation(WMMotion.content, value: item?.id)
     }
 }
 
@@ -73,8 +73,8 @@ private struct DisplayArrangement: View {
         }
         .aspectRatio(bounds.isEmpty ? 16 / 9 : bounds.width / bounds.height, contentMode: .fit)
         .frame(maxWidth: .infinity, maxHeight: maxHeight)
-        .animation(LWMotion.select, value: model.selectedDisplayID)
-        .animation(LWMotion.content, value: model.screens)
+        .animation(WMMotion.select, value: model.selectedDisplayID)
+        .animation(WMMotion.content, value: model.screens)
     }
 }
 
@@ -109,14 +109,14 @@ private struct DisplayTile: View {
             shape.strokeBorder(selected ? Color.accentColor : Color.primary.opacity(hovering ? 0.28 : 0.14),
                                lineWidth: selected ? 3 : 1)
         }
-        .onHover { inside in withAnimation(LWMotion.hover) { hovering = inside } }
+        .onHover { inside in withAnimation(WMMotion.hover) { hovering = inside } }
         .contextMenu {
             Button("Remove Wallpaper") { model.removeWallpaper(from: screen.id) }
                 .disabled(model.wallpaper(on: screen.id) == nil)
         }
         .task(id: wallpaper?.url) {
             guard let wallpaper, let image = await DisplayStillCache.shared.image(at: wallpaper.url) else { return }
-            withAnimation(LWMotion.content) {
+            withAnimation(WMMotion.content) {
                 still = LoadedStill(url: wallpaper.url, stillOf: wallpaper.stillOf, image: image)
             }
         }
@@ -186,7 +186,7 @@ private struct WallpaperPreview: View {
         .clipped()
         .task(id: item.id) {
             let loaded = await ThumbnailCache.shared.image(for: item)
-            withAnimation(LWMotion.content) { image = loaded }
+            withAnimation(WMMotion.content) { image = loaded }
         }
     }
 

@@ -2729,7 +2729,7 @@ impl Engine {
         let a = self.pool.take(&self.gpu, w, h)?;
         let enc = gpu::begin(cb, &a, None, Some([0.0; 4]))?;
         let texel = (1.0 / src.width().max(1) as f32, 1.0 / src.height().max(1) as f32);
-        self.blur_library_pass(&enc, "lw_bright_fs", src, [0.0, 0.0, 1.0, 1.0], texel, [threshold, strength])?;
+        self.blur_library_pass(&enc, "wm_bright_fs", src, [0.0, 0.0, 1.0, 1.0], texel, [threshold, strength])?;
         enc.endEncoding();
         let out = a;
         for radius in [1.0f32, 2.5] {
@@ -2766,7 +2766,7 @@ impl Engine {
             };
             let texel = (1.0 / input.width().max(1) as f32, 1.0 / input.height().max(1) as f32);
             let enc = gpu::begin(cb, &next, None, Some([0.0; 4]))?;
-            self.blur_library_pass(&enc, "lw_bright_fs", input, area, texel, [0.0, 1.0])?;
+            self.blur_library_pass(&enc, "wm_bright_fs", input, area, texel, [0.0, 1.0])?;
             enc.endEncoding();
             if let Some(t) = cur.replace(next) {
                 self.pool.give(t);
@@ -2794,7 +2794,7 @@ impl Engine {
         rect: [f32; 4],
         dir: (f32, f32),
     ) -> Result<(), Error> {
-        self.blur_library_pass(enc, "lw_blur_fs", src, rect, dir, [0.0; 2])
+        self.blur_library_pass(enc, "wm_blur_fs", src, rect, dir, [0.0; 2])
     }
 
     #[allow(clippy::too_many_arguments)]

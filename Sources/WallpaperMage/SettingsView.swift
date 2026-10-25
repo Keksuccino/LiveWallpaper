@@ -113,7 +113,7 @@ private struct GeneralSettingsView: View {
     private var lockScreen: some View {
         InspectorSection(title: "Lock Screen & Menu Bar") {
             VStack(alignment: .leading, spacing: 6) {
-                LWSettingRow(title: "Update delay") {
+                WMSettingRow(title: "Update delay") {
                     Picker("Update delay", selection: $model.stillDelay) {
                         ForEach(LibraryState.stillDelayOptions, id: \.self) { Text(Self.delayTitle($0)).tag($0) }
                     }
@@ -139,7 +139,7 @@ private struct GeneralSettingsView: View {
                         .font(.system(size: 26, weight: .light))
                         .foregroundStyle(.tint)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Live Wallpaper").font(.callout.weight(.semibold))
+                        Text(AppIdentity.name).font(.callout.weight(.semibold))
                         Text("Version \(version)")
                             .font(.caption).foregroundStyle(.secondary)
                     }

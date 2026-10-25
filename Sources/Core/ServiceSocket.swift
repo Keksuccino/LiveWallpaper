@@ -1,7 +1,7 @@
 import Foundation
 import Darwin
 
-// UI (LiveWallpaper.app) <-> background service (LiveWallpaperService) over a Unix domain socket.
+// UI (WallpaperMage.app) <-> background service (WallpaperMageService) over a Unix domain socket.
 // Replaces NSXPC + launchd, which refuses to spawn an ad hoc signed service (spawn failed, EX_CONFIG).
 // Frame: 4-byte big-endian length, then a JSON `ServiceEnvelope`. Payloads are JSON `ServiceCommand` /
 // `ServiceStatus` (see ServiceXPC.swift), so the transport never changes when a command is added.
@@ -27,7 +27,7 @@ public struct ServiceSocketError: LocalizedError, Sendable {
 public enum ServiceSocket {
     public static let maxFrame = 16 << 20
 
-    /// ~/Library/Application Support/LiveWallpaper/service.sock, or /tmp/lw-<uid>/service.sock when that path does
+    /// ~/Library/Application Support/WallpaperMage/service.sock, or /tmp/wm-<uid>/service.sock when that path does
     /// not fit in sockaddr_un.sun_path (104 bytes including the terminator).
     public static let path: String = {
         let preferred = AppPaths.supportDirectory.appendingPathComponent("service.sock").path
@@ -38,7 +38,7 @@ public enum ServiceSocket {
             }
             return preferred
         }
-        let folder = "/tmp/lw-\(getuid())"
+        let folder = "/tmp/wm-\(getuid())"
         mkdir(folder, 0o700)
         // Another user could have planted the folder: only use one we own.
         var info = stat()

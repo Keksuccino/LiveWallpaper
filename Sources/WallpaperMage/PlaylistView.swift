@@ -13,19 +13,19 @@ struct PlaylistView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: LWTheme.sectionSpacing) {
-                LWPageHeader(title: "Playlists",
+            VStack(alignment: .leading, spacing: WMTheme.sectionSpacing) {
+                WMPageHeader(title: "Playlists",
                              subtitle: "Choose the wallpapers that rotate, and in what order.")
                 VStack(alignment: .leading, spacing: 18) {
                     PlaylistEditorCard(model: model)
                     rotationCard
                 }
             }
-            .padding(LWTheme.contentPadding)
+            .padding(WMTheme.contentPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.visible)
-        .background(LWBackground())
+        .background(WMBackground())
     }
 
     /// Where rotation is turned on.
@@ -43,7 +43,7 @@ struct PlaylistView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background { glassShape(radius: LWTheme.cardRadius) }
+        .background { glassShape(radius: WMTheme.cardRadius) }
     }
 }
 
@@ -95,7 +95,7 @@ private struct PlaylistEditorCard: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background { glassShape(radius: LWTheme.cardRadius) }
+        .background { glassShape(radius: WMTheme.cardRadius) }
         .sheet(isPresented: $addSheet) {
             PlaylistAddSheet(model: model) { added in
                 model.setPlaylist((storedIDs ?? []) + added)
@@ -103,7 +103,7 @@ private struct PlaylistEditorCard: View {
         }
         .onAppear { ids = storedIDs ?? [] }
         .onChange(of: storedIDs ?? []) { _, stored in ids = stored }
-        .animation(LWMotion.content, value: isCustom)
+        .animation(WMMotion.content, value: isCustom)
     }
 
     private var subtitle: LocalizedStringKey {
@@ -161,7 +161,7 @@ private struct PlaylistEditorCard: View {
                 if let info = item.scene {
                     SceneSupportBadge(info: info)
                 } else {
-                    LWChip(text: String(localized: "Video"))
+                    WMChip(text: String(localized: "Video"))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -261,7 +261,7 @@ private struct PlaylistAddSheet: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Add to Playlist")
                     .font(.headline)
-                LWSearchField(prompt: "Search your library", text: $searchText)
+                WMSearchField(prompt: "Search your library", text: $searchText)
             }
             .padding(16)
 
@@ -335,7 +335,7 @@ private struct PlaylistAddSheet: View {
                 if let info = item.scene {
                     SceneSupportBadge(info: info)
                 } else {
-                    LWChip(text: String(localized: "Video"))
+                    WMChip(text: String(localized: "Video"))
                 }
             }
             .padding(.horizontal, 16)
