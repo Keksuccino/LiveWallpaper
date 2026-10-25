@@ -607,6 +607,8 @@ struct DisplayInspectorView: View {
             }
         }
         .padding(18)
+        // The panel starts at the window's top edge, in the toolbar strip (see `lwInspectorPanel`).
+        .padding(.top, 22)
     }
 
     private func header(_ item: VideoItem, on screen: ScreenInfo) -> some View {

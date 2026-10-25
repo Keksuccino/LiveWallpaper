@@ -410,7 +410,7 @@ enum WorkshopListState: Equatable {
         return queue.firstIndex(where: { $0.id == id }).map { $0 + 1 }
     }
 
-    /// Mean progress of the downloads that report a fraction, for the toolbar pill.
+    /// Mean progress of the downloads that report a fraction, for the Workshop page's downloads strip.
     var overallDownloadProgress: Double? {
         let active = downloadEntries.filter(\.phase.isActive)
         let fractions = active.compactMap { entry -> Double? in

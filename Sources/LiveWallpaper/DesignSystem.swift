@@ -241,23 +241,27 @@ struct LWTopicChip: View {
 
 struct StatusDot: View {
     let color: Color
+    /// A ring keeps growing out of the dot (not with Reduce Motion).
     var pulsing = false
     @State private var on = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var pulses: Bool { pulsing && !reduceMotion }
 
     var body: some View {
         Circle()
             .fill(color)
             .frame(width: 7, height: 7)
             .overlay {
-                if pulsing {
+                if pulses {
                     Circle().stroke(color.opacity(0.45), lineWidth: 1)
                         .scaleEffect(on ? 2.1 : 0.9)
                         .opacity(on ? 0 : 1)
                 }
             }
-            .animation(pulsing ? .easeOut(duration: 1.2).repeatForever(autoreverses: false) : .default, value: on)
-            .onAppear { on = pulsing }
-            .onChange(of: pulsing) { _, newValue in on = newValue }
+            .animation(pulses ? .easeOut(duration: 1.2).repeatForever(autoreverses: false) : .default, value: on)
+            .onAppear { on = pulses }
+            .onChange(of: pulses) { _, newValue in on = newValue }
     }
 }
 
@@ -365,15 +369,19 @@ extension View {
         modifier(HoverLiftModifier(enabled: enabled))
     }
 
-    /// A fixed inspector panel on the trailing side, always shown. It is laid out below the toolbar, unlike SwiftUI's
-    /// `inspector`, which reaches up into the toolbar and takes over its trailing items (the search field).
+    /// A fixed inspector panel on the trailing side, always shown. Like the sidebar it reaches up into the toolbar strip,
+    /// which has no items above it (a page using it hides the toolbar's background there, and its content needs top
+    /// padding for the strip). SwiftUI's `inspector` would take over the toolbar's trailing items (the search field).
     func lwInspectorPanel<Inspector: View>(@ViewBuilder _ inspector: () -> Inspector) -> some View {
         HStack(spacing: 0) {
             frame(maxWidth: .infinity, maxHeight: .infinity)
-            Divider()
-            inspector()
-                .frame(width: LWTheme.inspectorWidth)
-                .frame(maxHeight: .infinity)
+            Group {
+                Divider()
+                inspector()
+                    .frame(width: LWTheme.inspectorWidth)
+                    .frame(maxHeight: .infinity)
+            }
+            .ignoresSafeArea(.container, edges: .top)
         }
     }
 }

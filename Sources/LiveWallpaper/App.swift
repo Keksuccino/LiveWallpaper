@@ -143,9 +143,10 @@ struct RootView: View {
                 .font(.callout.weight(.medium))
             Spacer(minLength: 4)
             if live {
-                ProgressRing(progress: workshop.overallDownloadProgress ?? 0,
-                             size: 16, lineWidth: 2)
-                    .opacity(workshop.overallDownloadProgress == nil ? 0.4 : 1)
+                StatusDot(color: .accentColor, pulsing: true)
+                    .padding(.trailing, 5)
+                    .help("Downloads in progress")
+                    .accessibilityLabel("Downloads in progress")
             } else if let count, count > 0 {
                 Text(count, format: .number)
                     .font(.caption2.weight(.semibold).monospacedDigit())
@@ -173,33 +174,6 @@ struct RootView: View {
         }
         .background(LWBackground())
         .animation(LWMotion.content, value: banner?.text)
-        .toolbar {
-            if workshop.hasActiveDownloads {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        selection = .downloads
-                    } label: {
-                        HStack(spacing: 6) {
-                            ProgressRing(progress: workshop.overallDownloadProgress ?? 0,
-                                         size: 16, lineWidth: 2)
-                                .opacity(workshop.overallDownloadProgress == nil ? 0.4 : 1)
-                            Text(workshop.activeDownloadCount, format: .number)
-                                .font(.caption.weight(.semibold).monospacedDigit())
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background {
-                            Capsule()
-                                .fill(.regularMaterial)
-                                .overlay(Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 1))
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .help("Downloads in progress")
-                    .accessibilityLabel("Downloads in progress")
-                }
-            }
-        }
     }
 
     @ViewBuilder private var content: some View {
@@ -209,6 +183,9 @@ struct RootView: View {
                 .lwInspectorPanel {
                     DisplayInspectorView(model: model)
                 }
+                // The panel reaches up into the toolbar strip, where the toolbar's background would blur it. Nothing
+                // else on Home scrolls under the toolbar (its header is pinned above the scrolling library).
+                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         case .playlists:
             PlaylistView(model: model)
         case .workshop:

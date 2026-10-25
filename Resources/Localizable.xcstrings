@@ -11238,7 +11238,7 @@
       }
     },
     "Downloads in progress" : {
-      "comment" : "Tooltip and accessibility label of the toolbar button that shows the number of running downloads.",
+      "comment" : "Tooltip and accessibility label of the pulsing dot on the sidebar’s Downloads item while wallpapers download.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
