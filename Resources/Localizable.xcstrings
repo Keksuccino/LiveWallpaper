@@ -2048,18 +2048,18 @@
       }
     },
     "About" : {
-      "comment" : "Section title in Settings > General (shown in capitals).",
+      "comment" : "Tab of the Settings sheet with the app's name, version and project page.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Info"
+            "value" : "Über"
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Πληροφορίες"
+            "value" : "Σχετικά"
           }
         },
         "es" : {
@@ -2083,19 +2083,19 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "情報"
+            "value" : "このアプリについて"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "정보"
+            "value" : "이 앱에 관하여"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Informacje"
+            "value" : "O aplikacji"
           }
         },
         "pt-BR" : {
@@ -22639,7 +22639,7 @@
       }
     },
     "Project page" : {
-      "comment" : "Link to the app's website (Settings > General > About).",
+      "comment" : "Link to the app's website (Settings > About).",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -39266,7 +39266,7 @@
       }
     },
     "Version %@" : {
-      "comment" : "Settings > General > About. %@ = the version number, e.g. “3.0 (3)”.",
+      "comment" : "Settings > About. %@ = the version number, e.g. “3.0 (3)”.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -39764,7 +39764,7 @@
       }
     },
     "Videos and Wallpaper Engine scenes for your desktop." : {
-      "comment" : "Settings > General > About: what the app is.",
+      "comment" : "Settings > About: what the app is.",
       "localizations" : {
         "de" : {
           "stringUnit" : {

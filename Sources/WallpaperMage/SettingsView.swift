@@ -3,7 +3,7 @@ import AppKit
 import Core
 
 enum SettingsTab: Hashable {
-    case general, steam
+    case general, steam, about
 }
 
 /// Opens Settings at a tab from anywhere in the app (the sidebar's ⚙, ⌘, and the Workshop's "Open Steam Settings").
@@ -35,6 +35,7 @@ struct AppSettingsView: View {
             Picker("Settings", selection: $navigator.tab) {
                 Text("General").tag(SettingsTab.general)
                 Text("Steam").tag(SettingsTab.steam)
+                Text("About").tag(SettingsTab.about)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -49,6 +50,8 @@ struct AppSettingsView: View {
                     ScrollView { GeneralSettingsView(model: model) }
                 case .steam:
                     SteamSetupView(workshop: workshop, setup: SteamSetupModel.shared)
+                case .about:
+                    AboutSettingsView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -77,7 +80,6 @@ private struct GeneralSettingsView: View {
         VStack(alignment: .leading, spacing: 24) {
             sound
             lockScreen
-            about
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -130,28 +132,30 @@ private struct GeneralSettingsView: View {
     private static func delayTitle(_ seconds: Double) -> LocalizedStringKey {
         seconds == 0 ? "No delay" : "\(seconds.formatted()) s"
     }
+}
 
-    private var about: some View {
-        InspectorSection(title: "About") {
-            VStack(alignment: .leading, spacing: 7) {
-                HStack(spacing: 12) {
-                    Image(systemName: "sparkles.rectangle.stack")
-                        .font(.system(size: 26, weight: .light))
-                        .foregroundStyle(.tint)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(AppIdentity.name).font(.callout.weight(.semibold))
-                        Text("Version \(version)")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                Text("Videos and Wallpaper Engine scenes for your desktop.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Link("Project page", destination: URL(string: "https://github.com/NOOB-3301/LiveWallpaper")!)
-                    .font(.caption)
+/// The About tab: what the app is, its version and where to find the project.
+@MainActor
+private struct AboutSettingsView: View {
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 96, height: 96)
+                .accessibilityHidden(true)
+            VStack(spacing: 3) {
+                Text(AppIdentity.name).font(.title2.weight(.semibold))
+                Text("Version \(version)").font(.callout).foregroundStyle(.secondary)
             }
+            Text("Videos and Wallpaper Engine scenes for your desktop.")
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 6)
+            Link("Project page", destination: URL(string: "https://github.com/NOOB-3301/LiveWallpaper")!)
         }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var version: String {
