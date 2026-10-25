@@ -44,7 +44,7 @@ struct AppCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .appSettings) {
-            Button("Settings…") { SettingsNavigator.shared.open() }
+            Button("Settings") { SettingsNavigator.shared.open() }
                 .keyboardShortcut(",", modifiers: .command)
         }
 
@@ -55,12 +55,12 @@ struct AppCommands: Commands {
         }
 
         CommandGroup(replacing: .newItem) {
-            Button("Import Wallpapers…") {
+            Button("Import Wallpapers") {
                 Task { @MainActor in _ = await ImportCenter.importWallpapers(model: model) }
             }
             .keyboardShortcut("o", modifiers: .command)
 
-            Button("Add Videos…") {
+            Button("Add Videos") {
                 let urls = VideoPicker.choose()
                 if !urls.isEmpty { model.addVideos(urls: urls) }
             }

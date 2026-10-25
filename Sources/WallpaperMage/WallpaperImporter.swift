@@ -113,7 +113,7 @@ enum WallpaperImporter {
         model.addImported(item)
     }
 
-    /// The open panel for "Import Wallpapers…": videos, scene packages and scene folders at once.
+    /// The open panel for "Import Wallpapers": videos, scene packages and scene folders at once.
     @MainActor
     static func choose() -> [URL] {
         let panel = NSOpenPanel()

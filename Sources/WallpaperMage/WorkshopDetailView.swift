@@ -243,7 +243,7 @@ struct WorkshopDetailView: View {
     private var setupHint: some View {
         HStack(spacing: 6) {
             Text(WorkshopCardActions.setupFirst).font(.caption).foregroundStyle(.orange)
-            Button("Set up Steam…", action: openSteamSetup).buttonStyle(.link).font(.caption)
+            Button("Set up Steam", action: openSteamSetup).buttonStyle(.link).font(.caption)
         }
     }
 

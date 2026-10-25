@@ -140,7 +140,7 @@ enum ServiceEntry {
         configure(nextItem, title: String(localized: "Next Wallpaper"), action: #selector(nextWallpaper))
         nextItem.keyEquivalent = String(Character(UnicodeScalar(NSRightArrowFunctionKey)!))
         configure(muteItem, title: String(localized: "Mute Sound"), action: #selector(toggleMute))
-        let settings = NSMenuItem(title: String(localized: "Open Settings…"), action: #selector(openSettings),
+        let settings = NSMenuItem(title: String(localized: "Open Settings"), action: #selector(openSettings),
                                   keyEquivalent: ",")
         settings.target = self
         let quit = NSMenuItem(title: String(localized: "Quit Wallpaper Mage"), action: #selector(quitWallpaperMage),

@@ -54,7 +54,7 @@ struct PlaylistEditorView: View {
                         Button(role: .destructive) {
                             confirmingDelete = true
                         } label: {
-                            Label("Delete Playlist…", systemImage: "trash")
+                            Label("Delete Playlist", systemImage: "trash")
                         }
                         Button("Cancel") { model.leaveEditor(then: {}) }
                             .keyboardShortcut(.cancelAction)
@@ -135,7 +135,7 @@ private struct PlaylistDetailsCard: View {
                             .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
                     }
                 HStack(spacing: 8) {
-                    Button("Choose Picture…", action: chooseImage)
+                    Button("Choose Picture", action: chooseImage)
                         .help("Use a picture of your own for this playlist.")
                     if playlist.image != nil {
                         Button("Use Previews") { model.clearPlaylistImage(playlist.id) }
@@ -277,7 +277,7 @@ private struct PlaylistItemsCard: View {
                     .foregroundStyle(.tertiary)
                 Spacer(minLength: 8)
                 Button { addSheet = true } label: {
-                    Label("Add Wallpapers…", systemImage: "plus")
+                    Label("Add Wallpapers", systemImage: "plus")
                 }
                 .controlSize(.small)
             }

@@ -199,10 +199,10 @@ struct WorkshopCardActions: View {
         case .download: downloadButton
         case .cantPlay: cantPlay
         case .inLibrary(let added): inLibrary(added: added)
-        case .queued: progress("Waiting…")
-        case .signingIn: progress("Signing in to Steam…", spinner: true)
+        case .queued: progress("Waiting")
+        case .signingIn: progress("Signing in to Steam", spinner: true)
         case .downloading(let value): downloading(value)
-        case .importing: progress("Adding to your library…", spinner: true, cancellable: false)
+        case .importing: progress("Adding to your library", spinner: true, cancellable: false)
         case .failed(let error):
             WorkshopFailureView(error: error, workshop: workshop, retry: { workshop.download(item) },
                         openSteamSetup: openSteamSetup, dismiss: { workshop.dismissDownload(item.id) })
@@ -251,7 +251,7 @@ struct WorkshopCardActions: View {
     }
 
     private func downloading(_ value: Double?) -> some View {
-        guard let value else { return progress("Downloading…", spinner: true) }
+        guard let value else { return progress("Downloading", spinner: true) }
         let clamped = min(max(value, 0), 1)
         return progress("Downloading… \(Int((clamped * 100).rounded()))%", fraction: clamped)
     }
@@ -529,7 +529,7 @@ struct WorkshopView: View {
         case .loading:
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("Looking up…").foregroundStyle(.secondary)
+                Text("Looking up").foregroundStyle(.secondary)
             }
         case .found(let item):
             ResultCard(item: item, actions: actions(for: item, compact: false))
@@ -697,7 +697,7 @@ struct WorkshopView: View {
             } else {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Refreshing…").font(.caption).foregroundStyle(.secondary)
+                    Text("Refreshing").font(.caption).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -807,7 +807,7 @@ struct SteamSetupView: View {
             Text(workshop.setup.steamcmdPath ?? String(localized: "Not found"))
                 .font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
             HStack {
-                Button("Choose…") { chooseSteamcmd() }
+                Button("Choose") { chooseSteamcmd() }
                 Button("Use automatic") { useAutomaticPath() }.disabled(workshop.steamcmdPathOverride.isEmpty)
             }
             Text("Only needed if you already have SteamCMD somewhere else. Wallpaper Mage installs its own copy otherwise.")
@@ -830,7 +830,7 @@ struct SteamSetupView: View {
     private var loginText: String {
         switch workshop.setup.login {
         case .unknown: return String(localized: "Not checked yet")
-        case .checking: return String(localized: "Checking…")
+        case .checking: return String(localized: "Checking")
         case .loggedIn: return String(localized: "Signed in as \(workshop.steamUsername)")
         case .needsLogin: return String(localized: "Sign in with the steps above.")
         case .failed(let error): return error.title

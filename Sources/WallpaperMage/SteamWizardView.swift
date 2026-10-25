@@ -132,14 +132,14 @@ struct SteamWizardView: View {
 
     private var toolsTitle: String {
         switch setup.tools {
-        case .unknown: return String(localized: "Checking…")
+        case .unknown: return String(localized: "Checking")
         case .missing: return String(localized: "Install Steam’s download tool")
         case .installing(let step):
             switch step {
-            case .downloading: return String(localized: "Downloading…")
-            case .extracting: return String(localized: "Unpacking…")
+            case .downloading: return String(localized: "Downloading")
+            case .extracting: return String(localized: "Unpacking")
             case .firstRun: return String(localized: "Setting up Steam’s tool")
-            case .checking: return String(localized: "Checking…")
+            case .checking: return String(localized: "Checking")
             }
         case .rosettaRequired: return String(localized: "Rosetta is needed")
         case .failed(let error): return error.title
@@ -155,12 +155,12 @@ struct SteamWizardView: View {
             return String(localized: "Sign in to Steam")
         }
         switch setup.account {
-        case .unknown, .checking: return String(localized: "Checking…")
+        case .unknown, .checking: return String(localized: "Checking")
         case .signedOut: return String(localized: "Sign in to Steam")
         case .signedIn(let name): return String(localized: "Signed in as \(name)")
         case .signingIn(let step):
             switch step {
-            case .starting, .working: return String(localized: "Signing in…")
+            case .starting, .working: return String(localized: "Signing in")
             case .needsCode: return String(localized: "Steam Guard code")
             case .needsMobileApproval: return String(localized: "Approve on your phone")
             case .unrecognizedPrompt: return String(localized: "Steam is waiting for something unexpected")
@@ -173,7 +173,7 @@ struct SteamWizardView: View {
         guard phases.ownership == .current else { return String(localized: "Check Wallpaper Engine") }
         switch setup.ownership {
         case .unknown: return String(localized: "Check Wallpaper Engine")
-        case .checking: return String(localized: "Checking Wallpaper Engine…")
+        case .checking: return String(localized: "Checking Wallpaper Engine")
         case .owned: return String(localized: "You’re all set")
         case .notOwned: return String(localized: "Wallpaper Engine isn’t on this account")
         case .couldNotCheck: return String(localized: "Couldn’t confirm Wallpaper Engine")
@@ -328,7 +328,7 @@ private struct ToolsContent: View {
     var body: some View {
         switch setup.tools {
         case .unknown:
-            BusyLine("Checking…")
+            BusyLine("Checking")
         case .missing:
             VStack(alignment: .leading, spacing: 10) {
                 Text("Wallpaper Mage downloads Steam’s official command-line tool (SteamCMD, about 3 MB) from Valve. It is used only to download wallpapers you ask for, with your own Steam account.")
@@ -369,17 +369,17 @@ private struct InstallProgress: View {
                 Button("Cancel", action: cancel)
             }
         case .extracting:
-            BusyLine("Unpacking…")
+            BusyLine("Unpacking")
         case .firstRun(let note):
             VStack(alignment: .leading, spacing: 6) {
                 Text("Steam’s tool updates itself the first time it runs. This can take a few minutes.")
                     .foregroundStyle(.secondary)
                 if !note.isEmpty { Text(note).font(.caption).foregroundStyle(.secondary) }
-                BusyLine("Working…")
+                BusyLine("Working")
                 Button("Cancel", action: cancel)
             }
         case .checking:
-            BusyLine("Checking…")
+            BusyLine("Checking")
         }
     }
 }
@@ -424,7 +424,7 @@ private struct AccountContent: View {
     var body: some View {
         switch setup.account {
         case .unknown, .checking:
-            BusyLine("Checking…")
+            BusyLine("Checking")
         case .signedOut:
             SignInForm(setup: setup, onSignIn: onSignIn)
         case .signingIn(let step):
@@ -479,7 +479,7 @@ private struct SigningInContent: View {
     var body: some View {
         switch step {
         case .starting:
-            working(BusyLine("Signing in…"))
+            working(BusyLine("Signing in"))
         case .working(let text):
             working(BusyLine(verbatim: text))
         case .needsCode(let kind, let wasWrong):
@@ -605,7 +605,7 @@ private struct OwnershipContent: View {
                 Button("Check Wallpaper Engine", action: recheck).buttonStyle(.borderedProminent)
             }
         case .checking:
-            BusyLine("Checking Wallpaper Engine…")
+            BusyLine("Checking Wallpaper Engine")
         case .owned:
             VStack(alignment: .leading, spacing: 8) {
                 Text(boldName(name) { String(localized: "Signed in as \($0). Wallpaper Engine found.") })
@@ -662,7 +662,7 @@ private struct SharedFilesCard: View {
         case .unknown, .notFetched:
             Button("Get shared files") { start() }
         case .discovering:
-            BusyLine("Looking for the files…")
+            BusyLine("Looking for the files")
         case .needsConfirmation(let bytes, _):
             if declined {
                 Button("Get shared files") { start() }
@@ -672,7 +672,7 @@ private struct SharedFilesCard: View {
         case .fetching(let fraction):
             VStack(alignment: .leading, spacing: 6) {
                 if let fraction { ProgressView(value: min(max(fraction, 0), 1)) } else { ProgressView() }
-                Text("Downloading…").font(.caption).foregroundStyle(.secondary)
+                Text("Downloading").font(.caption).foregroundStyle(.secondary)
             }
         case .ready:
             HStack {

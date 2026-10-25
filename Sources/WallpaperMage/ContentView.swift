@@ -196,10 +196,10 @@ struct HomeView: View {
             Spacer()
             Menu {
                 Button { importWallpapers() } label: {
-                    Label("Import Wallpapers…", systemImage: "square.and.arrow.down.on.square")
+                    Label("Import Wallpapers", systemImage: "square.and.arrow.down.on.square")
                 }
                 Button { chooseVideos() } label: {
-                    Label("Add Videos…", systemImage: "film")
+                    Label("Add Videos", systemImage: "film")
                 }
                 Divider()
                 Button { newPlaylist() } label: {
@@ -287,7 +287,7 @@ struct HomeView: View {
         WMEmptyState(icon: "play.rectangle.on.rectangle",
                      title: "Your wallpaper library is empty",
                      message: "Drop videos, Wallpaper Engine scene packages (.pkg) or scene folders here — or choose files from your Mac.",
-                     actionTitle: "Import Wallpapers…", action: importWallpapers,
+                     actionTitle: "Import Wallpapers", action: importWallpapers,
                      secondaryTitle: "Browse the Workshop", secondaryAction: openWorkshop,
                      targeted: isTargeted)
         .contentShape(Rectangle())
@@ -422,7 +422,7 @@ private struct CardMenu: View {
 
     var body: some View {
         if let edit = actions.edit {
-            Button("Edit Playlist…", action: edit)
+            Button("Edit Playlist", action: edit)
         }
         if let useOnAllDisplays = actions.useOnAllDisplays {
             Button("Use on All Displays", action: useOnAllDisplays)
@@ -434,7 +434,7 @@ private struct CardMenu: View {
                         .disabled(playlist.containsItem)
                 }
                 if !addToPlaylist.playlists.isEmpty { Divider() }
-                Button("New Playlist…") { addToPlaylist.add(nil) }
+                Button("New Playlist") { addToPlaylist.add(nil) }
             }
         }
         if let showInFinder = actions.showInFinder {
@@ -442,9 +442,9 @@ private struct CardMenu: View {
         }
         Divider()
         if actions.edit != nil {
-            Button("Delete Playlist…", role: .destructive, action: actions.remove)
+            Button("Delete Playlist", role: .destructive, action: actions.remove)
         } else {
-            Button("Remove…", role: .destructive, action: actions.remove)
+            Button("Remove", role: .destructive, action: actions.remove)
         }
     }
 }
@@ -758,7 +758,7 @@ private struct PlaylistSummary: View {
                     Button {
                         model.editPlaylist(playlist.id)
                     } label: {
-                        Label("Edit Playlist…", systemImage: "pencil").frame(maxWidth: .infinity)
+                        Label("Edit Playlist", systemImage: "pencil").frame(maxWidth: .infinity)
                     }
                     .controlSize(.small)
                     .help("Change the playlist’s wallpapers, their order and settings, its timing and its transition.")

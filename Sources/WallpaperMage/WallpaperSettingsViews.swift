@@ -105,7 +105,7 @@ struct WallpaperSettingsCard: View {
                         presetName = ""
                         naming = true
                     } label: {
-                        Label("Save…", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity)
+                        Label("Save", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity)
                     }
                 }
                 Button { confirmingApplyToAll = true } label: {

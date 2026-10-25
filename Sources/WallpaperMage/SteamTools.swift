@@ -48,7 +48,7 @@ enum SteamCodeKind: Equatable {
 
 enum SteamSignInStep: Equatable {
     case starting                         // steamcmd launched, waiting for the first prompt
-    case working(String)                  // after the password / code was sent: "Signing in…"
+    case working(String)                  // after the password / code was sent: "Signing in"
     case needsCode(SteamCodeKind, previousWasWrong: Bool)
     case needsMobileApproval              // "approve the sign-in in the Steam Mobile app"; the app keeps waiting
     case unrecognizedPrompt(lastLines: String)   // fallback: nothing matched for 20 s; text is scrubbed
@@ -291,7 +291,7 @@ struct SteamSignInMachine {
         phase = .working
         window = ""
         lastOutput = now
-        return [.sendCode] + show(.working(String(localized: "Checking the code…")))
+        return [.sendCode] + show(.working(String(localized: "Checking the code")))
     }
 
     mutating func tick(now: Date) -> [Reaction] {
@@ -324,7 +324,7 @@ struct SteamSignInMachine {
         switch SteamPromptClassifier.classify(window) {
         case .none:
             if case .unrecognizedPrompt = shown {
-                return show(phase == .starting ? .starting : .working(String(localized: "Signing in…")))
+                return show(phase == .starting ? .starting : .working(String(localized: "Signing in")))
             }
             return []
         case .rosettaMissing: return end(.rosetta)
@@ -339,7 +339,7 @@ struct SteamSignInMachine {
             passwordSent = true
             phase = .working
             window = ""
-            return [.sendPassword] + show(.working(String(localized: "Signing in…")))
+            return [.sendPassword] + show(.working(String(localized: "Signing in")))
         case .guardCode(let found):
             if phase == .awaitingCode, kind == found { return [] }
             return wait(for: found, wrong: codesSent > 0, now: now)

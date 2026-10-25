@@ -179,14 +179,14 @@ private struct DownloadRow: View {
         switch phase {
         case .queued(let position):
             guard position > 1, let place = Self.ordinal.string(from: position as NSNumber) else {
-                return String(localized: "Waiting…")
+                return String(localized: "Waiting")
             }
             return String(localized: "Waiting · \(place) in queue")
-        case .signingIn: return String(localized: "Signing in to Steam…")
+        case .signingIn: return String(localized: "Signing in to Steam")
         case .downloading(let progress):
-            guard let progress else { return String(localized: "Downloading…") }
+            guard let progress else { return String(localized: "Downloading") }
             return String(localized: "Downloading · \(Int((min(max(progress, 0), 1) * 100).rounded()))%")
-        case .importing: return String(localized: "Adding to your library…")
+        case .importing: return String(localized: "Adding to your library")
         case .done: return String(localized: "Added to your library")
         case .failed(let error): return error.title
         }
