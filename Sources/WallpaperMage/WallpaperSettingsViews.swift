@@ -26,7 +26,7 @@ struct WallpaperSettingsCard: View {
     }
 
     var body: some View {
-        InspectorSection(title: "Wallpaper", subtitle: "Settings for this wallpaper on this display.") {
+        InspectorSection(title: "Wallpaper") {
             VStack(alignment: .leading, spacing: 12) {
                 if let sheet {
                     propertyList(sheet)
@@ -71,50 +71,51 @@ struct WallpaperSettingsCard: View {
     /// Wallpaper Engine's "your presets": load, save, apply to all wallpapers, share as JSON, reset.
     private var presetButtons: some View {
         let saved = model.presets(for: item)
-        return VStack(alignment: .leading, spacing: 8) {
-            Text("Presets").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            HStack(spacing: 8) {
-                // A Menu keeps its natural width whatever its frame; Save takes the rest of the row.
-                Menu {
-                    ForEach(saved) { preset in
-                        Button(preset.name) { update { $0 = preset.options } }
-                    }
-                    if !saved.isEmpty { Divider() }
-                    Button("Paste from Clipboard", action: pasteJSON)
-                    if !saved.isEmpty {
-                        Menu("Delete") {
-                            ForEach(saved) { preset in
-                                Button(preset.name, role: .destructive) { model.deletePreset(preset, of: item) }
+        return InspectorSection(title: "Presets") {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    // A Menu keeps its natural width whatever its frame; Save takes the rest of the row.
+                    Menu {
+                        ForEach(saved) { preset in
+                            Button(preset.name) { update { $0 = preset.options } }
+                        }
+                        if !saved.isEmpty { Divider() }
+                        Button("Paste from Clipboard", action: pasteJSON)
+                        if !saved.isEmpty {
+                            Menu("Delete") {
+                                ForEach(saved) { preset in
+                                    Button(preset.name, role: .destructive) { model.deletePreset(preset, of: item) }
+                                }
                             }
                         }
+                    } label: {
+                        Label("Load", systemImage: "folder")
                     }
-                } label: {
-                    Label("Load", systemImage: "folder")
+                    Button {
+                        presetName = ""
+                        naming = true
+                    } label: {
+                        Label("Save…", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity)
+                    }
                 }
-                Button {
-                    presetName = ""
-                    naming = true
-                } label: {
-                    Label("Save…", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity)
+                Button { confirmingApplyToAll = true } label: {
+                    Label("Apply to All Wallpapers", systemImage: "square.stack.3d.up").frame(maxWidth: .infinity)
+                }
+                .help("Gives every other wallpaper on this display this wallpaper’s sound, speed, alignment and colour settings.")
+                HStack(spacing: 8) {
+                    Button(action: copyJSON) {
+                        Label("Share JSON", systemImage: "doc.on.doc").frame(maxWidth: .infinity)
+                    }
+                    .help("Copies this wallpaper’s settings to the clipboard as JSON.")
+                    Button(action: reset) {
+                        Label("Reset", systemImage: "arrow.counterclockwise").frame(maxWidth: .infinity)
+                    }
+                    .disabled(isDefault)
+                    .help("Put every setting of this wallpaper back to its default.")
                 }
             }
-            Button { confirmingApplyToAll = true } label: {
-                Label("Apply to All Wallpapers", systemImage: "square.stack.3d.up").frame(maxWidth: .infinity)
-            }
-            .help("Gives every other wallpaper on this display this wallpaper’s sound, speed, alignment and colour settings.")
-            HStack(spacing: 8) {
-                Button(action: copyJSON) {
-                    Label("Share JSON", systemImage: "doc.on.doc").frame(maxWidth: .infinity)
-                }
-                .help("Copies this wallpaper’s settings to the clipboard as JSON.")
-                Button(action: reset) {
-                    Label("Reset", systemImage: "arrow.counterclockwise").frame(maxWidth: .infinity)
-                }
-                .disabled(isDefault)
-                .help("Put every setting of this wallpaper back to its default.")
-            }
+            .controlSize(.small)
         }
-        .controlSize(.small)
     }
 
     private func copyJSON() {
@@ -371,29 +372,30 @@ struct WallpaperSettingsCard: View {
     }
 
     private var performance: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            Text("Performance").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            HStack {
-                Text("Frame rate"); Spacer()
-                Picker("Frame rate", selection: binding(\.fps)) {
-                    // A rate from an older file that is not among the choices still shows.
-                    ForEach(Set([20, 24, 30, 45, 60, 120, options.fps]).sorted(), id: \.self) {
-                        Text("\($0) fps").tag($0)
-                    }
-                }.labelsHidden().columnControl()
+        InspectorSection(title: "Performance") {
+            VStack(alignment: .leading, spacing: 11) {
+                HStack {
+                    Text("Frame rate"); Spacer()
+                    Picker("Frame rate", selection: binding(\.fps)) {
+                        // A rate from an older file that is not among the choices still shows.
+                        ForEach(Set([20, 24, 30, 45, 60, 120, options.fps]).sorted(), id: \.self) {
+                            Text("\($0) fps").tag($0)
+                        }
+                    }.labelsHidden().columnControl()
+                }
+                .help("Smoothness of this scene. Higher looks smoother but keeps the GPU busier.")
+                HStack {
+                    Text("Resolution")
+                    Slider(value: binding(\.renderScale), in: 0.25...1).controlSize(.small)
+                    Text(options.renderScale, format: .percent.precision(.fractionLength(0)))
+                        .monospacedDigit().foregroundStyle(.secondary).frame(width: 44, alignment: .trailing)
+                }
+                .help("Share of the display’s pixels the scene is drawn at. Lower is lighter on the GPU.")
+                WMSwitchRow("Antialiasing", isOn: binding(\.antialiasing))
+                    .help("Smooths jagged edges. Costs some GPU time.")
+                WMSwitchRow("Scene responds to music", isOn: binding(\.audioResponse))
+                    .help("Lets audio visualisers in the scene follow what your Mac plays.")
             }
-            .help("Smoothness of this scene. Higher looks smoother but keeps the GPU busier.")
-            HStack {
-                Text("Resolution")
-                Slider(value: binding(\.renderScale), in: 0.25...1).controlSize(.small)
-                Text(options.renderScale, format: .percent.precision(.fractionLength(0)))
-                    .monospacedDigit().foregroundStyle(.secondary).frame(width: 44, alignment: .trailing)
-            }
-            .help("Share of the display’s pixels the scene is drawn at. Lower is lighter on the GPU.")
-            WMSwitchRow("Antialiasing", isOn: binding(\.antialiasing))
-                .help("Smooths jagged edges. Costs some GPU time.")
-            WMSwitchRow("Scene responds to music", isOn: binding(\.audioResponse))
-                .help("Lets audio visualisers in the scene follow what your Mac plays.")
         }
     }
 

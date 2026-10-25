@@ -613,9 +613,16 @@ struct DisplayInspectorView: View {
 
     private func header(_ item: VideoItem, on screen: ScreenInfo) -> some View {
         HStack(spacing: 11) {
-            ItemThumbnail(item: item, broken: !FileManager.default.fileExists(atPath: item.path),
-                          cornerRadius: 8)
-                .frame(width: 76, height: 43)
+            // ItemThumbnail takes the size of its scaled-to-fill image, so a frame alone does not bound it (a square
+            // preview would spill over the rows below). It is laid over a fixed square and clipped to it instead, which
+            // keeps the header the same height for every wallpaper.
+            Color.clear
+                .frame(width: 76, height: 76)
+                .overlay {
+                    ItemThumbnail(item: item, broken: !FileManager.default.fileExists(atPath: item.path),
+                                  cornerRadius: 8)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.name).font(.callout.weight(.semibold)).lineLimit(2).truncationMode(.middle)
                 Text(item.isScene ? "Scene · \(screen.name)" : "Video · \(screen.name)")
