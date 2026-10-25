@@ -102,7 +102,6 @@ struct RootView: View {
     @ObservedObject var workshop: WorkshopModel
     @ObservedObject private var settings = SettingsNavigator.shared
     @State private var selection: SidebarSelection = .home
-    @State private var showInspector = true
 
     var body: some View {
         NavigationSplitView {
@@ -175,18 +174,6 @@ struct RootView: View {
         .background(LWBackground())
         .animation(LWMotion.content, value: banner?.text)
         .toolbar {
-            if selection == .home {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        withAnimation(LWMotion.panel) { showInspector.toggle() }
-                    } label: {
-                        Label("Inspector", systemImage: "sidebar.right")
-                    }
-                    .help(showInspector ? "Hide Inspector" : "Show Inspector")
-                    .keyboardShortcut("i", modifiers: [.command, .option])
-                    .redrawnOnWindowActivation()
-                }
-            }
             if workshop.hasActiveDownloads {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -222,7 +209,7 @@ struct RootView: View {
         switch selection {
         case .home:
             HomeView(model: model, openWorkshop: { selection = .workshop })
-                .lwInspector(isPresented: $showInspector) {
+                .lwInspectorPanel {
                     DisplayInspectorView(model: model)
                 }
         case .playlists:

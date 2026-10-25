@@ -394,12 +394,15 @@ extension View {
         modifier(HoverLiftModifier(enabled: enabled))
     }
 
-    /// The inspector, in the app's inspector column width.
-    func lwInspector<Inspector: View>(isPresented: Binding<Bool>,
-                                      @ViewBuilder inspector: @escaping () -> Inspector) -> some View {
-        self.inspector(isPresented: isPresented) {
+    /// A fixed inspector panel on the trailing side, always shown. It is laid out below the toolbar, unlike SwiftUI's
+    /// `inspector`, which reaches up into the toolbar and takes over its trailing items (the search field).
+    func lwInspectorPanel<Inspector: View>(@ViewBuilder _ inspector: () -> Inspector) -> some View {
+        HStack(spacing: 0) {
+            frame(maxWidth: .infinity, maxHeight: .infinity)
+            Divider()
             inspector()
-                .inspectorColumnWidth(min: 280, ideal: LWTheme.inspectorWidth, max: 380)
+                .frame(width: LWTheme.inspectorWidth)
+                .frame(maxHeight: .infinity)
         }
     }
 }
