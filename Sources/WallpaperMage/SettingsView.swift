@@ -17,10 +17,13 @@ enum SettingsTab: Hashable {
     /// Set while Settings closes on the way to quitting the app.
     private var quitsWhenClosed = false
 
-    /// Opens Settings at `tab`, or at the tab it showed last.
+    /// Opens Settings at `tab`, or at the tab it showed last. An open playlist editor is left first, which undoes the
+    /// edit (asking when there is something to undo).
     func open(_ tab: SettingsTab? = nil) {
-        if let tab { self.tab = tab }
-        isPresented = true
+        SettingsModel.shared.leaveEditor { [weak self] in
+            if let tab { self?.tab = tab }
+            self?.isPresented = true
+        }
     }
 
     /// Quits the app, closing Settings first: macOS refuses to quit an app while it shows a sheet.

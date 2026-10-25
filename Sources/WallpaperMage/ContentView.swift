@@ -264,7 +264,7 @@ struct HomeView: View {
         switch entry {
         case .playlist(let playlist, _):
             return CardActions(click: click, useOnAllDisplays: useOnAll,
-                               edit: { model.editingPlaylistID = playlist.id },
+                               edit: { model.editPlaylist(playlist.id) },
                                remove: { pendingDeletion = playlist.id })
         case .wallpaper(let item):
             let choices = model.playlists.map {
@@ -275,7 +275,7 @@ struct HomeView: View {
                                    if let playlist {
                                        model.addToPlaylist(playlist, items: [item.id])
                                    } else {
-                                       model.editingPlaylistID = model.createPlaylist(with: [item.id])
+                                       model.createAndEditPlaylist(with: [item.id])
                                    }
                                },
                                showInFinder: { NSWorkspace.shared.activateFileViewerSelecting([item.url]) },
@@ -334,7 +334,7 @@ struct HomeView: View {
 
     /// Makes an empty playlist and opens its editor.
     private func newPlaylist() {
-        model.editingPlaylistID = model.createPlaylist()
+        model.createAndEditPlaylist()
     }
 
     /// A Workshop download is deleted with it, so that asks first; a local video only leaves the library.
@@ -756,7 +756,7 @@ private struct PlaylistSummary: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     Button {
-                        model.editingPlaylistID = playlist.id
+                        model.editPlaylist(playlist.id)
                     } label: {
                         Label("Edit Playlist…", systemImage: "pencil").frame(maxWidth: .infinity)
                     }

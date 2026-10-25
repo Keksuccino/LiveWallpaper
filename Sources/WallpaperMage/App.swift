@@ -59,6 +59,24 @@ struct WallpaperMageApp: App {
         return !lingering
     }
 
+    /// Quitting leaves an open playlist editor too: like every way out of it, it undoes the edit, after asking when
+    /// there is something to undo, and the app quits once the undone playlist has reached the service.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let model = SettingsModel.shared
+        guard model.editingPlaylistID != nil else { return .terminateNow }
+        NSApp.activate()
+        NSApp.windows.filter(\.isMiniaturized).forEach { $0.deminiaturize(nil) }
+        model.leaveEditor(then: {
+            Task { @MainActor in
+                await model.commitsSettled()
+                NSApp.reply(toApplicationShouldTerminate: true)
+            }
+        }, otherwise: {
+            NSApp.reply(toApplicationShouldTerminate: false)
+        })
+        return .terminateLater
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         WorkshopModel.shared.cancelAll()
         SteamSetupModel.shared.cancelSignIn()   // never leave a steamcmd sign-in waiting on a prompt
@@ -125,6 +143,9 @@ struct RootView: View {
             detail
         }
         .navigationSplitViewStyle(.balanced)
+        // The playlist editor is left through Done or Cancel (or another page, which asks too); closing the window
+        // would quit the app with the alert that asks about the edit nowhere to show.
+        .windowDismissBehavior(model.editingPlaylistID == nil ? .automatic : .disabled)
         .frame(minWidth: 980, minHeight: 640)
         .containerBackground(WMTheme.background, for: .window)
         .sheet(isPresented: $settings.isPresented, onDismiss: settings.didClose) {
@@ -162,9 +183,7 @@ struct RootView: View {
     private func sidebarRow(_ item: SidebarSelection, count: Int? = nil, live: Bool = false) -> some View {
         let selected = selection == item
         return Button {
-            // Home again leaves the playlist editor for the library.
-            if item == .home, selection == .home { model.editingPlaylistID = nil }
-            selection = item
+            select(item)
             sidebarFocused = true
         } label: {
             HStack(spacing: 0) {
@@ -202,10 +221,16 @@ struct RootView: View {
         let all = SidebarSelection.allCases
         guard let index = all.firstIndex(of: selection) else { return }
         switch direction {
-        case .up where index > 0: selection = all[index - 1]
-        case .down where index < all.count - 1: selection = all[index + 1]
+        case .up where index > 0: select(all[index - 1])
+        case .down where index < all.count - 1: select(all[index + 1])
         default: break
         }
+    }
+
+    /// Shows a page. Any page, Home included, leaves an open playlist editor, which undoes the edit (asking first when
+    /// there is something to undo).
+    private func select(_ item: SidebarSelection) {
+        model.leaveEditor { selection = item }
     }
 
     // MARK: Detail

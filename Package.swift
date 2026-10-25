@@ -67,6 +67,12 @@ let package = Package(
             dependencies: ["SceneFormat"],
             path: "Tests/SceneFormatTests"
         ),
+        // The Settings app's model (playlist editor sessions); never bootstrapped, so it talks to no service.
+        .testTarget(
+            name: "WallpaperMageTests",
+            dependencies: ["WallpaperMage"],
+            path: "Tests/WallpaperMageTests"
+        ),
     ],
     swiftLanguageModes: [.v5]
 )

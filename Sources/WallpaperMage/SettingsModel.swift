@@ -30,13 +30,12 @@ import SceneFormat
     @Published private(set) var screens: [ScreenInfo] = []
     /// The display Home and its inspector configure: the leftmost one unless the user picked another. UI state only.
     @Published var selectedDisplayID: String?
-    /// A library item Home scrolls to and highlights once (Show in Library in the Workshop); Home then leaves the
-    /// playlist editor. UI state only.
-    @Published var focusedID: VideoItem.ID? = nil {
-        didSet { if focusedID != nil { editingPlaylistID = nil } }
-    }
-    /// The playlist Home shows its editor for instead of the library. UI state only.
-    @Published var editingPlaylistID: Playlist.ID?
+    /// A library item Home scrolls to and highlights once (Show in Library in the Workshop). UI state only.
+    @Published var focusedID: VideoItem.ID? = nil
+    /// The playlist editor Home shows instead of the library; nil while it is closed. UI state only.
+    @Published private(set) var playlistEdit: PlaylistEdit?
+    /// A way out of the playlist editor waiting for the user to confirm that the edit is undone. UI state only.
+    @Published private(set) var leaveRequest: LeaveRequest?
 
     // Service mirror (read-only for views).
     /// A command the service answered with an error; cleared by clearStatus(). A service that cannot be reached
@@ -189,7 +188,7 @@ import SceneFormat
     func items(of playlist: Playlist) -> [VideoItem] { snapshot.items(of: playlist) }
 
     /// Makes a playlist of `items` and returns its id. It is called "New Playlist", numbered when that name is taken.
-    @discardableResult func createPlaylist(with items: [VideoItem.ID] = []) -> Playlist.ID {
+    private func createPlaylist(with items: [VideoItem.ID]) -> Playlist.ID {
         let names = Set(playlists.map(\.name))
         var name = String(localized: "New Playlist")
         var number = 2
@@ -221,33 +220,155 @@ import SceneFormat
         updatePlaylist(id) { $0.items += items }
     }
 
-    /// Deletes a playlist and its picture; the displays that played it get macOS's default wallpaper back.
+    /// Deletes a playlist and its pictures (with those chosen in its open editor); the displays that played it get
+    /// macOS's default wallpaper back.
     func deletePlaylist(_ id: Playlist.ID) {
-        let image = playlist(id)?.imageURL
+        var images = Set([playlist(id)?.image].compactMap { $0 })
+        if let session = playlistEdit, session.original.id == id {
+            images.formUnion(session.images.union([session.original.image].compactMap { $0 }))
+            playlistEdit = nil
+        }
         edit { $0.removePlaylist(id) }
-        if editingPlaylistID == id { editingPlaylistID = nil }
-        if let image { try? FileManager.default.removeItem(at: image) }
+        Self.deleteImages(images)
     }
 
-    /// Makes the picture at `url` the playlist's own (a scaled-down copy, see PlaylistImage). False when it could not
-    /// be read as a picture.
+    /// Makes the picture at `url` the open editor's playlist's own (a scaled-down copy, see PlaylistImage). False when
+    /// it could not be read as a picture.
     func setPlaylistImage(_ id: Playlist.ID, from url: URL) async -> Bool {
         let name = await Task.detached(priority: .userInitiated) { PlaylistImage.store(url) }.value
         guard let name else { return false }
-        guard let old = playlist(id) else {
-            try? FileManager.default.removeItem(at: AppPaths.playlistImagesDirectory.appendingPathComponent(name))
-            return false
+        // The editor may have been closed (cancelled) while the picture was read: it is not wanted any more.
+        guard playlistEdit?.original.id == id, let previous = playlist(id) else {
+            Self.deleteImages([name])
+            return true
         }
         updatePlaylist(id) { $0.image = name }
-        if let previous = old.imageURL { try? FileManager.default.removeItem(at: previous) }
+        playlistEdit?.images.insert(name)
+        retireImage(previous.image)
         return true
     }
 
-    /// The playlist shows its wallpapers' previews again; its own picture is deleted.
+    /// The open editor's playlist shows its wallpapers' previews again.
     func clearPlaylistImage(_ id: Playlist.ID) {
-        guard let previous = playlist(id)?.imageURL else { return }
+        guard let previous = playlist(id)?.image else { return }
         updatePlaylist(id) { $0.image = nil }
-        try? FileManager.default.removeItem(at: previous)
+        retireImage(previous)
+    }
+
+    // MARK: Playlist editor
+    // The editor changes its playlist live (a display that plays it follows every edit); Done keeps the changes and
+    // every other way out of the editor (Cancel, another page, Settings, quitting) undoes them, after asking when
+    // there is something to undo (`leaveEditor`). Pictures change only in the editor: a picture the playlist had when
+    // the editor opened stays on disk until the editor closes, so Cancel can go back to it.
+
+    /// The open playlist editor: the playlist as it was when the editor opened.
+    struct PlaylistEdit {
+        private(set) var original: Playlist
+        /// Made for the editor (New Playlist): undoing the edit deletes it again.
+        let isNew: Bool
+        /// The pictures chosen in the editor (file names); the ones the playlist does not keep go when it closes.
+        var images: Set<String> = []
+
+        init(original: Playlist, isNew: Bool) {
+            self.original = original
+            self.isNew = isNew
+        }
+
+        /// A wallpaper was downloaded again under a new id (LibraryState.replace): the playlist as it was follows,
+        /// like the playlist itself.
+        mutating func replace(_ id: UUID, with newID: UUID) {
+            guard id != newID else { return }
+            original.items = original.items.map { $0 == id ? newID : $0 }
+            if let options = original.wallpaperOptions.removeValue(forKey: id.uuidString) {
+                original.wallpaperOptions[newID.uuidString] = options
+            }
+        }
+    }
+
+    /// A way out of the editor: what happens once the edit is undone, or when the user keeps editing.
+    struct LeaveRequest {
+        let discard: () -> Void
+        let stay: () -> Void
+    }
+
+    var editingPlaylistID: Playlist.ID? { playlistEdit?.original.id }
+
+    /// The playlist differs from what it was when the editor opened.
+    var editHasChanges: Bool {
+        guard let session = playlistEdit else { return false }
+        return playlist(session.original.id) != session.original
+    }
+
+    func editPlaylist(_ id: Playlist.ID) {
+        guard let playlist = playlist(id) else { return }
+        playlistEdit = PlaylistEdit(original: playlist, isNew: false)
+    }
+
+    /// Makes a playlist of `items` and opens the editor for it.
+    func createAndEditPlaylist(with items: [VideoItem.ID] = []) {
+        guard let playlist = playlist(createPlaylist(with: items)) else { return }
+        playlistEdit = PlaylistEdit(original: playlist, isNew: true)
+    }
+
+    /// Done: the playlist keeps its changes and the editor closes.
+    func finishEditing() {
+        guard let session = playlistEdit else { return }
+        playlistEdit = nil
+        let kept = playlist(session.original.id)?.image
+        let unused = session.images.union([session.original.image].compactMap { $0 })
+        Self.deleteImages(unused.subtracting([kept].compactMap { $0 }))
+    }
+
+    /// Leaves the editor, undoing its changes, then runs `proceed`. With changes to undo it asks first
+    /// (`leaveRequest`, answered with `answerLeaveRequest`), and `stay` runs if the user keeps editing. Without an
+    /// open editor `proceed` runs at once.
+    func leaveEditor(then proceed: @escaping () -> Void, otherwise stay: @escaping () -> Void = {}) {
+        guard playlistEdit != nil else { return proceed() }
+        guard editHasChanges else {
+            cancelEditing()
+            return proceed()
+        }
+        leaveRequest = LeaveRequest(discard: { [weak self] in
+            self?.cancelEditing()
+            proceed()
+        }, stay: stay)
+    }
+
+    func answerLeaveRequest(discard: Bool) {
+        guard let request = leaveRequest else { return }
+        leaveRequest = nil
+        if discard { request.discard() } else { request.stay() }
+    }
+
+    /// Puts the playlist back as it was when the editor opened (a new one is deleted) and closes the editor.
+    /// Wallpapers that left the library meanwhile stay out.
+    private func cancelEditing() {
+        guard let session = playlistEdit else { return }
+        playlistEdit = nil
+        let id = session.original.id
+        if session.isNew {
+            edit { $0.removePlaylist(id) }
+        } else if let index = playlists.firstIndex(where: { $0.id == id }) {
+            let library = Set(videos.map(\.id.uuidString))
+            var original = session.original
+            original.items.removeAll { !library.contains($0.uuidString) }
+            original.wallpaperOptions = original.wallpaperOptions.filter { library.contains($0.key) }
+            if playlists[index] != original { playlists[index] = original }
+        }
+        Self.deleteImages(session.images)
+    }
+
+    /// A picture the playlist no longer shows: one chosen in the open editor goes at once, the one the playlist had
+    /// when the editor opened stays for Cancel.
+    private func retireImage(_ image: String?) {
+        guard let image, playlistEdit?.images.remove(image) != nil else { return }
+        Self.deleteImages([image])
+    }
+
+    private static func deleteImages(_ names: Set<String>) {
+        for name in names {
+            try? FileManager.default.removeItem(at: AppPaths.playlistImagesDirectory.appendingPathComponent(name))
+        }
     }
 
     private static func unique(_ ids: [UUID]) -> [UUID] {
@@ -260,6 +381,7 @@ import SceneFormat
     private var writesSuspended = false
     /// A commit could not be sent because the service was not connected; it goes out once the service answers.
     private var commitPending = false
+    private var lastCommit: Task<Void, Never>?
     private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     private var clientWatch: [AnyCancellable] = []
 
@@ -310,13 +432,15 @@ import SceneFormat
     /// Called by the Workshop importer with a finished item (files already in AppPaths.libraryDirectory).
     /// A re-download replaces the earlier copy of the same Workshop item in place, on every display that shows it.
     func addImported(_ item: VideoItem) {
+        let old = videos.first { $0.workshopID != nil && $0.workshopID == item.workshopID }
         edit { state in
-            if let old = state.videos.first(where: { $0.workshopID != nil && $0.workshopID == item.workshopID }) {
+            if let old {
                 state.replace(old.id, with: item)
             } else {
                 state.videos.append(item)
             }
         }
+        if let old { playlistEdit?.replace(old.id, with: item.id) }
     }
 
     func hasWorkshopItem(_ workshopID: String) -> Bool {
@@ -407,10 +531,15 @@ import SceneFormat
 
     // MARK: Service
 
+    /// Waits until the last commit has been answered or failed (before the app quits).
+    func commitsSettled() async {
+        await lastCommit?.value
+    }
+
     /// Sends a command. An error the service answers with shows up as `localMessage`; without a connection the
     /// sidebar already says so, and a commit is sent again once the service answers.
     private func send(_ command: ServiceCommand) {
-        Task { @MainActor [weak self] in
+        let task = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
                 let status = try await self.client.perform(command)
@@ -423,6 +552,7 @@ import SceneFormat
                 }
             }
         }
+        if case .commit = command { lastCommit = task }
     }
 
     /// A status arrived (reply or push): the service owns the app's `muted` (its menu can toggle it).

@@ -3,10 +3,11 @@ import AppKit
 import Core
 import UniformTypeIdentifiers
 
-// The playlist editor, shown on Home in place of the library while SettingsModel.editingPlaylistID is set: the
-// playlist's name, picture, timing and transition, and its wallpapers in order. The inspector beside it holds the
-// settings of the wallpaper selected in the list, which belong to the playlist (Playlist.wallpaperOptions). Every edit
-// is committed at once through SettingsModel, so a display that plays the playlist follows it live.
+// The playlist editor, shown on Home in place of the library while SettingsModel.playlistEdit is set: the playlist's
+// name, picture, timing and transition, and its wallpapers in order. The inspector beside it holds the settings of the
+// wallpaper selected in the list, which belong to the playlist (Playlist.wallpaperOptions). Every edit is committed at
+// once through SettingsModel, so a display that plays the playlist follows it live; Done keeps the edit, Cancel and
+// every other way out undo it (SettingsModel.leaveEditor), after the question this view shows.
 
 @MainActor
 struct PlaylistEditorView: View {
@@ -22,7 +23,27 @@ struct PlaylistEditorView: View {
                 .wmInspectorPanel {
                     PlaylistItemInspector(model: model, playlist: playlist, itemID: selectedItemID)
                 }
+                .alert(leaveTitle(playlist), isPresented: leaving) {
+                    Button(isNew ? "Discard Playlist" : "Discard Changes", role: .destructive) {
+                        model.answerLeaveRequest(discard: true)
+                    }
+                    Button("Keep Editing", role: .cancel) { model.answerLeaveRequest(discard: false) }
+                } message: {
+                    Text(isNew ? "The new playlist is deleted. Its wallpapers stay in your library."
+                               : "The playlist goes back to how it was when you started editing it.")
+                }
         }
+    }
+
+    private var isNew: Bool { model.playlistEdit?.isNew ?? false }
+
+    private func leaveTitle(_ playlist: Playlist) -> LocalizedStringKey {
+        isNew ? "Discard the new playlist “\(playlist.name)”?" : "Discard your changes to “\(playlist.name)”?"
+    }
+
+    /// Shown while a way out of the editor waits for an answer. Only the buttons answer it, so the setter does nothing.
+    private var leaving: Binding<Bool> {
+        Binding(get: { model.leaveRequest != nil }, set: { _ in })
     }
 
     private func page(_ playlist: Playlist) -> some View {
@@ -35,9 +56,12 @@ struct PlaylistEditorView: View {
                         } label: {
                             Label("Delete Playlist…", systemImage: "trash")
                         }
-                        Button("Done") { model.editingPlaylistID = nil }
+                        Button("Cancel") { model.leaveEditor(then: {}) }
+                            .keyboardShortcut(.cancelAction)
+                            .help("Undo every change since you opened this playlist and go back to your library.")
+                        Button("Done") { model.finishEditing() }
                             .buttonStyle(.borderedProminent)
-                            .help("Back to your library")
+                            .help("Keep your changes and go back to your library.")
                     }
                 }
                 PlaylistDetailsCard(model: model, playlist: playlist)

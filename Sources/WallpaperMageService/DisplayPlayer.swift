@@ -128,11 +128,6 @@ import Core
                 error = String(localized: "Couldn’t find “\(item.name)”. It may have been moved or deleted.")
             }
         case .playlist:
-            guard !items.isEmpty else {
-                clear()
-                error = Self.emptyPlaylist
-                return
-            }
             play(from: 0)
         case nil:
             clear()
@@ -149,6 +144,11 @@ import Core
     /// Shows the first playable wallpaper of the lineup from `start` on (wrapping), or nothing.
     private func play(from start: Int) {
         let items = lineup
+        guard !items.isEmpty else {
+            clear()
+            error = Self.emptyPlaylist
+            return
+        }
         for offset in 0..<items.count {
             let item = items[(start + offset) % items.count]
             if playable(item) {
