@@ -39763,85 +39763,85 @@
         }
       }
     },
-    "Videos and Wallpaper Engine scenes for your desktop. Settings never plays a wallpaper; the background service does." : {
-      "comment" : "Settings > General > About: what the app is. “Settings” is this window of the app.",
+    "Videos and Wallpaper Engine scenes for your desktop." : {
+      "comment" : "Settings > General > About: what the app is.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Videos und Szenen von Wallpaper Engine für deinen Schreibtisch. Das Einstellungsfenster spielt selbst keine Hintergrundbilder ab – das übernimmt der Hintergrunddienst."
+            "value" : "Videos und Szenen von Wallpaper Engine für deinen Schreibtisch."
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Βίντεο και σκηνές του Wallpaper Engine για το γραφείο σας. Οι Ρυθμίσεις δεν αναπαράγουν ποτέ ταπετσαρίες. Αυτό το κάνει η υπηρεσία παρασκηνίου."
+            "value" : "Βίντεο και σκηνές του Wallpaper Engine για το γραφείο σας."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vídeos y escenas de Wallpaper Engine para tu escritorio. La ventana Ajustes nunca reproduce fondos de pantalla; de eso se encarga el servicio en segundo plano."
+            "value" : "Vídeos y escenas de Wallpaper Engine para tu escritorio."
           }
         },
         "es-MX" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Videos y escenas de Wallpaper Engine para tu escritorio. La ventana de Configuración nunca reproduce fondos; eso lo hace el servicio en segundo plano."
+            "value" : "Videos y escenas de Wallpaper Engine para tu escritorio."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Des vidéos et des scènes Wallpaper Engine pour votre bureau. La fenêtre Réglages ne lit jamais de fond d’écran ; c’est le service en arrière-plan qui s’en charge."
+            "value" : "Des vidéos et des scènes Wallpaper Engine pour votre bureau."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "デスクトップでビデオやWallpaper Engineのシーンを壁紙として使用できます。壁紙を再生するのはこの設定ウインドウではなく、バックグラウンドサービスです。"
+            "value" : "デスクトップでビデオやWallpaper Engineのシーンを壁紙として使用できます。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "데스크탑에 비디오 및 Wallpaper Engine 씬을 표시합니다. 배경화면은 설정 윈도우가 아닌 백그라운드 서비스에서 재생됩니다."
+            "value" : "데스크탑에 비디오 및 Wallpaper Engine 씬을 표시합니다."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Filmy i sceny Wallpaper Engine na Twoim biurku. Okno Ustawień nigdy nie odtwarza tapet — robi to usługa działająca w tle."
+            "value" : "Filmy i sceny Wallpaper Engine na Twoim biurku."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vídeos e cenas do Wallpaper Engine para a sua área de trabalho. Os Ajustes nunca reproduzem um papel de parede; quem faz isso é o serviço em segundo plano."
+            "value" : "Vídeos e cenas do Wallpaper Engine para a sua área de trabalho."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Видео и сцены Wallpaper Engine для рабочего стола. Окно «Настройки» не воспроизводит обои — этим занимается фоновая служба."
+            "value" : "Видео и сцены Wallpaper Engine для рабочего стола."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Masaüstünüz için videolar ve Wallpaper Engine sahneleri. Duvar kâğıtlarını Ayarlar değil, arka plan servisi oynatır."
+            "value" : "Masaüstünüz için videolar ve Wallpaper Engine sahneleri."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Відео та сцени Wallpaper Engine для робочого столу. Вікно «Параметри» не відтворює шпалери — це робить фонова служба."
+            "value" : "Відео та сцени Wallpaper Engine для робочого столу."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "适用于桌面的视频和 Wallpaper Engine 场景。“设置”窗口从不播放墙纸，墙纸由后台服务播放。"
+            "value" : "适用于桌面的视频和 Wallpaper Engine 场景。"
           }
         }
       }
@@ -40672,89 +40672,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wallpaper Mage 会从 Valve 下载 Steam 的官方命令行工具（SteamCMD，约 3 MB）。它仅用于通过你自己的 Steam 账户下载你请求的墙纸。"
-          }
-        }
-      }
-    },
-    "Wallpaper Settings" : {
-      "comment" : "Link that opens macOS System Settings > Wallpaper (Settings > General > About). Use the name macOS uses for that settings pane.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hintergrundbild-Einstellungen"
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ρυθμίσεις ταπετσαρίας"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ajustes de Fondo de pantalla"
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Configuración de Fondo de pantalla"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Réglages Fond d’écran"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "壁紙設定"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "배경화면 설정"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ustawienia tapety"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ajustes de Papel de Parede"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Настройки обоев"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Duvar Kâğıdı Ayarları"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Параметри шпалери"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "墙纸设置"
           }
         }
       }

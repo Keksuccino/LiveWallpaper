@@ -144,15 +144,12 @@ private struct GeneralSettingsView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                Text("Videos and Wallpaper Engine scenes for your desktop. Settings never plays a wallpaper; the background service does.")
+                Text("Videos and Wallpaper Engine scenes for your desktop.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 12) {
-                    Link("Project page", destination: URL(string: "https://github.com/NOOB-3301/LiveWallpaper")!)
-                    Link("Wallpaper Settings", destination: URL(string: "x-apple.systempreferences:com.apple.Wallpaper-Settings.extension")!)
-                }
-                .font(.caption)
+                Link("Project page", destination: URL(string: "https://github.com/NOOB-3301/LiveWallpaper")!)
+                    .font(.caption)
             }
         }
     }
