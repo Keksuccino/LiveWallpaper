@@ -25,7 +25,7 @@
 - **Lock screen and menu bar to match**: each display's system wallpaper becomes a still of the live wallpaper, framed the same way, so the lock screen, the menu bar background and Mission Control show it too.
 - **Playlists**: named playlists of the wallpapers you pick, in your order, each wallpaper with its own settings in the playlist. Choose how long each one stays (minimum 5 seconds) and how the next one comes in: hard switch, fade, fade through black, blur, zoom or slide. A playlist shows a picture of your own or a collage of its first wallpapers.
 - **Battery-friendly**: a frame rate and render scale per wallpaper, "pause on battery", "skip repeated frames", "update only when the scene changes", pause while the screen is locked or the desktop is covered.
-- **Menu bar control**: pause, next wallpaper, mute and quit from a background service that keeps running after Settings closes.
+- **Menu bar control**: pause, mute and quit from a background service that keeps running after Settings closes.
 - **In your language**: English, German, French, Spanish (Spain and Mexico), Brazilian Portuguese, Polish, Russian, Ukrainian, Turkish, Greek, Japanese, Korean and Simplified Chinese. It follows your Mac's language, or the one you pick in Settings.
 - **Native and small**: SwiftUI settings app plus an AppKit background service. No Electron, no web view, no Homebrew libraries.
 
@@ -104,7 +104,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the process, IPC and bridge diagram.
 - **App language** (Settings ⌘, → General) follows your Mac's language order by default; pick another and press **Restart Now** to switch Settings and the menu bar item to it.
 - **Update delay** (Settings ⌘, → General) sets how long the app waits before the picture on your lock screen and behind the menu bar follows a wallpaper change (2 seconds by default).
 - The **Steam** tab in Settings sets up Workshop downloads.
-- The service's menu bar item offers Open Settings, Pause/Resume, Next Wallpaper, Mute Sound (every display) and Quit Wallpaper Mage.
+- The service's menu bar item offers Open Settings, Pause/Resume, Mute Sound (every display) and Quit Wallpaper Mage.
 - Closing the Settings window quits Settings; the service keeps running. **Quit Wallpaper Mage** closes Settings and the service; the stills of the live wallpapers stay your system wallpapers.
 
 Everything the app installs stays in `~/Library/Application Support/WallpaperMage/` and `~/Library/Caches/WallpaperMageSteam/`. Remove the app and those folders to uninstall; choose **Quit Wallpaper Mage** in the menu bar first, and pick another wallpaper in System Settings → Wallpaper, since the current one is a still stored in that folder.

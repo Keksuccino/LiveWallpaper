@@ -11,7 +11,6 @@ public enum ServiceCommand: Codable, Equatable, Sendable {
     case commit(LibraryState)
     case pause
     case resume
-    case next                                    // every display that plays a playlist moves on to its next wallpaper
     case setMuted(Bool)                          // the whole app's mute (LibraryState.muted)
     case quit                                    // stop and terminate the service
     case status                                  // no-op: just reply with the current status

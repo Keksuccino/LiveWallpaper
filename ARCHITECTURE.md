@@ -24,12 +24,12 @@ flowchart TB
         direction TB
         ENTRY["ServiceEntry / ServiceDelegate<br/>NSApplicationDelegate"]
         SOCK["SocketServer"]
-        ORCH["Orchestrator<br/>bootstrap · commit · next<br/>setPaused · setMuted<br/>a DisplayPlayer per display + stills"]
-        MENU["Menu bar status item<br/>pause · next · mute · quit"]
+        ORCH["Orchestrator<br/>bootstrap · commit<br/>setPaused · setMuted<br/>a DisplayPlayer per display + stills"]
+        MENU["Menu bar status item<br/>pause · mute · quit"]
 
         subgraph PLAY["Per display"]
             direction LR
-            PLAYER["DisplayPlayer<br/>update(state) · next · stop<br/>playlists · failures"]
+            PLAYER["DisplayPlayer<br/>update(state) · stop<br/>playlists · failures"]
             TRANS["WallpaperTransition<br/>run · finish<br/>Core Animation on two windows"]
             BASE["WallpaperService<br/>base class, one per wallpaper<br/>update(state) · start · stop<br/>setPaused · setScreenLocked · onReady"]
             VIDEO["VideoRenderService<br/>start · stop · setPaused<br/>setScreenLocked"]

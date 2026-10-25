@@ -36,7 +36,6 @@ import Core
     }
 
     var isLive: Bool { players.values.contains { $0.current != nil } }
-    var canRotate: Bool { players.values.contains { $0.current != nil && $0.rotates } }
     /// Every wallpaper is silent (the menu's Mute Sound).
     var muted: Bool { state.muted }
 
@@ -83,12 +82,6 @@ import Core
         if message == Self.unreadableLibrary { message = nil }
         if fresh.revision != state.revision { apply(fresh) }
         onChange?()
-    }
-
-    /// Every display that plays a playlist moves on to its next wallpaper.
-    func next() {
-        players.values.forEach { $0.next() }
-        changed()
     }
 
     /// Pauses/resumes every display AND its rotation.

@@ -45,9 +45,9 @@ import Core
     }
 
     var currentItem: VideoItem? { state.item(current) }
-    /// The display plays a playlist of more than one wallpaper.
-    var rotates: Bool { lineup.count > 1 && playlist != nil }
 
+    /// The display plays a playlist of more than one wallpaper.
+    private var rotates: Bool { lineup.count > 1 && playlist != nil }
     private var content: DisplayContent? { state.config(for: displayID).content }
     private var playlist: Playlist? { state.playlist(on: displayID) }
     private var lineup: [VideoItem] { state.lineup(on: displayID) }
@@ -77,12 +77,6 @@ import Core
             start()
         }
         if rotates != wasRotating || playlist?.intervalSeconds != oldInterval { scheduleRotation() }
-    }
-
-    /// Moves on to the playlist's next wallpaper.
-    func next() {
-        guard rotates, let current else { return }
-        advance(after: current, in: lineup.map(\.id))
     }
 
     func setPaused(_ paused: Bool) {
@@ -254,6 +248,12 @@ import Core
         }
         error = message ?? String(localized: "Couldn’t show “\(item.name)”.")
         if showDepth == 0 { onChange?() }  // inside show() the caller reports the change itself
+    }
+
+    /// Moves on to the playlist's next wallpaper.
+    private func next() {
+        guard rotates, let current else { return }
+        advance(after: current, in: lineup.map(\.id))
     }
 
     private func scheduleRotation() {

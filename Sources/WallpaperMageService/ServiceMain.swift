@@ -25,7 +25,6 @@ enum ServiceEntry {
     private let menu = NSMenu()
     private let messageItem = NSMenuItem()
     private let pauseItem = NSMenuItem()
-    private let nextItem = NSMenuItem()
     private let muteItem = NSMenuItem()
     private var signalSources: [DispatchSourceSignal] = []
     private var isActive = false
@@ -99,7 +98,6 @@ enum ServiceEntry {
             if !orchestrator.commit(state) { error = String(localized: "Couldn’t save your library.") }
         case .pause: orchestrator.setPaused(true)
         case .resume: orchestrator.setPaused(false)
-        case .next: orchestrator.next()
         case .setMuted(let muted): orchestrator.setMuted(muted)
         case .status: break
         case .quit:
@@ -137,8 +135,6 @@ enum ServiceEntry {
         messageItem.isEnabled = false
         messageItem.isHidden = true
         configure(pauseItem, title: String(localized: "Pause Wallpapers"), action: #selector(togglePause))
-        configure(nextItem, title: String(localized: "Next Wallpaper"), action: #selector(nextWallpaper))
-        nextItem.keyEquivalent = String(Character(UnicodeScalar(NSRightArrowFunctionKey)!))
         configure(muteItem, title: String(localized: "Mute Sound"), action: #selector(toggleMute))
         let settings = NSMenuItem(title: String(localized: "Open Settings"), action: #selector(openSettings),
                                   keyEquivalent: ",")
@@ -148,7 +144,7 @@ enum ServiceEntry {
         quit.target = self
         quit.toolTip = String(localized: "Closes Wallpaper Mage. Your live wallpapers stop, and each display keeps a still picture of its wallpaper.")
         [header, messageItem, .separator(), settings, .separator(),
-         pauseItem, nextItem, muteItem, .separator(), quit].forEach(menu.addItem)
+         pauseItem, muteItem, .separator(), quit].forEach(menu.addItem)
         item.menu = menu
     }
 
@@ -172,12 +168,10 @@ enum ServiceEntry {
         pauseItem.title = orchestrator.isPaused ? String(localized: "Resume Wallpapers")
                                                 : String(localized: "Pause Wallpapers")
         pauseItem.isEnabled = orchestrator.isLive || orchestrator.isPaused
-        nextItem.isEnabled = orchestrator.canRotate
         muteItem.state = orchestrator.muted ? .on : .off
     }
 
     @objc private func togglePause() { orchestrator.setPaused(!orchestrator.isPaused) }
-    @objc private func nextWallpaper() { orchestrator.next() }
     @objc private func toggleMute() { orchestrator.setMuted(!orchestrator.muted) }
     /// Quits the whole app: Settings first, so it does not start the service again, then the service. Settings is
     /// asked through a notification rather than a quit event: macOS refuses quit events while Settings shows a sheet,
