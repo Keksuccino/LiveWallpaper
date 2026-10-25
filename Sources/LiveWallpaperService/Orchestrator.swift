@@ -28,8 +28,11 @@ import Core
 
     init() {
         // While a scene loads, the previous video's window is still up, so both of the display's services let the
-        // new still through.
-        stills.onApplied = { [weak self] display in self?.players[display]?.revealSystemWallpaper() }
+        // new still through. Settings shows the stills, so it hears of them.
+        stills.onApplied = { [weak self] displays in
+            displays.forEach { self?.players[$0]?.revealSystemWallpaper() }
+            self?.onChange?()
+        }
     }
 
     /// What the connected displays show, in screen order, each item once.
@@ -122,8 +125,11 @@ import Core
     func status() -> ServiceStatus {
         let displays = NSScreen.screens.map { screen -> DisplayStatus in
             let id = screen.displayID
+            let wallpaper = stills.systemWallpapers[id]
+            let picture = wallpaper?.url ?? NSWorkspace.shared.desktopImageURL(for: screen)
             return DisplayStatus(id: id, itemID: players[id]?.current, error: players[id]?.error,
-                                 muted: state.config(for: id).muted)
+                                 muted: state.config(for: id).muted, systemWallpaper: picture?.path,
+                                 stillItemID: wallpaper?.stillOf)
         }
         return ServiceStatus(paused: isPaused, displays: displays, stateRevision: state.revision, message: message)
     }

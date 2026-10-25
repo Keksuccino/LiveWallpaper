@@ -23,12 +23,19 @@ public struct DisplayStatus: Codable, Equatable, Sendable {
     public var itemID: UUID?              // what it shows live, nil when nothing
     public var error: String?             // user-facing reason its wallpaper could not be shown
     public var muted: Bool
+    /// The picture file of the display's system wallpaper.
+    public var systemWallpaper: String?
+    /// The library item `systemWallpaper` is a still of; nil when it is some other picture.
+    public var stillItemID: UUID?
 
-    public init(id: String, itemID: UUID? = nil, error: String? = nil, muted: Bool = true) {
+    public init(id: String, itemID: UUID? = nil, error: String? = nil, muted: Bool = true,
+                systemWallpaper: String? = nil, stillItemID: UUID? = nil) {
         self.id = id
         self.itemID = itemID
         self.error = error
         self.muted = muted
+        self.systemWallpaper = systemWallpaper
+        self.stillItemID = stillItemID
     }
 }
 

@@ -66,6 +66,12 @@ import SceneFormat
     /// What `display` shows: its live item, else its wallpaper.
     func shownItem(on display: String) -> VideoItem? { liveItem(on: display) ?? wallpaper(on: display) }
 
+    /// The picture of `display`'s system wallpaper, and the library item it is a still of (nil: another picture).
+    func systemWallpaper(on display: String) -> (url: URL, stillOf: UUID?)? {
+        guard let status = serviceStatus?.display(display), let path = status.systemWallpaper else { return nil }
+        return (URL(fileURLWithPath: path), status.stillItemID)
+    }
+
     /// Why `display`'s wallpaper could not be shown, as the service reported it.
     func error(on display: String) -> String? { serviceStatus?.display(display)?.error }
 

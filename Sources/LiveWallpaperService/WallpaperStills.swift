@@ -19,9 +19,19 @@ import SceneBridge
     /// The picture macOS itself starts with (a link to the still of its current default wallpaper).
     private static let defaultWallpaper = URL(fileURLWithPath: "/System/Library/CoreServices/DefaultDesktop.heic")
 
-    /// A display (by UUID) got a new system wallpaper; its live window has to let it through once (see
-    /// DisplayWindow.revealSystemWallpaper) or the menu bar keeps showing the old one.
-    var onApplied: ((String) -> Void)?
+    /// Fired after stills were applied with the displays (by UUID) that got a new system wallpaper: their live
+    /// windows have to let it through once (see DisplayWindow.revealSystemWallpaper) or the menu bar keeps showing
+    /// the old one. Also fired, with possibly none listed, when `systemWallpapers` changed.
+    var onApplied: (([String]) -> Void)?
+    /// Each display's system wallpaper as this service set it or found it set, by display UUID. Read for the status
+    /// rather than asking NSWorkspace, which reports a wallpaper only some moments after it was set.
+    private(set) var systemWallpapers: [String: SystemWallpaper] = [:]
+
+    struct SystemWallpaper: Equatable {
+        let url: URL
+        /// The library item the picture is a still of; nil for macOS's default wallpaper.
+        let stillOf: UUID?
+    }
     /// Seconds to wait before making stills (LibraryState.stillDelay): edits come in bursts (a slider sends every
     /// step), and a new wallpaper should get the machine before its still loads the scene a second time.
     var delay = LibraryState.defaultStillDelay
@@ -50,9 +60,11 @@ import SceneBridge
     /// `display`'s live wallpaper was taken away: it gets macOS's default wallpaper, and its still goes.
     func revert(_ display: String) {
         forget(display)
+        systemWallpapers[display] = nil
         if let screen = NSScreen.screens.first(where: { $0.displayID == display }) {
             do {
                 try NSWorkspace.shared.setDesktopImageURL(Self.defaultWallpaper, for: screen, options: [:])
+                systemWallpapers[display] = SystemWallpaper(url: Self.defaultWallpaper, stillOf: nil)
             } catch {
                 NSLog("LiveWallpaper: couldn’t set the default wallpaper: \(error.localizedDescription)")
             }
@@ -116,6 +128,7 @@ import SceneBridge
     /// Sets each display's still as its system wallpaper, skipping displays that show it already, and records which
     /// still each display has.
     private func apply() {
+        let old = systemWallpapers
         var stills: [String: String] = [:]
         var applied: [String] = []
         for screen in NSScreen.screens {
@@ -124,6 +137,7 @@ import SceneBridge
             guard NSWorkspace.shared.desktopImageURL(for: screen)?.standardizedFileURL != target.url.standardizedFileURL
             else {
                 stills[id] = target.fileName
+                systemWallpapers[id] = SystemWallpaper(url: target.url, stillOf: target.look.itemID)
                 continue
             }
             // The still has the display's exact aspect ratio, so filling the screen neither crops nor shifts it.
@@ -134,6 +148,7 @@ import SceneBridge
             do {
                 try NSWorkspace.shared.setDesktopImageURL(target.url, for: screen, options: options)
                 stills[id] = target.fileName
+                systemWallpapers[id] = SystemWallpaper(url: target.url, stillOf: target.look.itemID)
                 applied.append(id)
             } catch {
                 NSLog("LiveWallpaper: couldn’t set the wallpaper still: \(error.localizedDescription)")
@@ -143,7 +158,7 @@ import SceneBridge
         if stills.contains(where: { recorded[$0.key] != $0.value }) {
             AgentRecordStore.update { $0.stills.merge(stills) { _, new in new } }
         }
-        applied.forEach { onApplied?($0) }
+        if !applied.isEmpty || systemWallpapers != old { onApplied?(applied) }
     }
 
     // A Space shows its own wallpaper unless "Show on all Spaces" is on, so a Space the stills were never set on

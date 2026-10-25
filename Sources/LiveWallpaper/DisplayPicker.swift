@@ -1,9 +1,10 @@
 import SwiftUI
 import AppKit
+import ImageIO
 import Core
 
 // The top of Home: the connected displays, placed and sized as in System Settings > Displays, each showing its
-// wallpaper. Clicking one makes it the display the library and the inspector work on.
+// wallpaper as it looks on the display. Clicking one makes it the display the library and the inspector work on.
 
 @MainActor
 struct DisplayPicker: View {
@@ -77,43 +78,73 @@ private struct DisplayArrangement: View {
     }
 }
 
+/// A display in the arrangement. It shows the display's system wallpaper, which the service keeps a still of its
+/// live wallpaper framed exactly as on the display, so the tile looks like the display itself. Until the still of a
+/// newly chosen wallpaper exists, the wallpaper's preview stands in for it, framed the same way.
 @MainActor
 private struct DisplayTile: View {
     @ObservedObject var model: SettingsModel
     let screen: ScreenInfo
     let selected: Bool
     @State private var hovering = false
+    @State private var still: LoadedStill?
 
     private static let radius: CGFloat = 9
 
-    var body: some View {
-        let item = model.shownItem(on: screen.id)
-        let shape = RoundedRectangle(cornerRadius: Self.radius, style: .continuous)
-        Button { model.selectedDisplayID = screen.id } label: { face(item, shape: shape) }
-            .buttonStyle(.plain)
-            .overlay {
-                shape.strokeBorder(selected ? Color.accentColor : Color.primary.opacity(hovering ? 0.28 : 0.14),
-                                   lineWidth: selected ? 3 : 1)
-            }
-            .onHover { inside in withAnimation(LWMotion.hover) { hovering = inside } }
-            .contextMenu {
-                Button("Remove Wallpaper") { model.removeWallpaper(from: screen.id) }
-                    .disabled(model.wallpaper(on: screen.id) == nil)
-            }
-            .animation(LWMotion.content, value: item?.id)
-            .help(screen.name)
-            .accessibilityLabel("\(screen.name), \(item?.name ?? "no live wallpaper")")
-            .accessibilityAddTraits(selected ? .isSelected : [])
+    private struct LoadedStill {
+        let url: URL
+        let stillOf: UUID?
+        let image: NSImage
     }
 
-    /// The display's wallpaper with its name. Color.clear takes exactly the tile's frame and the thumbnail fills it
-    /// from an overlay, so a picture of another aspect ratio never grows the tile.
-    private func face(_ item: VideoItem?, shape: RoundedRectangle) -> some View {
+    var body: some View {
+        let item = model.shownItem(on: screen.id)
+        let wallpaper = model.systemWallpaper(on: screen.id)
+        let shape = RoundedRectangle(cornerRadius: Self.radius, style: .continuous)
+        Button { model.selectedDisplayID = screen.id } label: {
+            face(item, still: showsStill(of: item, wallpaper: wallpaper) ? still : nil, shape: shape)
+        }
+        .buttonStyle(.plain)
+        .overlay {
+            shape.strokeBorder(selected ? Color.accentColor : Color.primary.opacity(hovering ? 0.28 : 0.14),
+                               lineWidth: selected ? 3 : 1)
+        }
+        .onHover { inside in withAnimation(LWMotion.hover) { hovering = inside } }
+        .contextMenu {
+            Button("Remove Wallpaper") { model.removeWallpaper(from: screen.id) }
+                .disabled(model.wallpaper(on: screen.id) == nil)
+        }
+        .task(id: wallpaper?.url) {
+            guard let wallpaper, let image = await DisplayStillCache.shared.image(at: wallpaper.url) else { return }
+            withAnimation(LWMotion.content) {
+                still = LoadedStill(url: wallpaper.url, stillOf: wallpaper.stillOf, image: image)
+            }
+        }
+        .help(screen.name)
+        .accessibilityLabel("\(screen.name), \(item?.name ?? "no live wallpaper")")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    /// Whether the loaded still shows what the display shows: the system wallpaper as such when nothing is live,
+    /// else a still of the live item, which may be an older still of it while the next one loads (a setting changed).
+    private func showsStill(of item: VideoItem?, wallpaper: (url: URL, stillOf: UUID?)?) -> Bool {
+        guard let still, let item else { return true }
+        return wallpaper?.stillOf == item.id && (still.url == wallpaper?.url || still.stillOf == item.id)
+    }
+
+    /// Color.clear takes exactly the tile's frame and the picture fills it from an overlay, so a picture of
+    /// another aspect ratio never grows the tile.
+    private func face(_ item: VideoItem?, still: LoadedStill?, shape: RoundedRectangle) -> some View {
         Color.clear
             .overlay {
-                if let item {
-                    ItemThumbnail(item: item, broken: !FileManager.default.fileExists(atPath: item.path),
-                                  showsHoverPreview: false, cornerRadius: Self.radius)
+                if let still {
+                    Image(nsImage: still.image)
+                        .resizable()
+                        .scaledToFill()
+                        .transition(.opacity)
+                } else if let item {
+                    WallpaperPreview(item: item, fitMode: item.isScene
+                                     ? model.sceneOptions(on: screen.id, for: item.id).fitMode : nil)
                         .id(item.id)
                         .transition(.opacity)
                 } else {
@@ -137,5 +168,69 @@ private struct DisplayTile: View {
             }
             .clipShape(shape)
             .contentShape(shape)
+    }
+}
+
+/// A wallpaper's preview picture placed on a display the way the wallpaper is: a video fills it like its player,
+/// a scene follows its fit mode (zoom and pan aside).
+@MainActor
+private struct WallpaperPreview: View {
+    let item: VideoItem
+    /// nil for a video.
+    let fitMode: SceneFitMode?
+    @State private var image: NSImage?
+
+    var body: some View {
+        ZStack {
+            Color.black
+            if let image { placed(Image(nsImage: image).resizable()) }
+        }
+        .clipped()
+        .task(id: item.id) {
+            let loaded = await ThumbnailCache.shared.image(for: item)
+            withAnimation(LWMotion.content) { image = loaded }
+        }
+    }
+
+    @ViewBuilder private func placed(_ picture: Image) -> some View {
+        switch fitMode ?? .fill {
+        case .fill:
+            picture.scaledToFill()
+        case .stretch:
+            picture
+        case .fit, .none:
+            picture.scaledToFit()
+        case .matchBlurred:
+            picture.scaledToFill()
+                .blur(radius: 12)
+                .overlay { picture.scaledToFit() }
+        }
+    }
+}
+
+/// The display-sized pictures of system wallpapers, scaled down for the tiles and decoded once, off the main thread.
+@MainActor
+private final class DisplayStillCache {
+    static let shared = DisplayStillCache()
+    nonisolated private static let maxPixelSize = 960
+    private let cache = NSCache<NSURL, NSImage>()
+
+    func image(at url: URL) async -> NSImage? {
+        if let cached = cache.object(forKey: url as NSURL) { return cached }
+        let decoded = await Task.detached(priority: .userInitiated) { Self.thumbnail(of: url) }.value
+        guard let decoded else { return nil }
+        let image = NSImage(cgImage: decoded, size: .zero)
+        cache.setObject(image, forKey: url as NSURL)
+        return image
+    }
+
+    nonisolated private static func thumbnail(of url: URL) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 }
