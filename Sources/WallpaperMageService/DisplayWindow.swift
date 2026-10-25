@@ -91,6 +91,7 @@ final class StageView: NSView {
     func present() {
         isPresented = true
         applyPresentation()
+        if revealPending, !isTransitioning { revealSystemWallpaper() }
     }
 
     /// Makes macOS draw the system wallpaper under the window once, so the menu bar's background picks up a
@@ -100,11 +101,13 @@ final class StageView: NSView {
     /// through at 1% for half a second is enough (measured: the menu bar follows within about 0.7 s, even when this
     /// starts right after the wallpaper was set). The wallpaper is a still of what the window shows, so the blend is
     /// invisible. Ordering the window out and in works too, but flashes.
-    /// A window that is not presented yet is transparent and lets the wallpaper through anyway; during a transition the
-    /// change of opacity would show, so the reveal waits for its end.
+    /// A window that is not presented yet, or is in a transition, keeps the request and lets the wallpaper through
+    /// once it is presented and the transition is over: the window it replaces, which would let it through meanwhile,
+    /// closes at the end of the transition, so a still set during a transition would otherwise never reach the menu
+    /// bar.
     func revealSystemWallpaper() {
-        guard let window, isPresented else { return }
-        guard !isTransitioning else {
+        guard let window else { return }
+        guard isPresented, !isTransitioning else {
             revealPending = true
             return
         }
