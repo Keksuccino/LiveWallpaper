@@ -418,6 +418,24 @@ extension View {
     }
 }
 
+extension View {
+    /// For the standard controls in the window's toolbar. SwiftUI creates them a moment before the window becomes
+    /// key and then does not redraw them, so they keep the dimmed look of an inactive window until the pointer passes
+    /// over them. A new identity whenever the window's active state changes has SwiftUI draw them afresh. Not for a
+    /// control with state of its own (a popover would close whenever it takes the key window).
+    func redrawnOnWindowActivation() -> some View {
+        modifier(ActiveStateRedrawModifier())
+    }
+}
+
+private struct ActiveStateRedrawModifier: ViewModifier {
+    @Environment(\.controlActiveState) private var activeState
+
+    func body(content: Content) -> some View {
+        content.id(activeState)
+    }
+}
+
 private struct HoverLiftModifier: ViewModifier {
     let enabled: Bool
     @State private var hovering = false

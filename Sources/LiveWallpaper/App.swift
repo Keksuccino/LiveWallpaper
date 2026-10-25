@@ -184,6 +184,7 @@ struct RootView: View {
                     }
                     .help(showInspector ? "Hide Inspector" : "Show Inspector")
                     .keyboardShortcut("i", modifiers: [.command, .option])
+                    .redrawnOnWindowActivation()
                 }
             }
             if workshop.hasActiveDownloads {

@@ -51,18 +51,21 @@ struct HomeView: View {
                 }
                 .toggleStyle(.button)
                 .help(selectionMode ? "Stop selecting" : "Select wallpapers to remove")
+                .redrawnOnWindowActivation()
                 Button(action: removeSelection) {
                     Label("Remove", systemImage: "trash")
                 }
                 .disabled(!selectionMode || selectedIDs.isEmpty)
                 .help(removalHelp)
                 .keyboardShortcut(.delete, modifiers: .command)
+                .redrawnOnWindowActivation()
                 Picker("Layout", selection: $layout) {
                     Label("Grid", systemImage: "square.grid.2x2").tag(LibraryLayout.grid)
                     Label("List", systemImage: "list.bullet").tag(LibraryLayout.list)
                 }
                 .pickerStyle(.segmented)
                 .help("Show the library as a grid or a list")
+                .redrawnOnWindowActivation()
             }
         }
         .alert(skippedTitle, isPresented: $showSkipped) { Button("OK", role: .cancel) {} }
