@@ -4066,6 +4066,89 @@
         }
       }
     },
+    "App language" : {
+      "comment" : "Setting in Settings > General: the language Wallpaper Mage is shown in.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App-Sprache"
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Γλώσσα εφαρμογής"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Idioma de la app"
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Idioma de la app"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Langue de l’app"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アプリの言語"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "앱 언어"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Język aplikacji"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Idioma do app"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Язык приложения"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uygulama dili"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Мова програми"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App 语言"
+          }
+        }
+      }
+    },
     "Application" : {
       "comment" : "Kind of a Workshop wallpaper: a program (the app can't play these).",
       "localizations" : {
@@ -15140,6 +15223,89 @@
         }
       }
     },
+    "Language" : {
+      "comment" : "Section title in Settings > General: the app's language.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sprache"
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Γλώσσα"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Idioma"
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Idioma"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Langue"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "言語"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "언어"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Język"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Idioma"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Язык"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dil"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Мова"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "语言"
+          }
+        }
+      }
+    },
     "Large videos use more memory and battery" : {
       "comment" : "Tooltip of the “High resolution” chip.",
       "localizations" : {
@@ -24765,6 +24931,172 @@
         }
       }
     },
+    "Restart Now" : {
+      "comment" : "Button of the app language's restart notice: quits Wallpaper Mage and opens it again.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jetzt neu starten"
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Επανεκκίνηση τώρα"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reiniciar ahora"
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reiniciar ahora"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Redémarrer maintenant"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今すぐ再起動"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "지금 다시 시작"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uruchom ponownie teraz"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reiniciar Agora"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перезапустить"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Şimdi Yeniden Başlat"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перезапустити зараз"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "立即重新启动"
+          }
+        }
+      }
+    },
+    "Restart Wallpaper Mage to switch to the new language." : {
+      "comment" : "Notice in Settings > General after another app language was picked.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starte Wallpaper Mage neu, um zur neuen Sprache zu wechseln."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Επανεκκινήστε το Wallpaper Mage για να αλλάξει στη νέα γλώσσα."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reinicia Wallpaper Mage para cambiar al nuevo idioma."
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reinicia Wallpaper Mage para cambiar al nuevo idioma."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Redémarrez Wallpaper Mage pour passer à la nouvelle langue."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しい言語に切り替えるには、Wallpaper Mageを再起動してください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "새 언어로 전환하려면 Wallpaper Mage를 다시 시작하십시오."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uruchom ponownie Wallpaper Mage, aby przełączyć na nowy język."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reinicie o Wallpaper Mage para mudar para o novo idioma."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перезапустите Wallpaper Mage, чтобы переключиться на новый язык."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni dile geçmek için Wallpaper Mage’i yeniden başlatın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перезапустіть Wallpaper Mage, щоб перейти на нову мову."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新启动 Wallpaper Mage 以切换到新语言。"
+          }
+        }
+      }
+    },
     "Restart the wallpaper service" : {
       "comment" : "Tooltip and accessibility label of the restart button at the bottom of the sidebar.",
       "localizations" : {
@@ -24844,6 +25176,89 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "重新启动墙纸服务"
+          }
+        }
+      }
+    },
+    "Restarting cancels the downloads in progress." : {
+      "comment" : "Added to the restart notice of the app language while Workshop downloads are running.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Neustart bricht die laufenden Downloads ab."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Η επανεκκίνηση ακυρώνει τις λήψεις σε εξέλιξη."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Al reiniciar se cancelan las descargas en curso."
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Al reiniciar se cancelan las descargas en curso."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le redémarrage annule les téléchargements en cours."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "再起動すると、進行中のダウンロードはキャンセルされます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "다시 시작하면 진행 중인 다운로드가 취소됩니다."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ponowne uruchomienie przerywa trwające pobierania."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reiniciar cancela os downloads em andamento."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перезапуск отменит текущие загрузки."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeniden başlatmak süren indirmeleri iptal eder."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перезапуск скасує поточні викачування."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新启动会取消正在进行的下载。"
           }
         }
       }
@@ -34947,6 +35362,89 @@
         }
       }
     },
+    "System Default (%@)" : {
+      "comment" : "Option of the app language: follow the Mac's languages. %@ = the name of the language that gives, written in that language (e.g. Deutsch).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Systemstandard (%@)"
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Προεπιλογή συστήματος (%@)"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Predeterminado del sistema (%@)"
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Predeterminado del sistema (%@)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Langue du système (%@)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "システムのデフォルト（%@）"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "시스템 기본값(%@)"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Język systemu (%@)"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Padrão do sistema (%@)"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Язык системы (%@)"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sistem varsayılanı (%@)"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Мова системи (%@)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "系统默认（%@）"
+          }
+        }
+      }
+    },
     "That Steam Guard code didn’t work" : {
       "comment" : "Error title.",
       "localizations" : {
@@ -35773,6 +36271,89 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "文件已下载，但无法存储到你的资料库。（%@）"
+          }
+        }
+      }
+    },
+    "The language of Wallpaper Mage and its menu bar item. System Default follows the order of your languages in System Settings > General > Language & Region." : {
+      "comment" : "Explanation under the app language setting. “System Default” is the option of that name; use macOS's own names for System Settings > General > Language & Region.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Sprache von Wallpaper Mage und seinem Symbol in der Menüleiste. „Systemstandard“ folgt der Reihenfolge deiner Sprachen in „Systemeinstellungen“ > „Allgemein“ > „Sprache & Region“."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Η γλώσσα του Wallpaper Mage και του εικονιδίου του στη γραμμή μενού. Η «Προεπιλογή συστήματος» ακολουθεί τη σειρά των γλωσσών σας στις Ρυθμίσεις συστήματος > Γενικά > Γλώσσα και περιοχή."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El idioma de Wallpaper Mage y de su icono en la barra de menús. “Predeterminado del sistema” sigue el orden de tus idiomas en Ajustes del Sistema > General > Idioma y región."
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El idioma de Wallpaper Mage y de su ícono en la barra de menús. Predeterminado del sistema sigue el orden de tus idiomas en Configuración del Sistema > General > Idioma y región."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La langue de Wallpaper Mage et de son icône dans la barre des menus. « Langue du système » suit l’ordre de vos langues dans Réglages Système > Général > Langue et région."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mageとそのメニューバー項目の言語です。「システムのデフォルト」は、「システム設定」>「一般」>「言語と地域」の言語の順序に従います。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage와 메뉴 막대 항목의 언어입니다. 시스템 기본값은 시스템 설정 > 일반 > 언어 및 지역에 있는 언어 순서를 따릅니다."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Język aplikacji Wallpaper Mage i jej ikony na pasku menu. „Język systemu” jest zgodny z kolejnością języków w Ustawieniach systemowych > Ogólne > Język i region."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O idioma do Wallpaper Mage e do seu ícone na barra de menus. Padrão do sistema segue a ordem dos seus idiomas em Ajustes do Sistema > Geral > Idioma e Região."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Язык Wallpaper Mage и его значка в строке меню. «Язык системы» следует порядку ваших языков в разделе «Системные настройки» > «Основные» > «Язык и регион»."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage’in ve menü çubuğundaki simgesinin dili. Sistem varsayılanı, Sistem Ayarları > Genel > Dil ve Bölge’deki dil sıranızı izler."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Мова Wallpaper Mage і його значка на смузі меню. «Мова системи» відповідає порядку ваших мов у «Системних параметрах» > «Загальні» > «Мова й регіон»."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wallpaper Mage 及其菜单栏图标的语言。“系统默认”遵循“系统设置”>“通用”>“语言与地区”中的语言顺序。"
           }
         }
       }

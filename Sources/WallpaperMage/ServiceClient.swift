@@ -73,11 +73,22 @@ struct ServiceError: LocalizedError {
     /// Quits the service, then connects again (which launches a fresh copy).
     func restart() async {
         isRestarting = true
-        _ = try? await perform(.quit)
-        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        await quit()
         stop()
         status = nil
         start()
+    }
+
+    /// Asks the service to quit and waits until its process has ended (at most 5 s): while it is still running,
+    /// opening the service app would only find the old copy.
+    func quit() async {
+        _ = try? await perform(.quit)
+        var waited = 0
+        while waited < 50, NSRunningApplication.runningApplications(withBundleIdentifier: AppIdentity.serviceBundleID)
+            .contains(where: { !$0.isTerminated }) {
+            waited += 1
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
     }
 
     private func connect(launch: Bool) async {

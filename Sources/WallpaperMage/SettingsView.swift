@@ -62,7 +62,7 @@ struct AppSettingsView: View {
             Group {
                 switch navigator.tab {
                 case .general:
-                    ScrollView { GeneralSettingsView(model: model) }
+                    ScrollView { GeneralSettingsView(model: model, workshop: workshop) }
                 case .steam:
                     SteamSetupView(workshop: workshop, setup: SteamSetupModel.shared)
                 case .about:
@@ -90,14 +90,44 @@ struct AppSettingsView: View {
 @MainActor
 private struct GeneralSettingsView: View {
     @ObservedObject var model: SettingsModel
+    let workshop: WorkshopModel
+    @ObservedObject private var language = AppLanguage.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
+            languageSection
             sound
             lockScreen
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var languageSection: some View {
+        InspectorSection(title: "Language") {
+            VStack(alignment: .leading, spacing: 6) {
+                WMSettingRow(title: "App language") {
+                    Picker("App language", selection: $language.selection) {
+                        Text("System Default (\(language.name(of: language.system)))").tag(String?.none)
+                        Divider()
+                        ForEach(language.available, id: \.self) { code in
+                            Text(verbatim: language.name(of: code)).tag(String?.some(code))
+                        }
+                    }
+                    .labelsHidden().fixedSize()
+                }
+                Text("The language of Wallpaper Mage and its menu bar item. System Default follows the order of your languages in System Settings > General > Language & Region.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if language.needsRestart {
+                    LanguageRestartNotice(language: language, workshop: workshop)
+                        .padding(.top, 6)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+            .animation(WMMotion.content, value: language.needsRestart)
+        }
     }
 
     private var sound: some View {
@@ -146,6 +176,46 @@ private struct GeneralSettingsView: View {
 
     private static func delayTitle(_ seconds: Double) -> LocalizedStringKey {
         seconds == 0 ? "No delay" : "\(seconds.formatted()) s"
+    }
+}
+
+/// Shown once a language other than the one on screen is picked: the app switches when it restarts.
+/// Its own view, so download progress redraws only this notice.
+@MainActor
+private struct LanguageRestartNotice: View {
+    @ObservedObject var language: AppLanguage
+    @ObservedObject var workshop: WorkshopModel
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "globe")
+                .font(.title3)
+                .foregroundStyle(Color.accentColor)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Restart Wallpaper Mage to switch to the new language.")
+                    .font(.callout)
+                if workshop.hasActiveDownloads {
+                    Text("Restarting cancels the downloads in progress.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            // The label stays in place under the spinner, so the button keeps its size.
+            Button { language.restart() } label: {
+                Text("Restart Now")
+                    .opacity(language.isRestarting ? 0 : 1)
+                    .overlay { if language.isRestarting { ProgressView().controlSize(.small) } }
+            }
+            .disabled(language.isRestarting)
+        }
+        .padding(12)
+        .background {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.accentColor.opacity(0.1))
+        }
     }
 }
 

@@ -34,6 +34,8 @@ struct WallpaperMageApp: App {
             onImport: { SettingsModel.shared.addImported($0) },
             isInLibrary: { SettingsModel.shared.hasWorkshopItem($0) })
         SettingsModel.shared.bootstrap()
+        AppLanguage.shareWithService()
+        if CommandLine.arguments.contains(AppLanguage.reopenSettingsArgument) { SettingsNavigator.shared.open(.general) }
         // The menu bar item's Quit. Delivered at once: an inactive app would otherwise only get it when activated.
         DistributedNotificationCenter.default().addObserver(self, selector: #selector(quitRequested),
                                                             name: AppIdentity.quitRequest, object: nil,

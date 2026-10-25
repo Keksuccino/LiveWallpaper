@@ -26,7 +26,7 @@
 - **Rotation**: cycle a display through your playlist every N seconds (minimum 5).
 - **Battery-friendly**: a frame rate and render scale per wallpaper, "pause on battery", "skip repeated frames", "update only when the scene changes", pause while the screen is locked or the desktop is covered.
 - **Menu bar control**: pause, next wallpaper, mute and quit from a background service that keeps running after Settings closes.
-- **In your language**: English, German, French, Spanish (Spain and Mexico), Brazilian Portuguese, Polish, Russian, Ukrainian, Turkish, Greek, Japanese, Korean and Simplified Chinese.
+- **In your language**: English, German, French, Spanish (Spain and Mexico), Brazilian Portuguese, Polish, Russian, Ukrainian, Turkish, Greek, Japanese, Korean and Simplified Chinese. It follows your Mac's language, or the one you pick in Settings.
 - **Native and small**: SwiftUI settings app plus an AppKit background service. No Electron, no web view, no Homebrew libraries.
 
 ## Screenshots
@@ -101,6 +101,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the process, IPC and bridge diagram.
 - **Remove Wallpaper** takes a display's live wallpaper away and gives the display the macOS default wallpaper back. **Use on All Displays** in a wallpaper's menu puts it on every display.
 - Rotation cycles a display through the playlist (Playlists page) in list order. Turn it on per display in the inspector and set how often it switches (minimum 5 seconds). Rotation needs at least two wallpapers in the playlist.
 - A wallpaper's settings (inspector → Wallpaper) work like Wallpaper Engine's: the options shown depend on the wallpaper, and they are kept per wallpaper and display. **Master volume** (Settings ⌘, → General) scales every wallpaper's sound.
+- **App language** (Settings ⌘, → General) follows your Mac's language order by default; pick another and press **Restart Now** to switch Settings and the menu bar item to it.
 - **Update delay** (Settings ⌘, → General) sets how long the app waits before the picture on your lock screen and behind the menu bar follows a wallpaper change (2 seconds by default).
 - The **Steam** tab in Settings sets up Workshop downloads.
 - The service's menu bar item offers Open Settings, Pause/Resume, Next Wallpaper, Mute Sound (every display) and Quit Wallpaper Mage.
