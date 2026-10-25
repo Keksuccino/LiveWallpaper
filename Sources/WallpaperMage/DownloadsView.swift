@@ -224,7 +224,7 @@ private struct DownloadRow: View {
         case .queued:
             Image(systemName: "clock").foregroundStyle(.tertiary).font(.caption)
         case .signingIn, .downloading, .importing:
-            StatusDot(color: .accentColor, pulsing: true)
+            StatusDot(color: WMTheme.accent, pulsing: true)
         }
     }
 
@@ -234,7 +234,7 @@ private struct DownloadRow: View {
     }
 
     private var kindChip: (text: String, tint: Color)? {
-        item.kind.label.map { ($0, item.isImportable ? Color.accentColor : Color.orange) }
+        item.kind.label.map { ($0, item.isImportable ? WMTheme.accent : Color.orange) }
     }
 
     @ViewBuilder private func kindChipView(_ chip: (text: String, tint: Color)) -> some View {

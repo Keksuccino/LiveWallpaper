@@ -146,7 +146,7 @@ private struct ChipRow: View {
     var body: some View {
         HStack(spacing: 6) {
             if let kind = item.kind.label {
-                WorkshopChip(text: kind, tint: item.isImportable ? Color.accentColor : Color.orange)
+                WorkshopChip(text: kind, tint: item.isImportable ? WMTheme.accent : Color.orange)
             }
             if let resolution = item.resolutionTag { WorkshopChip(text: resolution) }
             if let rating = item.ratingTag { WorkshopChip(text: rating) }

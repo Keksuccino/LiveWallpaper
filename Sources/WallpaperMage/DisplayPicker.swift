@@ -106,7 +106,7 @@ private struct DisplayTile: View {
         }
         .buttonStyle(.plain)
         .overlay {
-            shape.strokeBorder(selected ? Color.accentColor : Color.primary.opacity(hovering ? 0.28 : 0.14),
+            shape.strokeBorder(selected ? WMTheme.accent : Color.primary.opacity(hovering ? 0.28 : 0.14),
                                lineWidth: selected ? 3 : 1)
         }
         .onHover { inside in withAnimation(WMMotion.hover) { hovering = inside } }

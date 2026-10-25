@@ -82,7 +82,7 @@ struct AppSettingsView: View {
             .padding(14)
         }
         .frame(width: 660, height: 640)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(WMBackground())
         .onExitCommand { navigator.isPresented = false }
     }
 }
@@ -190,7 +190,7 @@ private struct LanguageRestartNotice: View {
         HStack(spacing: 12) {
             Image(systemName: "globe")
                 .font(.title3)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(WMTheme.accent)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Restart Wallpaper Mage to switch to the new language.")
@@ -214,7 +214,7 @@ private struct LanguageRestartNotice: View {
         .padding(12)
         .background {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.accentColor.opacity(0.1))
+                .fill(WMTheme.accent.opacity(0.1))
         }
     }
 }

@@ -310,7 +310,7 @@ private struct PlaylistAddSheet: View {
             .padding(14)
         }
         .frame(width: 500, height: 540)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(WMBackground())
     }
 
     private func candidateRow(_ item: VideoItem) -> some View {
@@ -321,7 +321,7 @@ private struct PlaylistAddSheet: View {
             HStack(spacing: 12) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.5))
+                    .foregroundStyle(isSelected ? WMTheme.accent : Color.secondary.opacity(0.5))
                     .frame(width: 18)
                 ItemThumbnail(item: item,
                               broken: !FileManager.default.fileExists(atPath: item.path), cornerRadius: 5)

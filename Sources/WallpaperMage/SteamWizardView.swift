@@ -35,21 +35,6 @@ private func boldName(_ name: String, in sentence: (String) -> String) -> Attrib
     return result
 }
 
-private extension View {
-    func wizardCard() -> some View {
-        padding(18)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                RoundedRectangle(cornerRadius: WMTheme.cardRadius, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: WMTheme.cardRadius, style: .continuous)
-                            .strokeBorder(Color.primary.opacity(0.07), lineWidth: 1)
-                    }
-            }
-    }
-}
-
 // MARK: - Wizard
 
 @MainActor
@@ -238,12 +223,12 @@ private struct WizardCard<Content: View>: View {
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
-                RoundedRectangle(cornerRadius: WMTheme.cardRadius, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor))
+                glassShape(radius: WMTheme.cardRadius)
                     .overlay {
-                        RoundedRectangle(cornerRadius: WMTheme.cardRadius, style: .continuous)
-                            .strokeBorder(phase == .current ? Color.accentColor.opacity(0.32) : Color.primary.opacity(0.07),
-                                          lineWidth: phase == .current ? 1.5 : 1)
+                        if phase == .current {
+                            RoundedRectangle(cornerRadius: WMTheme.cardRadius, style: .continuous)
+                                .strokeBorder(WMTheme.accent.opacity(0.32), lineWidth: 1.5)
+                        }
                     }
             }
         }
@@ -282,7 +267,7 @@ private struct WizardCard<Content: View>: View {
     private var nodeBackground: Color {
         switch phase {
         case .done: return .green
-        case .current: return .accentColor
+        case .current: return WMTheme.accent
         case .waiting: return Color.primary.opacity(0.08)
         }
     }
@@ -653,7 +638,7 @@ private struct SharedFilesCard: View {
                 .font(.callout).foregroundStyle(.secondary)
             content
         }
-        .wizardCard()
+        .wmGlassCard(padding: 18)
     }
 
     @ViewBuilder private var content: some View {

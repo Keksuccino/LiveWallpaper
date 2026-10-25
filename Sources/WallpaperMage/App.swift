@@ -28,6 +28,12 @@ struct WallpaperMageApp: App {
     private var downloadWatch: AnyCancellable?
     private var lingering = false   // the last window closed while a download was still running
 
+    /// The app is always dark, whatever the Mac's appearance: the theme (WMTheme) is made for it. Set before the first
+    /// window opens, and for the whole app, so menus, sheets and alerts are dark too.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSApp.appearance = NSAppearance(named: .darkAqua)
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         if yieldToRunningSettings() { return }
         WorkshopModel.shared.connect(
@@ -111,6 +117,7 @@ struct RootView: View {
     @ObservedObject var workshop: WorkshopModel
     @ObservedObject private var settings = SettingsNavigator.shared
     @State private var selection: SidebarSelection = .home
+    @FocusState private var sidebarFocused: Bool
 
     var body: some View {
         NavigationSplitView {
@@ -121,18 +128,23 @@ struct RootView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 980, minHeight: 640)
+        .containerBackground(WMTheme.background, for: .window)
         .sheet(isPresented: $settings.isPresented, onDismiss: settings.didClose) {
             AppSettingsView(model: model, workshop: workshop)
         }
+        // After the sheet, so Settings gets the theme's control tint too.
+        .tint(WMTheme.controlTint)
     }
 
     // MARK: Sidebar
 
     // The footer sits below the list, not in its safe-area inset: over the list's scroll view its buttons get no
     // hover and no tooltips.
+    // The rows are buttons that draw the selection themselves: a List's own selection always takes the system accent
+    // colour, which no tint reaches. The arrow keys move it while the sidebar has focus, as in a native sidebar.
     private var sidebar: some View {
         VStack(spacing: 0) {
-            List(selection: $selection) {
+            List {
                 sidebarRow(.home)
                 sidebarRow(.playlists)
                 sidebarRow(.workshop)
@@ -140,6 +152,10 @@ struct RootView: View {
                            live: workshop.hasActiveDownloads)
             }
             .listStyle(.sidebar)
+            .focusable()
+            .focused($sidebarFocused)
+            .focusEffectDisabled()
+            .onMoveCommand(perform: moveSelection)
             SidebarFooter(model: model)
                 .padding(.horizontal, 10)
                 .padding(.bottom, 8)
@@ -147,26 +163,50 @@ struct RootView: View {
     }
 
     private func sidebarRow(_ item: SidebarSelection, count: Int? = nil, live: Bool = false) -> some View {
-        HStack(spacing: 0) {
-            Label(item.title, systemImage: item.symbol)
-                .font(.callout.weight(.medium))
-            Spacer(minLength: 4)
-            if live {
-                StatusDot(color: .accentColor, pulsing: true)
-                    .padding(.trailing, 5)
-                    .help("Downloads in progress")
-                    .accessibilityLabel("Downloads in progress")
-            } else if let count, count > 0 {
-                Text(count, format: .number)
-                    .font(.caption2.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(Color.primary.opacity(0.08)))
+        let selected = selection == item
+        return Button {
+            selection = item
+            sidebarFocused = true
+        } label: {
+            HStack(spacing: 0) {
+                Label(item.title, systemImage: item.symbol)
+                    .font(.callout.weight(.medium))
+                Spacer(minLength: 4)
+                if live {
+                    StatusDot(color: WMTheme.accent, pulsing: true)
+                        .padding(.trailing, 5)
+                        .help("Downloads in progress")
+                        .accessibilityLabel("Downloads in progress")
+                } else if let count, count > 0 {
+                    Text(count, format: .number)
+                        .font(.caption2.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.primary.opacity(0.08)))
+                }
             }
+            .padding(.vertical, 1)
+            .contentShape(Rectangle())
         }
-        .padding(.vertical, 1)
-        .tag(item)
+        .buttonStyle(.plain)
+        .listItemTint(.monochrome)
+        .listRowBackground(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(selected ? WMTheme.selectionFill : .clear)
+                .padding(.horizontal, 10)
+        )
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func moveSelection(_ direction: MoveCommandDirection) {
+        let all = SidebarSelection.allCases
+        guard let index = all.firstIndex(of: selection) else { return }
+        switch direction {
+        case .up where index > 0: selection = all[index - 1]
+        case .down where index < all.count - 1: selection = all[index + 1]
+        default: break
+        }
     }
 
     // MARK: Detail

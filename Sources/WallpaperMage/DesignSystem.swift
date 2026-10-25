@@ -5,13 +5,31 @@ import Core
 // The shared visual language for the Settings app. Keep every custom colour, radius, curve and
 // reusable surface here so the library, Workshop and Steam settings feel like one product.
 //
-// The look: soft ambient colour behind everything, translucent "liquid glass" surfaces on top with a
-// light-catching top edge, one accent gradient used sparingly, and quiet typography that leans on
-// weight and spacing. Materials respect Reduce Transparency; every animation respects Reduce Motion.
+// The look: a coloured gradient behind everything, translucent "liquid glass" surfaces on top that take its hue, a
+// light-catching top edge, one accent used sparingly, and quiet typography that leans on weight and spacing.
+// Materials respect Reduce Transparency; every animation respects Reduce Motion.
 
 // MARK: - Tokens
 
 enum WMTheme {
+    // The colour theme. Every themed colour in the app comes from these values, so a new look changes only them.
+    // The app is always dark (AppDelegate), so each colour is made for the dark appearance alone.
+
+    /// The window's gradient, top to bottom: a plum that cools to a deep violet.
+    static let backgroundTop = Color(hex: 0x4A1B54)
+    static let backgroundBottom = Color(hex: 0x3E2355)
+    static let background = LinearGradient(colors: [backgroundTop, backgroundBottom],
+                                           startPoint: .top, endPoint: .bottom)
+    /// Laid over the material of glass surfaces, so they take the theme's hue instead of a neutral grey.
+    static let surfaceTint = Color(hex: 0x8A3FA0).opacity(0.28)
+    /// What the app draws itself to mark a choice or progress: selection rings, chips, status dots, progress bars.
+    static let accent = Color(hex: 0xA875F5)
+    /// The native controls' tint (switches, sliders, buttons, pop-up menus), set for the whole window in RootView.
+    /// Neutral on purpose: on macOS 26 an explicit tint also colours the labels of bordered buttons and pop-up menus.
+    static let controlTint = Color.primary
+    /// Behind the selected sidebar row.
+    static let selectionFill = Color.primary.opacity(0.11)
+
     static let contentPadding: CGFloat = 28
     static let cardRadius: CGFloat = 18
     static let panelRadius: CGFloat = 22
@@ -42,12 +60,20 @@ enum WMMotion {
 
 // MARK: - Ambient background
 
-/// The page background every content area sits on. Deliberately plain: the window colour and nothing else.
-/// The depth in this app comes from the glass surfaces and their hairlines, not from colour washes.
+/// The page background every content area and sheet sits on: the theme's gradient. The main window also has it as its
+/// own background (RootView), so it shows behind the sidebar and the toolbar too.
 struct WMBackground: View {
     var body: some View {
-        Color(nsColor: .windowBackgroundColor)
+        WMTheme.background
             .ignoresSafeArea()
+    }
+}
+
+private extension Color {
+    /// An sRGB colour from a hex value (0xRRGGBB).
+    init(hex: UInt32) {
+        self.init(.sRGB, red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255,
+                  blue: Double(hex & 0xFF) / 255)
     }
 }
 
@@ -103,13 +129,15 @@ struct WMCardDisclosureStyle: DisclosureGroupStyle {
     }
 }
 
-/// One glass shape used by cards, banners and rows: material fill, top sheen, gradient hairline, shadow.
+/// One glass shape used by cards, banners and rows: material fill in the theme's hue, top sheen, gradient hairline,
+/// shadow.
 @ViewBuilder
 func glassShape(radius: CGFloat, cornerStyle: RoundedCornerStyle = .continuous,
                 fill: some ShapeStyle = AnyShapeStyle(.regularMaterial)) -> some View {
     let shape = RoundedRectangle(cornerRadius: radius, style: cornerStyle)
     ZStack {
         shape.fill(fill)
+        shape.fill(WMTheme.surfaceTint)
         LinearGradient(colors: [.white.opacity(0.16), .clear],
                        startPoint: .top, endPoint: .center)
             .clipShape(shape)
@@ -228,7 +256,7 @@ struct WMChip: View {
         .padding(.vertical, 2.5)
         .background {
             if selected {
-                Capsule().fill(Color.accentColor)
+                Capsule().fill(WMTheme.accent)
             } else {
                 Capsule().fill(filled ? color : color.opacity(0.13))
             }
@@ -256,7 +284,7 @@ struct WMTopicChip: View {
                 .padding(.vertical, 6)
                 .background {
                     if selected {
-                        Capsule().fill(Color.accentColor)
+                        Capsule().fill(WMTheme.accent)
                     } else {
                         Capsule()
                             .fill(.regularMaterial)
@@ -303,7 +331,7 @@ struct ProgressRing: View {
     let progress: Double
     var size: CGFloat = 34
     var lineWidth: CGFloat = 3
-    var tint: Color = .accentColor
+    var tint: Color = WMTheme.accent
 
     var body: some View {
         ZStack {
@@ -338,12 +366,12 @@ struct WMProgressBar: View {
                 Capsule().fill(Color.primary.opacity(0.10))
                 if let progress {
                     Capsule()
-                        .fill(Color.accentColor)
+                        .fill(WMTheme.accent)
                         .frame(width: max(height, min(max(progress, 0), 1) * proxy.size.width))
                         .animation(.easeOut(duration: 0.2), value: progress)
                 } else {
                     Capsule()
-                        .fill(Color.accentColor.opacity(0.75))
+                        .fill(WMTheme.accent.opacity(0.75))
                         .frame(width: proxy.size.width * 0.3)
                         .offset(x: travelling ? proxy.size.width * 0.7 : 0)
                         .animation(reduceMotion ? nil
@@ -540,7 +568,7 @@ struct WMEmptyState: View {
                     .frame(width: 84, height: 84)
                 Image(systemName: icon)
                     .font(.system(size: 32, weight: .light))
-                    .foregroundStyle(targeted ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(targeted ? WMTheme.accent : Color.secondary)
                     .symbolRenderingMode(.hierarchical)
             }
             Text(targeted ? "Release to add" : title)
@@ -574,7 +602,7 @@ struct WMEmptyState: View {
         .background { glassShape(radius: 24) }
         .overlay {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .strokeBorder(targeted ? Color.accentColor : Color.secondary.opacity(0.22),
+                .strokeBorder(targeted ? WMTheme.accent : Color.secondary.opacity(0.22),
                               style: StrokeStyle(lineWidth: targeted ? 2 : 1,
                                                  dash: targeted ? [] : [6, 6]))
                 .animation(WMMotion.hover, value: targeted)

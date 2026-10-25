@@ -146,7 +146,7 @@ struct WorkshopDetailView: View {
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(WMBackground())
         .task(id: item.id) { await preview.load(item.previewURL) }
     }
 
@@ -195,7 +195,7 @@ struct WorkshopDetailView: View {
     private var chips: some View {
         WrappingRows {
             if let kind = item.kind.label {
-                WorkshopChip(text: kind, tint: item.isImportable ? Color.accentColor : Color.orange)
+                WorkshopChip(text: kind, tint: item.isImportable ? WMTheme.accent : Color.orange)
             }
             if let resolution = item.resolutionTag { WorkshopChip(text: resolution) }
             if let rating = item.ratingTag { WorkshopChip(text: rating) }

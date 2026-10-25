@@ -366,8 +366,8 @@ struct CardState: Equatable {
     var selected: Bool
 
     var ringColor: Color {
-        if selected || current { return .accentColor }
-        return highlighted ? Color.accentColor.opacity(0.6) : Color.primary.opacity(0.07)
+        if selected || current { return WMTheme.accent }
+        return highlighted ? WMTheme.accent.opacity(0.6) : Color.primary.opacity(0.07)
     }
 
     var ringWidth: CGFloat { selected || current ? 2.5 : (highlighted ? 2 : 1) }
@@ -484,7 +484,7 @@ private struct LibraryCard: View {
             Image(systemName: state.selected ? "checkmark.circle.fill" : "circle")
                 .symbolRenderingMode(.palette)
                 .foregroundStyle(state.selected ? Color.white : Color.white.opacity(0.95),
-                                 state.selected ? Color.accentColor : Color.white.opacity(0.55))
+                                 state.selected ? WMTheme.accent : Color.white.opacity(0.55))
                 .font(.system(size: 16, weight: .semibold))
                 .padding(3)
                 .background(Circle().fill(Color.black.opacity(0.36)))
@@ -516,7 +516,7 @@ private struct LibraryListRow: View {
                 Button(action: actions.toggleSelection) {
                     Image(systemName: state.selected ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(state.selected ? Color.accentColor : Color.secondary.opacity(0.55))
+                        .foregroundStyle(state.selected ? WMTheme.accent : Color.secondary.opacity(0.55))
                         .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
@@ -549,7 +549,7 @@ private struct LibraryListRow: View {
         .padding(.vertical, 7)
         .background {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(state.current || state.selected ? Color.accentColor.opacity(0.12)
+                .fill(state.current || state.selected ? WMTheme.accent.opacity(0.12)
                                                       : (hovering ? Color.primary.opacity(0.045) : .clear))
         }
         .overlay {
