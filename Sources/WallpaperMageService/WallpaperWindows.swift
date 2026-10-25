@@ -11,6 +11,9 @@ private final class PlayerView: NSView {
     private let backdrop = AVPlayerLayer()
     /// The wallpaper's options and the video's pixel size; nil until both are known (the picture then covers).
     var look: (options: WallpaperOptions, videoSize: CGSize)? { didSet { needsLayout = true } }
+    /// Called on the main actor whenever the picture has a frame of its player to show.
+    var onReadyForDisplay: (() -> Void)?
+    private var readiness: NSKeyValueObservation?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -24,6 +27,9 @@ private final class PlayerView: NSView {
         backdrop.isHidden = true
         layer?.addSublayer(backdrop)
         layer?.addSublayer(picture)
+        readiness = observeReadiness(of: picture) { [weak self] in
+            Task { @MainActor [weak self] in self?.onReadyForDisplay?() }
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -91,14 +97,24 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
     item.observe(\.status) { _, _ in changed() }
 }
 
+private func observeReadiness(of layer: AVPlayerLayer, ready: @escaping @Sendable () -> Void) -> NSKeyValueObservation {
+    layer.observe(\.isReadyForDisplay, options: [.initial, .new]) { observed, _ in
+        if observed.isReadyForDisplay { ready() }
+    }
+}
+
 @MainActor final class WallpaperWindowManager {
     private static let pauseWhenOccluded = true
     // A fully covered display needs no decoder: the player (the biggest allocation) is released after this long.
     private static let releaseDelay: UInt64 = 10_000_000_000
 
     var onPlaybackFailure: (@MainActor (URL) -> Void)?
+    /// The video's first frame is in the window; fired once per `show`.
+    var onReady: (@MainActor () -> Void)?
     private(set) var currentURL: URL?
     var isShowing: Bool { currentURL != nil }
+    /// The window, for transitions.
+    var surface: TransitionWindow { windows }
 
     private let windows: DisplayWindow<PlayerView>
     private var player: AVQueuePlayer?
@@ -122,6 +138,7 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
     private var releaseTask: Task<Void, Never>?
     private var resumeTime: CMTime?  // where the released player was, for its replacement
     private var failureReported = false
+    private var readyReported = false
     private var userPaused = false
     private var occluded = false
     private var sleeping = false
@@ -137,6 +154,7 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
         if currentURL == url { return }
         currentURL = url
         failureReported = false
+        readyReported = false
         resumeTime = nil  // a new video starts from its beginning
         videoSize = nil
         composition = nil
@@ -166,6 +184,7 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
         attachPlayer()  // detach from the layers so nothing keeps the old player alive
         windows.close()
         currentURL = nil
+        readyReported = false
         // A stopped wallpaper is never user-paused, so the next show() starts playing.
         userPaused = false
         occluded = false
@@ -217,6 +236,13 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
     private func attachPlayer() {
         windows.view?.player = player
         windows.view?.look = videoSize.map { (options, $0) }
+        windows.view?.onReadyForDisplay = { [weak self] in self?.pictureReady() }
+    }
+
+    private func pictureReady() {
+        guard currentURL != nil, player != nil, !readyReported else { return }
+        readyReported = true
+        onReady?()
     }
 
     /// Reads the size the video is shown at (its track's size, turned by its transform) for the alignment.

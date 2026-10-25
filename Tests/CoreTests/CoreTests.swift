@@ -26,19 +26,14 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(state.revision, 7)
         XCTAssertFalse(state.muted)
         XCTAssertEqual(state.videos.map(\.id), [a, b])
-        XCTAssertNil(state.playlist)
-        assertEveryDisplay(state) { config in
-            XCTAssertEqual(config.wallpaperID, b)
-            XCTAssertFalse(config.rotateEnabled)
-            XCTAssertEqual(config.intervalValue, 7)
-            XCTAssertEqual(config.intervalUnit, .hours)
-        }
+        XCTAssertEqual(state.playlists, [])
+        assertEveryDisplay(state) { XCTAssertEqual($0.content, .wallpaper(b)) }
     }
 
     func testPhase1RecordWithoutSchemaKeyDecodes() throws {
         let state = try decode(#"{"videos":[],"rotateEnabled":true,"intervalValue":0,"intervalUnit":"seconds"}"#)
         XCTAssertEqual(state.schema, LibraryState.currentSchema)
-        assertEveryDisplay(state) { XCTAssertEqual($0.intervalValue, 1, "interval clamps to 1...999") }
+        assertEveryDisplay(state) { XCTAssertNil($0.content) }
     }
 
     func testSchema2StateMovesItsSettingsToEveryDisplayAndDropsTheLockScreen() throws {
@@ -54,17 +49,16 @@ final class CoreTests: XCTestCase {
                     "rotateEnabled":true,"intervalValue":5,"intervalUnit":"minutes"},
          "lock":{"enabled":true,"selectedID":"\(b.uuidString)","rotateEnabled":true,"intervalValue":9,"intervalUnit":"hours"}}
         """)
-        XCTAssertEqual(state.playlist, [b, a])
+        XCTAssertEqual(state.playlists, [], "the single playlist of older files is not kept")
         assertEveryDisplay(state) { config in
-            XCTAssertEqual(config.wallpaperID, a)
-            XCTAssertTrue(config.rotateEnabled)
+            XCTAssertEqual(config.content, .wallpaper(a))
             XCTAssertEqual(config.power.batteryMode, .pause)
             XCTAssertEqual(config.options(for: a).fps, 24)
             XCTAssertEqual(config.options(for: b).fps, 45, "a wallpaper without its own rate keeps the desktop's")
             XCTAssertEqual(config.options(for: a).alignment, .cover)
         }
         let written = try JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any]
-        for key in ["lock", "sameForBoth", "desktop", "sceneOptions", "power", "sceneFPS"] {
+        for key in ["lock", "sameForBoth", "desktop", "sceneOptions", "power", "sceneFPS", "playlist"] {
             XCTAssertNil(written?[key], key)
         }
         XCTAssertEqual(written?["muted"] as? Bool, false, "from schema 4 on `muted` is the app's mute")
@@ -76,7 +70,7 @@ final class CoreTests: XCTestCase {
         {"schema":2,"videos":[{"id":"\(a.uuidString)","path":"/v/a.mp4"}],
          "desktop":{"enabled":false,"selectedID":"\(a.uuidString)","rotateEnabled":false,"intervalValue":5,"intervalUnit":"minutes"}}
         """)
-        assertEveryDisplay(state) { XCTAssertNil($0.wallpaperID) }
+        assertEveryDisplay(state) { XCTAssertNil($0.content) }
     }
 
     func testSchema4DisplayFrameRatesMoveToEveryWallpaper() throws {
@@ -99,20 +93,43 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(d1.power.batteryMode, .pause)
         XCTAssertEqual(d2.options(for: a).fps, 60)
         XCTAssertNil(d2.wallpaperOptions[c.uuidString], "the default rate needs no entry")
+        XCTAssertEqual(d1.content, .wallpaper(a))
         let back = try JSONDecoder().decode(LibraryState.self, from: JSONEncoder().encode(state))
-        XCTAssertEqual(back, state, "a schema 5 file is not migrated again")
+        XCTAssertEqual(back, state, "a current file is not migrated again")
+    }
+
+    func testSchema5DisplaysKeepTheirWallpaperAndDropRotation() throws {
+        let a = UUID(), b = UUID()
+        let state = try decode("""
+        {"schema":5,"videos":[{"id":"\(a.uuidString)","path":"/v/a.mp4"},{"id":"\(b.uuidString)","path":"/v/b.mp4"}],
+         "playlist":["\(a.uuidString)","\(b.uuidString)"],
+         "displays":{"D1":{"wallpaperID":"\(b.uuidString)","rotateEnabled":true,"intervalValue":3,"intervalUnit":"hours",
+                           "sceneOptions":{"\(b.uuidString)":{"zoom":1.5}}}}}
+        """)
+        XCTAssertEqual(state.playlists, [])
+        XCTAssertEqual(state.config(for: "D1").content, .wallpaper(b))
+        XCTAssertEqual(state.config(for: "D1").options(for: b).zoom, 1.5)
+        let written = try JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any]
+        let display = (written?["displays"] as? [String: Any])?["D1"] as? [String: Any]
+        XCTAssertNil(display?["rotateEnabled"])
+        XCTAssertNil(written?["playlist"])
     }
 
     func testRoundTripKeepsEverything() throws {
         let item = VideoItem(path: "/L/1/scene.pkg", title: "T", workshopID: "1",
                              scene: SceneInfo(support: .partial, notes: ["Particles are not supported yet."]))
-        var config = DisplayConfig(wallpaperID: item.id, rotateEnabled: true)
+        var config = DisplayConfig(content: .wallpaper(item.id))
         config.wallpaperOptions[item.id.uuidString] = WallpaperOptions(
             volume: 0.3, muted: true, rate: 1.5, alignment: .free, position: 0.2, alignX: 0.1, alignY: 0.9, zoom: 1.5, flip: true,
             blurBars: false, colorAdjust: true, brightness: 0.7, contrast: 0.4, saturation: 0.6, hue: 0.1,
             filter: "lutx32_amber", filterStrength: 0.5, mouseParallax: false, fps: 45, renderScale: 0.5,
             audioResponse: true, antialiasing: true, properties: ["clock": .bool(true), "tint": .color(red: 1, green: 0, blue: 0)])
-        var state = LibraryState(videos: [item], playlist: [item.id], displays: ["D1": config, "D2": DisplayConfig()],
+        let playlist = Playlist(name: "Night", items: [item.id],
+                                wallpaperOptions: [item.id.uuidString: WallpaperOptions(volume: 0.1)],
+                                intervalValue: 30, intervalUnit: .seconds, transition: .blur, transitionDuration: 2.5,
+                                image: "picture.jpg")
+        var state = LibraryState(videos: [item], playlists: [playlist],
+                                 displays: ["D1": config, "D2": DisplayConfig(content: .playlist(playlist.id))],
                                  masterVolume: 0.4, muted: true)
         state.revision = 3
         let back = try JSONDecoder().decode(LibraryState.self, from: JSONEncoder().encode(state))
@@ -120,6 +137,8 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(back.videos[0].kind, .scene)
         XCTAssertTrue(back.muted, "a schema 4 file keeps the app muted")
         XCTAssertTrue(back.config(for: "D1").options(for: item.id).muted)
+        XCTAssertEqual(back.config(for: "D2").content, .playlist(playlist.id))
+        XCTAssertEqual(back.playlists, [playlist])
         XCTAssertEqual(back.masterVolume, 0.4)
     }
 
@@ -191,53 +210,80 @@ final class CoreTests: XCTestCase {
 
     func testDisplayConfigFillsMissingKeysWithDefaults() throws {
         let config = try JSONDecoder().decode(DisplayConfig.self, from: Data("{}".utf8))
-        XCTAssertNil(config.wallpaperID)
-        XCTAssertFalse(config.rotateEnabled)
+        XCTAssertNil(config.content)
         let options = try JSONDecoder().decode(WallpaperOptions.self, from: Data("{}".utf8))
         XCTAssertEqual(options, .standard)
         XCTAssertEqual(options.fps, WallpaperOptions.defaultFPS)
         XCTAssertEqual(LibraryState().config(for: "unknown"), DisplayConfig())
     }
 
-    func testSetWallpaperTakesLibraryItemsOnly() {
+    func testSetContentTakesLibraryItemsAndPlaylistsOnly() {
         let a = VideoItem(path: "/a.mp4"), b = VideoItem(path: "/b.mp4")
-        var state = LibraryState(videos: [a, b])
-        state.setWallpaper(b.id, on: "D1")
-        XCTAssertEqual(state.config(for: "D1").wallpaperID, b.id)
-        XCTAssertNil(state.config(for: "D2").wallpaperID, "other displays keep theirs")
-        state.setWallpaper(UUID(), on: "D1")
-        XCTAssertEqual(state.config(for: "D1").wallpaperID, b.id, "an id that is not in the library is ignored")
-        state.setWallpaper(nil, on: "D1")
-        XCTAssertNil(state.config(for: "D1").wallpaperID)
+        let playlist = Playlist(name: "P", items: [a.id])
+        var state = LibraryState(videos: [a, b], playlists: [playlist])
+        state.setContent(.wallpaper(b.id), on: "D1")
+        XCTAssertEqual(state.config(for: "D1").content, .wallpaper(b.id))
+        XCTAssertNil(state.config(for: "D2").content, "other displays keep theirs")
+        state.setContent(.wallpaper(UUID()), on: "D1")
+        XCTAssertEqual(state.config(for: "D1").content, .wallpaper(b.id), "an id that is not in the library is ignored")
+        state.setContent(.playlist(UUID()), on: "D1")
+        XCTAssertEqual(state.config(for: "D1").content, .wallpaper(b.id), "so is a playlist that does not exist")
+        state.setContent(.playlist(playlist.id), on: "D1")
+        XCTAssertEqual(state.config(for: "D1").content, .playlist(playlist.id))
+        state.setContent(nil, on: "D1")
+        XCTAssertNil(state.config(for: "D1").content)
     }
 
-    func testRemovingItemsClearsDisplaysPlaylistAndWallpaperOptions() {
+    func testRemovingItemsClearsDisplaysPlaylistsAndWallpaperOptions() {
         let a = VideoItem(path: "/a.mp4"), b = VideoItem(path: "/b.mp4")
-        var config = DisplayConfig(wallpaperID: a.id)
+        var config = DisplayConfig(content: .wallpaper(a.id))
         config.wallpaperOptions = [a.id.uuidString: WallpaperOptions(zoom: 2), b.id.uuidString: WallpaperOptions(zoom: 0.5)]
-        var state = LibraryState(videos: [a, b], playlist: [a.id, b.id],
-                                 displays: ["D1": config, "D2": DisplayConfig(wallpaperID: b.id)])
+        let playlist = Playlist(name: "P", items: [a.id, b.id],
+                                wallpaperOptions: [a.id.uuidString: WallpaperOptions(zoom: 1.2),
+                                                   b.id.uuidString: WallpaperOptions(zoom: 1.4)])
+        var state = LibraryState(videos: [a, b], playlists: [playlist],
+                                 displays: ["D1": config, "D2": DisplayConfig(content: .wallpaper(b.id)),
+                                            "D3": DisplayConfig(content: .playlist(playlist.id))])
         state.remove([a.id])
         XCTAssertEqual(state.videos.map(\.id), [b.id])
-        XCTAssertEqual(state.playlist, [b.id])
-        XCTAssertNil(state.config(for: "D1").wallpaperID)
+        XCTAssertEqual(state.playlists[0].items, [b.id])
+        XCTAssertNil(state.playlists[0].wallpaperOptions[a.id.uuidString])
+        XCTAssertEqual(state.playlists[0].options(for: b.id).zoom, 1.4)
+        XCTAssertNil(state.config(for: "D1").content)
         XCTAssertNil(state.config(for: "D1").wallpaperOptions[a.id.uuidString])
         XCTAssertEqual(state.config(for: "D1").options(for: b.id).zoom, 0.5)
-        XCTAssertEqual(state.config(for: "D2").wallpaperID, b.id)
+        XCTAssertEqual(state.config(for: "D2").content, .wallpaper(b.id))
+        XCTAssertEqual(state.config(for: "D3").content, .playlist(playlist.id), "a playlist stays with what is left")
     }
 
     func testReplacingAnItemMovesItsPlacesAndSettings() {
         let old = VideoItem(path: "/L/1/scene.pkg", workshopID: "1"), other = VideoItem(path: "/b.mp4")
         let fresh = VideoItem(path: "/L/1/scene.pkg", workshopID: "1")
-        var config = DisplayConfig(wallpaperID: old.id)
+        var config = DisplayConfig(content: .wallpaper(old.id))
         config.wallpaperOptions[old.id.uuidString] = WallpaperOptions(zoom: 2)
-        var state = LibraryState(videos: [old, other], playlist: [other.id, old.id], displays: ["D1": config])
+        let playlist = Playlist(name: "P", items: [other.id, old.id],
+                                wallpaperOptions: [old.id.uuidString: WallpaperOptions(zoom: 1.5)])
+        var state = LibraryState(videos: [old, other], playlists: [playlist], displays: ["D1": config])
         state.replace(old.id, with: fresh)
         XCTAssertEqual(state.videos.map(\.id), [fresh.id, other.id])
-        XCTAssertEqual(state.playlist, [other.id, fresh.id])
-        XCTAssertEqual(state.config(for: "D1").wallpaperID, fresh.id)
+        XCTAssertEqual(state.playlists[0].items, [other.id, fresh.id])
+        XCTAssertEqual(state.playlists[0].options(for: fresh.id).zoom, 1.5)
+        XCTAssertEqual(state.config(for: "D1").content, .wallpaper(fresh.id))
         XCTAssertEqual(state.config(for: "D1").options(for: fresh.id).zoom, 2)
         XCTAssertNil(state.config(for: "D1").wallpaperOptions[old.id.uuidString])
+    }
+
+    func testDeletingAPlaylistTakesItOffItsDisplays() {
+        let a = VideoItem(path: "/a.mp4")
+        let keep = Playlist(name: "Keep", items: [a.id]), gone = Playlist(name: "Gone", items: [a.id])
+        var state = LibraryState(videos: [a], playlists: [keep, gone],
+                                 displays: ["D1": DisplayConfig(content: .playlist(gone.id)),
+                                            "D2": DisplayConfig(content: .playlist(keep.id))])
+        state.removePlaylist(gone.id)
+        XCTAssertEqual(state.playlists.map(\.id), [keep.id])
+        XCTAssertNil(state.config(for: "D1").content)
+        XCTAssertEqual(state.config(for: "D2").content, .playlist(keep.id))
+        XCTAssertEqual(state.videos, [a], "the wallpapers stay in the library")
     }
 
     func testStillDelayDefaultsClampsAndRoundTrips() throws {
@@ -252,23 +298,45 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(LibraryState.self, from: JSONEncoder().encode(state)).stillDelay, 0.5)
     }
 
-    func testPlaylistSkipsMissingIDs() {
+    func testLineupFollowsTheDisplaysContentAndSkipsMissingIDs() {
         let a = VideoItem(path: "/a.mp4"), b = VideoItem(path: "/b.mp4")
-        let state = LibraryState(videos: [a, b], playlist: [b.id, UUID()])
-        XCTAssertEqual(state.playlistItems.map(\.id), [b.id])
-        XCTAssertFalse(state.canRotate)
-        XCTAssertEqual(LibraryState(videos: [a, b]).playlistItems, [], "no playlist, nothing to rotate")
+        let playlist = Playlist(name: "P", items: [b.id, UUID(), a.id])
+        let state = LibraryState(videos: [a, b], playlists: [playlist],
+                                 displays: ["D1": DisplayConfig(content: .playlist(playlist.id)),
+                                            "D2": DisplayConfig(content: .wallpaper(a.id))])
+        XCTAssertEqual(state.items(of: playlist).map(\.id), [b.id, a.id])
+        XCTAssertEqual(state.lineup(on: "D1").map(\.id), [b.id, a.id])
+        XCTAssertEqual(state.lineup(on: "D2").map(\.id), [a.id])
+        XCTAssertEqual(state.lineup(on: "D3"), [])
+        XCTAssertEqual(state.playlist(on: "D1")?.id, playlist.id)
+        XCTAssertNil(state.playlist(on: "D2"))
     }
 
-    func testRotationNeedsAPlaylistOfTwoAndIsPerDisplay() {
+    func testAPlaylistsOwnOptionsApplyWhileADisplayPlaysIt() {
         let a = VideoItem(path: "/a.mp4"), b = VideoItem(path: "/b.mp4")
-        var state = LibraryState(videos: [a, b], displays: ["D1": DisplayConfig(rotateEnabled: true)])
-        XCTAssertFalse(state.rotates("D1"), "without a playlist the wallpaper stays")
-        state.playlist = [a.id, b.id]
-        XCTAssertTrue(state.rotates("D1"))
-        XCTAssertFalse(state.rotates("D2"), "rotation is turned on per display")
-        state.playlist = [a.id]
-        XCTAssertFalse(state.rotates("D1"))
+        let playlist = Playlist(name: "P", items: [a.id],
+                                wallpaperOptions: [a.id.uuidString: WallpaperOptions(volume: 0.2)])
+        var config = DisplayConfig(content: .playlist(playlist.id))
+        config.wallpaperOptions = [a.id.uuidString: WallpaperOptions(volume: 0.7), b.id.uuidString: WallpaperOptions(volume: 0.4)]
+        var state = LibraryState(videos: [a, b], playlists: [playlist], displays: ["D1": config])
+        XCTAssertEqual(state.options(for: a.id, on: "D1").volume, 0.2)
+        XCTAssertEqual(state.options(for: b.id, on: "D1").volume, 0.4, "a wallpaper outside the playlist keeps the display's")
+        state.setContent(.wallpaper(a.id), on: "D1")
+        XCTAssertEqual(state.options(for: a.id, on: "D1").volume, 0.7, "on its own it has the display's options")
+    }
+
+    func testPlaylistTimingClampsAndDecodesWithDefaults() throws {
+        let playlist = Playlist(name: "P", intervalValue: 0, intervalUnit: .seconds, transitionDuration: 60)
+        XCTAssertEqual(playlist.intervalValue, 1, "the interval clamps to 1...999")
+        XCTAssertEqual(playlist.intervalSeconds, Playlist.minimumInterval)
+        XCTAssertTrue(playlist.intervalIsClamped)
+        XCTAssertEqual(playlist.transitionDuration, Playlist.transitionDurations.upperBound)
+        XCTAssertEqual(Playlist(name: "P", transition: .cut).transitionSeconds, 0, "a hard switch takes no time")
+        let id = UUID()
+        let decoded = try JSONDecoder().decode(Playlist.self, from: Data(#"{"id":"\#(id.uuidString)","name":"Old"}"#.utf8))
+        XCTAssertEqual(decoded, Playlist(id: id, name: "Old"))
+        XCTAssertEqual(decoded.intervalSeconds, 300)
+        XCTAssertNil(decoded.imageURL)
     }
 
     func testAgentRecordFromAnOlderVersionDecodes() throws {

@@ -4,7 +4,7 @@ import IOKit.ps
 import SceneBridge
 
 // A scene on one display. Our own renderer (SceneRenderer/, a Rust library) draws it with Metal into the
-// CAMetalLayer of the display's window, with that display's settings (DisplayConfig).
+// CAMetalLayer of the display's window, with that display's settings (DisplayConfig) or its playlist's.
 
 /// One Rust renderer, on its way from the loading thread to the main actor.
 final class RendererBox: @unchecked Sendable {
@@ -13,13 +13,18 @@ final class RendererBox: @unchecked Sendable {
 }
 
 @MainActor final class SceneRenderService: WallpaperService {
+    /// A scene that has not drawn within this long after loading is shown anyway.
+    private static let readyTimeout = 3.0
     private var renderer: Renderer?
     private let windows: DisplayWindow<MetalView>
     private let power = PowerSource()
     private var audio: SystemAudioTap?
     private var pointerMonitor: Any?
     private var generation = 0
-    private var state = LibraryState()
+    /// The renderer has drawn its first frame. Until then it runs (silently) even on a paused display, so the window
+    /// has a picture to show.
+    private var drawn = false
+    private var firstFrame: Task<Void, Never>?
     // What the renderer has been given so far; nil = nothing yet, so everything is pushed.
     private var appliedOptions: WallpaperOptions?
     private var appliedVolume: Double?
@@ -41,9 +46,11 @@ final class RendererBox: @unchecked Sendable {
         }
     }
 
+    override var surface: TransitionWindow? { windows }
+
     /// The settings changed (or a scene is about to start): push only what differs.
-    func update(_ state: LibraryState) {
-        self.state = state
+    override func update(_ state: LibraryState) {
+        super.update(state)
         guard renderer != nil, let item else { return }
         push(item)
     }
@@ -87,7 +94,29 @@ final class RendererBox: @unchecked Sendable {
             attachDisplay()
             startPointer()
             push(item)
-            onReady?(item)
+            awaitFirstFrame(mine)
+            reportReady(after: Self.readyTimeout)
+        }
+    }
+
+    /// Watches the renderer's frame count until its first frame is drawn, then lets the pause and mute apply and tells
+    /// the DisplayPlayer. The count rises when the GPU has finished the frame; the frame is shown a moment later, so one
+    /// more poll passes before ready is reported.
+    private func awaitFirstFrame(_ mine: Int) {
+        firstFrame?.cancel()
+        firstFrame = Task { @MainActor [weak self] in
+            while true {
+                do { try await Task.sleep(nanoseconds: 16_000_000) } catch { return }
+                guard let self, mine == self.generation, let renderer = self.renderer, let item = self.item else { return }
+                if self.drawn {
+                    self.reportReady()
+                    return
+                }
+                if renderer.stats().frames > 0 {
+                    self.drawn = true
+                    self.push(item)
+                }
+            }
         }
     }
 
@@ -114,6 +143,9 @@ final class RendererBox: @unchecked Sendable {
     }
 
     private func stopRenderer() {
+        firstFrame?.cancel()
+        firstFrame = nil
+        drawn = false
         stopPointer()
         if let attached { renderer?.detachLayer(displayId: attached.id) }
         attached = nil
@@ -198,10 +230,9 @@ final class RendererBox: @unchecked Sendable {
     /// (or in Low Power Mode) the scene pauses or runs slower and smaller, as the user chose.
     private func push(_ item: VideoItem) {
         guard let renderer else { return }
-        let config = state.config(for: displayID)
-        let new = config.options(for: item.id)
+        let new = state.options(for: item.id, on: displayID)
         let old = appliedOptions
-        let rules = config.power
+        let rules = state.config(for: displayID).power
         let saving = power.isSaving
         var fps = new.fps
         var scale = new.renderScale
@@ -209,7 +240,9 @@ final class RendererBox: @unchecked Sendable {
             fps = min(fps, rules.batteryFPS)
             scale = min(scale, rules.batteryRenderScale)
         }
-        let pause = paused || (saving && rules.batteryMode == .pause)
+        // A paused scene still draws its first frame, without a sound (`drawn`).
+        let holds = paused || (saving && rules.batteryMode == .pause)
+        let pause = holds && drawn
 
         if new.framing != old?.framing {
             renderer.setFraming(framing: new.framing)
@@ -233,7 +266,7 @@ final class RendererBox: @unchecked Sendable {
         if volume != appliedVolume {
             renderer.setVolume(volume: Float(volume))
         }
-        let silent = state.muted || new.muted
+        let silent = state.muted || new.muted || (holds && !drawn)
         if silent != appliedSilent {
             renderer.setMuted(muted: silent)
         }
@@ -280,8 +313,10 @@ final class RendererBox: @unchecked Sendable {
 @MainActor private final class PowerSource {
     var onChange: (() -> Void)?
     private(set) var isSaving = PowerSource.current()
-    private var source: CFRunLoopSource?
-    private var token: NSObjectProtocol?
+    // Only touched by init and deinit, both on the main thread: the run loop source's callback holds an unretained
+    // pointer to self, so deinit must take the source off the run loop before self goes.
+    nonisolated(unsafe) private var source: CFRunLoopSource?
+    nonisolated(unsafe) private var token: NSObjectProtocol?
 
     init() {
         let context = Unmanaged.passUnretained(self).toOpaque()
@@ -296,6 +331,11 @@ final class RendererBox: @unchecked Sendable {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
         }
+    }
+
+    deinit {
+        if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .defaultMode) }
+        if let token { NotificationCenter.default.removeObserver(token) }
     }
 
     private func refresh() {

@@ -25,7 +25,7 @@ struct DisplayPicker: View {
                 Text(screen.name)
                     .font(.headline)
                     .lineLimit(1)
-                Text(item?.name ?? String(localized: "No live wallpaper. Click one in your library to use it here."))
+                Text(description(item, on: screen))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -33,14 +33,22 @@ struct DisplayPicker: View {
             }
             Spacer(minLength: 8)
             Button(role: .destructive) {
-                model.removeWallpaper(from: screen.id)
+                model.removeContent(from: screen.id)
             } label: {
                 Label("Remove Wallpaper", systemImage: "xmark.circle")
             }
-            .disabled(model.wallpaper(on: screen.id) == nil)
+            .disabled(model.content(on: screen.id) == nil)
             .help("Stop the live wallpaper on this display and go back to the macOS default wallpaper.")
         }
         .animation(WMMotion.content, value: item?.id)
+    }
+
+    /// The wallpaper the display shows; with a playlist, the playlist's name first.
+    private func description(_ item: VideoItem?, on screen: ScreenInfo) -> String {
+        if let playlist = model.playlist(on: screen.id) {
+            return item.map { "\(playlist.name) · \($0.name)" } ?? playlist.name
+        }
+        return item?.name ?? String(localized: "No live wallpaper. Click one in your library to use it here.")
     }
 }
 
@@ -111,8 +119,8 @@ private struct DisplayTile: View {
         }
         .onHover { inside in withAnimation(WMMotion.hover) { hovering = inside } }
         .contextMenu {
-            Button("Remove Wallpaper") { model.removeWallpaper(from: screen.id) }
-                .disabled(model.wallpaper(on: screen.id) == nil)
+            Button("Remove Wallpaper") { model.removeContent(from: screen.id) }
+                .disabled(model.content(on: screen.id) == nil)
         }
         .task(id: wallpaper?.url) {
             guard let wallpaper, let image = await DisplayStillCache.shared.image(at: wallpaper.url) else { return }
@@ -143,7 +151,7 @@ private struct DisplayTile: View {
                         .scaledToFill()
                         .transition(.opacity)
                 } else if let item {
-                    WallpaperPreview(item: item, options: model.options(on: screen.id, for: item.id))
+                    WallpaperPreview(item: item, options: model.shownOptions(on: screen.id, for: item.id))
                         .id(item.id)
                         .transition(.opacity)
                 } else {

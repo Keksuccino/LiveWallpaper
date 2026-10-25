@@ -1,130 +1,154 @@
 import AppKit
 import Core
 
-// Shows the wallpaper of one display: the one set for it, or, while it rotates, the playlist in turn from there.
-// A rotating display skips items that cannot play; any other display shows nothing live then and reports why. The
-// Orchestrator owns one per connected display that has a wallpaper.
+// Shows what one display is set to: a single wallpaper, or a playlist's wallpapers one after another, each for the
+// playlist's interval and brought in with its transition. A playlist skips wallpapers that cannot play; a single
+// wallpaper that cannot play leaves the display without a live wallpaper, and the player reports why.
+// Every wallpaper gets a render service of its own: the next one loads in a transparent window above the current one,
+// which keeps playing until the next one has drawn its first frame and its transition (WallpaperTransition) is over.
+// The Orchestrator owns one player per connected display that has content.
 
 @MainActor final class DisplayPlayer {
-    private static let nothingPlayable = String(localized: "None of the wallpapers in your playlist can be played.")
+    private static let nothingPlayable = String(localized: "None of the wallpapers in this playlist can be played.")
+    private static let emptyPlaylist = String(localized: "This playlist has no wallpapers yet.")
 
     /// The display's UUID (NSScreen.displayID).
     let displayID: String
     /// Fired after `current` or `error` changed outside of a call from the Orchestrator (a failure, a rotation).
     var onChange: (@MainActor () -> Void)?
-    /// What the display shows; nil when nothing could be shown.
+    /// What the display shows, or is about to show once it has loaded; nil when nothing could be shown.
     private(set) var current: UUID?
-    /// Why the wallpaper could not be shown (user-facing); cleared when another one is set.
+    /// Why the wallpaper could not be shown (user-facing); cleared when the display is given something else.
     private(set) var error: String?
 
     private var state: LibraryState
-    private var config: DisplayConfig { state.config(for: displayID) }
-    private let video: VideoRenderService
-    private let scene: SceneRenderService
+    /// Shows `current`. Its window stays transparent until it is `ready`.
+    private var active: WallpaperService?
+    private var ready = false
+    /// The wallpaper `active` replaces; on screen until `active` is ready and has come in.
+    private var outgoing: WallpaperService?
+    private var transition: WallpaperTransition?
+    /// How `active` comes in once it is ready.
+    private var entrance: PlaylistTransition = .cut
+    private var entranceDuration = 0.0
     private var failedIDs: Set<UUID> = []
     private var rotationTimer: Timer?
     private var paused: Bool
+    private var screenLocked = false
     private var showDepth = 0  // > 0 while show() runs: a render service may report a failure synchronously
 
     init(displayID: String, state: LibraryState, paused: Bool) {
         self.displayID = displayID
         self.state = state
         self.paused = paused
-        video = VideoRenderService(displayID: displayID)
-        scene = SceneRenderService(displayID: displayID)
-        // The scene is on screen: the previous (video) wallpaper can go.
-        scene.onReady = { [weak self] _ in self?.video.stop() }
-        for service in [video, scene] as [WallpaperService] {
-            service.onFailure = { [weak self] item, message in self?.failed(item, message) }
-        }
-        video.update(state)
-        scene.update(state)
-        showWallpaper()
+        start()
     }
 
     var currentItem: VideoItem? { state.item(current) }
-    var rotates: Bool { state.rotates(displayID) }
+    /// The display plays a playlist of more than one wallpaper.
+    var rotates: Bool { lineup.count > 1 && playlist != nil }
+
+    private var content: DisplayContent? { state.config(for: displayID).content }
+    private var playlist: Playlist? { state.playlist(on: displayID) }
+    private var lineup: [VideoItem] { state.lineup(on: displayID) }
 
     // MARK: Changes
 
-    /// New settings or library. A different wallpaper is shown at once; rotation goes on from it.
+    /// New settings or library. Other content is shown at once; a playlist that changed goes on from the wallpaper on
+    /// screen.
     func update(_ fresh: LibraryState) {
-        let old = state
-        let oldConfig = config
+        let oldContent = content
+        let oldLineup = lineup.map(\.id)
+        let oldInterval = playlist?.intervalSeconds
+        let wasRotating = rotates
         state = fresh  // first, so the reads below see the new values
         failedIDs.formIntersection(fresh.videos.map(\.id))
-        video.update(fresh)
-        scene.update(fresh)  // diffs itself; no restart
-        if config.wallpaperID != oldConfig.wallpaperID {
-            showWallpaper()
-        } else if let current, fresh.item(current) == nil {
-            // The item on screen left the library (a rotation item; the wallpaper itself would have changed above).
-            advance(after: current, in: old)
+        active?.update(fresh)  // diffs itself; no restart
+        outgoing?.update(fresh)
+        guard content == oldContent else {
+            start()
+            return
         }
-        if rotates != old.rotates(displayID) || config.intervalSeconds != oldConfig.intervalSeconds {
-            scheduleRotation()
+        let ids = lineup.map(\.id)
+        if let current, !ids.contains(current) {
+            // The wallpaper on screen left the playlist or the library.
+            advance(after: current, in: oldLineup)
+        } else if current == nil, ids != oldLineup {
+            start()
         }
+        if rotates != wasRotating || playlist?.intervalSeconds != oldInterval { scheduleRotation() }
     }
 
-    /// Moves on to the next playlist item while the display rotates.
+    /// Moves on to the playlist's next wallpaper.
     func next() {
         guard rotates, let current else { return }
-        advance(after: current, in: state)
+        advance(after: current, in: lineup.map(\.id))
     }
 
     func setPaused(_ paused: Bool) {
         guard paused != self.paused else { return }
         self.paused = paused
-        video.setPaused(paused)
-        scene.setPaused(paused)
+        transition?.finish()
+        active?.setPaused(paused)
+        outgoing?.setPaused(paused)
         scheduleRotation()
     }
 
     func setScreenLocked(_ locked: Bool) {
-        video.setScreenLocked(locked)
-        scene.setScreenLocked(locked)
+        screenLocked = locked
+        active?.setScreenLocked(locked)
+        outgoing?.setScreenLocked(locked)
     }
 
     func revealSystemWallpaper() {
-        video.revealSystemWallpaper()
-        scene.revealSystemWallpaper()
+        active?.revealSystemWallpaper()
+        outgoing?.revealSystemWallpaper()
     }
 
     /// Takes everything off the display.
     func stop() {
-        rotationTimer?.invalidate()
-        rotationTimer = nil
-        current = nil
-        video.stop()
-        scene.stop()
+        clear()
     }
 
     // MARK: Showing
 
-    /// Shows the wallpaper set for the display, asking for it by name being worth another try.
-    private func showWallpaper() {
+    /// Shows the display's content from its start: its wallpaper, or its playlist's first wallpaper that can play.
+    /// Asking for content again gives the wallpapers that failed before another try.
+    private func start() {
         error = nil
-        guard let id = config.wallpaperID, let item = state.item(id) else {
+        let items = lineup
+        failedIDs.subtract(items.map(\.id))
+        switch content {
+        case .wallpaper:
+            guard let item = items.first else { return clear() }
+            if playable(item) {
+                show(item)
+            } else {
+                clear()
+                error = String(localized: "Couldn’t find “\(item.name)”. It may have been moved or deleted.")
+            }
+        case .playlist:
+            guard !items.isEmpty else {
+                clear()
+                error = Self.emptyPlaylist
+                return
+            }
+            play(from: 0)
+        case nil:
             clear()
-            return
-        }
-        failedIDs.remove(id)
-        if playable(item) {
-            show(item)
-        } else if rotates {
-            advance(after: id, in: state)
-        } else {
-            clear()
-            error = String(localized: "Couldn’t find “\(item.name)”. It may have been moved or deleted.")
         }
         scheduleRotation()
     }
 
-    /// Shows the first playable playlist item after `id` (wrapping), or nothing. `list` is the state `id` was
-    /// shown from: when it has left the playlist since, its place there tells where to go on.
-    private func advance(after id: UUID, in list: LibraryState) {
-        let items = state.playlistItems
-        let start = Self.index(after: id, in: list.playlist ?? [], within: items.map(\.id))
+    /// Shows the first playable playlist wallpaper after `id` (wrapping). `before` is the order `id` was shown in:
+    /// when it has left the playlist since, its place there tells where to go on.
+    private func advance(after id: UUID, in before: [UUID]) {
+        play(from: Self.index(after: id, in: before, within: lineup.map(\.id)))
+    }
+
+    /// Shows the first playable wallpaper of the lineup from `start` on (wrapping), or nothing.
+    private func play(from start: Int) {
+        let items = lineup
         for offset in 0..<items.count {
             let item = items[(start + offset) % items.count]
             if playable(item) {
@@ -154,31 +178,69 @@ import Core
         return false
     }
 
+    /// Starts `item` in a service of its own. A playlist's wallpaper comes in with the playlist's transition once it
+    /// is ready; anything else replaces what is on screen then at once.
     private func show(_ item: VideoItem) {
         guard item.id != current else { return }  // the item that is already showing is left alone
         current = item.id
         showDepth += 1
         defer { showDepth -= 1 }
-        if item.isScene {
-            // The video window stays up (previous wallpaper) until the scene renderer shows its first frame.
-            scene.update(state)
-            scene.start(item)
-            if scene.item?.id == item.id { scene.setPaused(paused) }
+        // A transition still running ends here: its wallpaper is the one on screen now.
+        transition?.finish()
+        if ready {
+            outgoing?.stop()
+            outgoing = active
         } else {
-            scene.stop()
-            video.update(state)
-            video.start(item)
-            video.setPaused(paused)
+            active?.stop()  // never shown; whatever was on screen before stays until the new one is ready
         }
+        ready = false
+        entrance = playlist?.transition ?? .cut
+        entranceDuration = playlist?.transitionSeconds ?? 0
+        let service: WallpaperService = item.isScene ? SceneRenderService(displayID: displayID)
+                                                     : VideoRenderService(displayID: displayID)
+        service.onReady = { [weak self, weak service] _ in
+            guard let self, let service, service === self.active else { return }
+            self.cameIn()
+        }
+        service.onFailure = { [weak self] item, message in self?.failed(item, message) }
+        service.update(state)
+        service.setPaused(paused)
+        if screenLocked { service.setScreenLocked(true) }
+        active = service
+        service.start(item)
+    }
+
+    /// `active` has drawn its first frame: it comes in, and what it replaces goes once it is in.
+    private func cameIn() {
+        guard !ready, let active else { return }
+        ready = true
+        guard let outgoing, let from = outgoing.surface, let to = active.surface, entrance != .cut, !paused else {
+            active.surface?.present()
+            retireOutgoing()
+            return
+        }
+        let transition = WallpaperTransition(entrance, duration: entranceDuration, from: from, to: to) { [weak self] in
+            self?.transition = nil
+            self?.retireOutgoing()
+        }
+        self.transition = transition
+        transition.run()
+    }
+
+    private func retireOutgoing() {
+        outgoing?.stop()
+        outgoing = nil
     }
 
     private func clear() {
         rotationTimer?.invalidate()
         rotationTimer = nil
-        guard current != nil else { return }
         current = nil
-        video.stop()
-        scene.stop()
+        transition?.finish()
+        retireOutgoing()
+        active?.stop()
+        active = nil
+        ready = false
     }
 
     // From a render service: only the item currently on the display counts.
@@ -186,7 +248,7 @@ import Core
         guard item.id == current else { return }
         failedIDs.insert(item.id)
         if rotates {
-            advance(after: item.id, in: state)
+            advance(after: item.id, in: lineup.map(\.id))
         } else {
             clear()
         }
@@ -197,8 +259,7 @@ import Core
     private func scheduleRotation() {
         rotationTimer?.invalidate()
         rotationTimer = nil
-        guard !paused, current != nil, rotates else { return }
-        let interval = config.intervalSeconds
+        guard !paused, current != nil, rotates, let interval = playlist?.intervalSeconds else { return }
         let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.next()

@@ -4,11 +4,40 @@ import AppKit
 import UniformTypeIdentifiers
 import Core
 
-// Home: the connected displays (DisplayArrangementView) above the wallpaper library. Clicking a wallpaper puts it on
-// the selected display at once; the inspector holds that display's settings.
+// Home: the connected displays (DisplayArrangementView) above the library: the playlists, then the wallpapers.
+// Clicking one puts it on the selected display at once; the inspector holds that display's settings. A playlist's
+// editor (PlaylistEditorView) takes the library's place while it is open.
 
 enum LibraryLayout: String, CaseIterable {
     case grid, list
+}
+
+/// One entry of the library: a playlist (with its wallpapers, for its picture) or a wallpaper.
+enum LibraryEntry: Identifiable, Equatable {
+    case playlist(Playlist, items: [VideoItem])
+    case wallpaper(VideoItem)
+
+    var id: UUID {
+        switch self {
+        case .playlist(let playlist, _): return playlist.id
+        case .wallpaper(let item): return item.id
+        }
+    }
+
+    /// What a display shows when the entry is put on it.
+    var content: DisplayContent {
+        switch self {
+        case .playlist(let playlist, _): return .playlist(playlist.id)
+        case .wallpaper(let item): return .wallpaper(item.id)
+        }
+    }
+
+    var name: String {
+        switch self {
+        case .playlist(let playlist, _): return playlist.name
+        case .wallpaper(let item): return item.name
+        }
+    }
 }
 
 @MainActor
@@ -24,16 +53,13 @@ struct HomeView: View {
     @State private var importFailures: [String] = []
     @State private var showFailures = false
     @State private var pendingRemoval: Set<VideoItem.ID> = []
-    /// Selecting several wallpapers (to remove them) instead of putting the clicked one on the display.
-    @State private var selectionMode = false
-    @State private var selectedIDs: Set<VideoItem.ID> = []
-    @State private var anchorID: VideoItem.ID?
+    @State private var pendingDeletion: Playlist.ID?
     /// Ringed for a moment after Show in Library scrolled to it.
     @State private var highlightedID: VideoItem.ID?
 
     var body: some View {
         Group {
-            if model.videos.isEmpty {
+            if model.videos.isEmpty && model.playlists.isEmpty {
                 emptyState
             } else {
                 gallery
@@ -42,23 +68,10 @@ struct HomeView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .dropDestination(for: URL.self) { urls, _ in add(urls); return true } isTargeted: { isTargeted = $0 }
         .searchable(text: $searchText, placement: .toolbar, prompt: "Search wallpapers")
-        // Standard toolbar controls with fixed labels: a toggle shows the selection mode by its own on state, so
-        // nothing in the toolbar swaps its image while the page animates.
+        // A standard toolbar control with fixed labels, so nothing in the toolbar swaps its image while the page
+        // animates.
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                Toggle(isOn: Binding(get: { selectionMode }, set: { setSelectionMode($0) })) {
-                    Label("Select", systemImage: "checkmark.circle")
-                }
-                .toggleStyle(.button)
-                .help(selectionMode ? "Stop selecting" : "Select wallpapers to remove")
-                .redrawnOnWindowActivation()
-                Button(action: removeSelection) {
-                    Label("Remove", systemImage: "trash")
-                }
-                .disabled(!selectionMode || selectedIDs.isEmpty)
-                .help(removalHelp)
-                .keyboardShortcut(.delete, modifiers: .command)
-                .redrawnOnWindowActivation()
                 Picker("Layout", selection: $layout) {
                     Label("Grid", systemImage: "square.grid.2x2").tag(LibraryLayout.grid)
                     Label("List", systemImage: "list.bullet").tag(LibraryLayout.list)
@@ -78,90 +91,63 @@ struct HomeView: View {
             Button("Remove", role: .destructive) { finishRemoval() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text(pendingRemoval.count > 1
-                 ? "Downloaded Workshop files are deleted and can be downloaded again."
-                 : "You can download it again from the Workshop.")
+            Text("You can download it again from the Workshop.")
         }
-        .onChange(of: model.videos.map(\.id)) { _, ids in selectedIDs.formIntersection(ids) }
+        .alert(deletionTitle, isPresented: confirmingDeletion) {
+            Button("Delete", role: .destructive) {
+                if let id = pendingDeletion { model.deletePlaylist(id) }
+                pendingDeletion = nil
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Its wallpapers stay in your library.")
+        }
     }
 
     // MARK: Data
 
-    private var items: [VideoItem] {
-        model.videos.filter { item in
-            searchText.isEmpty ||
-            item.name.localizedCaseInsensitiveContains(searchText) ||
-            (item.author ?? "").localizedCaseInsensitiveContains(searchText)
-        }
+    private func matches(_ text: String?) -> Bool {
+        searchText.isEmpty || (text ?? "").localizedCaseInsensitiveContains(searchText)
     }
 
-    /// What the selected display shows; its card is ringed.
-    private var currentID: VideoItem.ID? {
-        model.selectedDisplayID.flatMap { model.shownItem(on: $0)?.id }
+    /// The playlists, then the wallpapers, that match the search.
+    private var entries: [LibraryEntry] {
+        let library = Dictionary(model.videos.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let playlists = model.playlists
+            .filter { matches($0.name) }
+            .map { LibraryEntry.playlist($0, items: $0.items.compactMap { library[$0] }) }
+        let wallpapers = model.videos
+            .filter { matches($0.name) || matches($0.author) }
+            .map(LibraryEntry.wallpaper)
+        return playlists + wallpapers
     }
 
-    private var removalHelp: LocalizedStringKey {
-        selectedIDs.count > 1 ? "Remove \(selectedIDs.count) wallpapers (⌘⌫)" : "Remove selected wallpaper (⌘⌫)"
+    /// What the selected display is set to; its card is ringed.
+    private var currentContent: DisplayContent? {
+        model.selectedDisplayID.flatMap { model.content(on: $0) }
     }
 
     private func isBroken(_ item: VideoItem) -> Bool {
         !FileManager.default.fileExists(atPath: item.path)
     }
 
-    // MARK: Clicks
-
-    /// A click puts the wallpaper on the selected display. While selecting, it adds or removes the wallpaper from
-    /// the selection instead (Shift extends it from the last click); ⌘ or Shift starts selecting.
-    private func click(_ item: VideoItem) {
-        let flags = NSEvent.modifierFlags
-        if !selectionMode, flags.contains(.command) || flags.contains(.shift) {
-            setSelectionMode(true)
-        }
-        if selectionMode {
-            if flags.contains(.shift), let anchorID,
-               let from = items.firstIndex(where: { $0.id == anchorID }),
-               let to = items.firstIndex(where: { $0.id == item.id }) {
-                selectedIDs.formUnion(items[min(from, to)...max(from, to)].map(\.id))
-            } else {
-                toggleSelection(item.id)
-            }
-            anchorID = item.id
-        } else if let display = model.selectedDisplayID {
-            model.setWallpaper(item.id, on: display)
-        }
-    }
-
-    private func toggleSelection(_ id: VideoItem.ID) {
-        if selectedIDs.contains(id) { selectedIDs.remove(id) } else { selectedIDs.insert(id) }
-    }
-
-    private func setSelectionMode(_ on: Bool) {
-        selectionMode = on
-        selectedIDs = []
-        anchorID = nil
-    }
-
-    private func removeSelection() {
-        guard selectionMode, !selectedIDs.isEmpty else { return }
-        remove(selectedIDs)
-    }
-
     // MARK: Content
 
-    /// The page header, the display picker and the library's title row stay put; only the wallpapers below them
-    /// scroll.
+    /// The page header, the display picker and the library's title row stay put; only the library below them
+    /// scrolls.
     private var gallery: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let entries = entries
+        return VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 26) {
-                WMPageHeader(title: "Home", subtitle: subtitle)
+                WMPageHeader(title: "Home")
                 DisplayPicker(model: model)
-                libraryHeader
+                libraryHeader(count: entries.count)
             }
             .padding([.horizontal, .top], WMTheme.contentPadding)
             .padding(.bottom, 8)
             ScrollViewReader { proxy in
                 ScrollView {
-                    libraryItems
+                    libraryItems(entries)
                         .padding([.horizontal, .bottom], WMTheme.contentPadding)
                         .padding(.top, 6)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -172,7 +158,6 @@ struct HomeView: View {
                 .onChange(of: model.focusedID) { reveal(with: proxy) }
             }
         }
-        .animation(WMMotion.panel, value: selectionMode)
         .overlay(alignment: .top) {
             if isTargeted {
                 Text("Drop wallpapers to add them")
@@ -201,17 +186,11 @@ struct HomeView: View {
         }
     }
 
-    /// Only selection mode has a subtitle; the library's count sits beside its title.
-    private var subtitle: LocalizedStringKey? {
-        guard selectionMode else { return nil }
-        return selectedIDs.isEmpty ? "Select wallpapers to remove." : "\(selectedIDs.count) selected"
-    }
-
-    private var libraryHeader: some View {
+    private func libraryHeader(count: Int) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text("Your library")
                 .font(.title3.weight(.semibold))
-            Text(items.count, format: .number)
+            Text(count, format: .number)
                 .font(.callout.monospacedDigit())
                 .foregroundStyle(.tertiary)
             Spacer()
@@ -222,20 +201,24 @@ struct HomeView: View {
                 Button { chooseVideos() } label: {
                     Label("Add Videos…", systemImage: "film")
                 }
+                Divider()
+                Button { newPlaylist() } label: {
+                    Label("New Playlist", systemImage: "rectangle.stack.badge.plus")
+                }
             } label: {
                 Label("Add", systemImage: "plus")
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-            .help("Import videos, Wallpaper Engine scene packages or scene folders (⌘O)")
-            .accessibilityLabel("Add wallpapers")
+            .help("Import videos, Wallpaper Engine scene packages or scene folders (⌘O), or make a playlist")
+            .accessibilityLabel("Add wallpapers or a playlist")
         }
     }
 
-    private var libraryItems: some View {
+    private func libraryItems(_ entries: [LibraryEntry]) -> some View {
         Group {
-            if items.isEmpty {
+            if entries.isEmpty {
                 noResults
             } else {
                 switch layout {
@@ -243,41 +226,61 @@ struct HomeView: View {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: WMTheme.cardMinWidth, maximum: 340),
                                                  spacing: WMTheme.gridSpacing)],
                               alignment: .leading, spacing: WMTheme.gridSpacing) {
-                        ForEach(items) { item in
-                            LibraryCard(item: item, broken: isBroken(item), state: cardState(item),
-                                        actions: actions(item))
-                                .id(item.id)
+                        ForEach(entries) { entry in
+                            LibraryCard(entry: entry, broken: broken(entry), state: cardState(entry),
+                                        actions: actions(entry))
+                                .id(entry.id)
                                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
                         }
                     }
                 case .list:
                     LazyVStack(spacing: 4) {
-                        ForEach(items) { item in
-                            LibraryListRow(item: item, broken: isBroken(item), state: cardState(item),
-                                           actions: actions(item))
-                                .id(item.id)
+                        ForEach(entries) { entry in
+                            LibraryListRow(entry: entry, broken: broken(entry), state: cardState(entry),
+                                           actions: actions(entry))
+                                .id(entry.id)
                         }
                     }
                 }
             }
         }
-        .animation(WMMotion.content, value: items.map(\.id))
-        .animation(WMMotion.select, value: currentID)
+        .animation(WMMotion.content, value: entries.map(\.id))
+        .animation(WMMotion.select, value: currentContent)
     }
 
-    private func cardState(_ item: VideoItem) -> CardState {
-        CardState(current: !selectionMode && item.id == currentID,
-                  highlighted: item.id == highlightedID,
-                  selectionMode: selectionMode,
-                  selected: selectedIDs.contains(item.id))
+    private func broken(_ entry: LibraryEntry) -> Bool {
+        if case .wallpaper(let item) = entry { return isBroken(item) }
+        return false
     }
 
-    private func actions(_ item: VideoItem) -> CardActions {
-        CardActions(click: { click(item) },
-                    toggleSelection: { toggleSelection(item.id) },
-                    useOnAllDisplays: model.screens.count > 1 ? { model.setWallpaperOnAllDisplays(item.id) } : nil,
-                    showInFinder: { NSWorkspace.shared.activateFileViewerSelecting([item.url]) },
-                    remove: { remove([item.id]) })
+    private func cardState(_ entry: LibraryEntry) -> CardState {
+        CardState(current: entry.content == currentContent, highlighted: entry.id == highlightedID)
+    }
+
+    private func actions(_ entry: LibraryEntry) -> CardActions {
+        let content = entry.content
+        let useOnAll: (() -> Void)? = model.screens.count > 1 ? { model.setContentOnAllDisplays(content) } : nil
+        let click = { if let display = model.selectedDisplayID { model.setContent(content, on: display) } }
+        switch entry {
+        case .playlist(let playlist, _):
+            return CardActions(click: click, useOnAllDisplays: useOnAll,
+                               edit: { model.editingPlaylistID = playlist.id },
+                               remove: { pendingDeletion = playlist.id })
+        case .wallpaper(let item):
+            let choices = model.playlists.map {
+                PlaylistChoice(id: $0.id, name: $0.name, containsItem: $0.items.contains(item.id))
+            }
+            return CardActions(click: click, useOnAllDisplays: useOnAll,
+                               addToPlaylist: AddToPlaylist(playlists: choices) { playlist in
+                                   if let playlist {
+                                       model.addToPlaylist(playlist, items: [item.id])
+                                   } else {
+                                       model.editingPlaylistID = model.createPlaylist(with: [item.id])
+                                   }
+                               },
+                               showInFinder: { NSWorkspace.shared.activateFileViewerSelecting([item.url]) },
+                               remove: { remove(item) })
+        }
     }
 
     private var emptyState: some View {
@@ -301,7 +304,7 @@ struct HomeView: View {
         .padding(.vertical, 40)
     }
 
-    // MARK: Removing and adding
+    // MARK: Adding, removing and playlists
 
     private var skippedTitle: LocalizedStringKey {
         "Skipped \(skippedCount) files that aren’t wallpapers."
@@ -329,12 +332,17 @@ struct HomeView: View {
         if !urls.isEmpty { add(urls) }
     }
 
-    private func remove(_ ids: Set<VideoItem.ID>) {
-        guard !ids.isEmpty else { return }
-        if model.videos.contains(where: { ids.contains($0.id) && $0.isWorkshop }) {
-            pendingRemoval = ids
+    /// Makes an empty playlist and opens its editor.
+    private func newPlaylist() {
+        model.editingPlaylistID = model.createPlaylist()
+    }
+
+    /// A Workshop download is deleted with it, so that asks first; a local video only leaves the library.
+    private func remove(_ item: VideoItem) {
+        if item.isWorkshop {
+            pendingRemoval = [item.id]
         } else {
-            model.remove(ids: ids)
+            model.remove(ids: [item.id])
         }
     }
 
@@ -348,9 +356,16 @@ struct HomeView: View {
     }
 
     private var removalTitle: LocalizedStringKey {
-        let names = model.videos.filter { pendingRemoval.contains($0.id) }.map(\.name)
-        return names.count == 1 ? "Remove “\(names[0])” and delete its downloaded files?"
-                                : "Remove \(names.count) wallpapers and delete the downloaded files of Workshop items?"
+        let name = model.videos.first { pendingRemoval.contains($0.id) }?.name ?? ""
+        return "Remove “\(name)” and delete its downloaded files?"
+    }
+
+    private var confirmingDeletion: Binding<Bool> {
+        Binding(get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } })
+    }
+
+    private var deletionTitle: LocalizedStringKey {
+        "Delete the playlist “\(model.playlist(pendingDeletion)?.name ?? "")”?"
     }
 }
 
@@ -358,29 +373,45 @@ struct HomeView: View {
 
 /// How a library card looks.
 struct CardState: Equatable {
-    /// The selected display shows this wallpaper.
+    /// The selected display shows this wallpaper or playlist.
     var current: Bool
     /// Show in Library pointed here a moment ago.
     var highlighted: Bool
-    var selectionMode: Bool
-    var selected: Bool
 
     var ringColor: Color {
-        if selected || current { return WMTheme.accent }
+        if current { return WMTheme.accent }
         return highlighted ? WMTheme.accent.opacity(0.6) : Color.primary.opacity(0.07)
     }
 
-    var ringWidth: CGFloat { selected || current ? 2.5 : (highlighted ? 2 : 1) }
+    var ringWidth: CGFloat { current ? 2.5 : (highlighted ? 2 : 1) }
+}
+
+/// A playlist a wallpaper can be added to.
+struct PlaylistChoice: Identifiable {
+    let id: Playlist.ID
+    let name: String
+    let containsItem: Bool
+}
+
+/// The Add to Playlist menu of a wallpaper.
+struct AddToPlaylist {
+    let playlists: [PlaylistChoice]
+    /// Adds the wallpaper to the playlist; nil = to a new playlist.
+    let add: (Playlist.ID?) -> Void
 }
 
 /// What a library card can do.
 struct CardActions {
-    /// Puts the wallpaper on the selected display, or selects it while selecting.
+    /// Puts the wallpaper or playlist on the selected display.
     let click: () -> Void
-    let toggleSelection: () -> Void
     /// nil with a single display.
     let useOnAllDisplays: (() -> Void)?
-    let showInFinder: () -> Void
+    /// Playlists: opens the editor.
+    var edit: (() -> Void)? = nil
+    /// Wallpapers.
+    var addToPlaylist: AddToPlaylist? = nil
+    var showInFinder: (() -> Void)? = nil
+    /// Removes the wallpaper from the library or deletes the playlist, asking first where that deletes files.
     let remove: () -> Void
 }
 
@@ -390,41 +421,115 @@ private struct CardMenu: View {
     let actions: CardActions
 
     var body: some View {
+        if let edit = actions.edit {
+            Button("Edit Playlist…", action: edit)
+        }
         if let useOnAllDisplays = actions.useOnAllDisplays {
             Button("Use on All Displays", action: useOnAllDisplays)
         }
-        Button("Show in Finder", action: actions.showInFinder)
+        if let addToPlaylist = actions.addToPlaylist {
+            Menu("Add to Playlist") {
+                ForEach(addToPlaylist.playlists) { playlist in
+                    Button(playlist.name) { addToPlaylist.add(playlist.id) }
+                        .disabled(playlist.containsItem)
+                }
+                if !addToPlaylist.playlists.isEmpty { Divider() }
+                Button("New Playlist…") { addToPlaylist.add(nil) }
+            }
+        }
+        if let showInFinder = actions.showInFinder {
+            Button("Show in Finder", action: showInFinder)
+        }
         Divider()
-        Button("Remove…", role: .destructive, action: actions.remove)
+        if actions.edit != nil {
+            Button("Delete Playlist…", role: .destructive, action: actions.remove)
+        } else {
+            Button("Remove…", role: .destructive, action: actions.remove)
+        }
+    }
+}
+
+/// An entry's picture: a wallpaper's preview or a playlist's artwork.
+@MainActor
+private struct EntryArtwork: View {
+    let entry: LibraryEntry
+    let broken: Bool
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        switch entry {
+        case .playlist(let playlist, let items):
+            PlaylistArtwork(playlist: playlist, items: items, cornerRadius: cornerRadius)
+        case .wallpaper(let item):
+            ItemThumbnail(item: item, broken: broken, cornerRadius: cornerRadius)
+        }
+    }
+}
+
+/// An entry's chip: a scene's support, or that it is a playlist.
+@MainActor
+private struct EntryBadge: View {
+    let entry: LibraryEntry
+
+    var body: some View {
+        switch entry {
+        case .playlist:
+            WMChip(text: String(localized: "Playlist"), icon: "rectangle.stack")
+        case .wallpaper(let item):
+            if let info = item.scene { SceneSupportBadge(info: info) }
+        }
+    }
+}
+
+/// The line under a card's name.
+private func entryMeta(_ entry: LibraryEntry, broken: Bool) -> String {
+    switch entry {
+    case .playlist(_, let items):
+        return String(localized: "\(items.count) wallpapers")
+    case .wallpaper(let item):
+        if broken { return String(localized: "Missing or unreadable") }
+        if item.isWorkshop { return String(localized: "Workshop") }
+        return item.isScene ? String(localized: "Scene") : String(localized: "Video")
     }
 }
 
 @MainActor
 private struct LibraryCard: View {
-    let item: VideoItem
+    let entry: LibraryEntry
     let broken: Bool
     let state: CardState
     let actions: CardActions
     @State private var hovering = false
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            VStack(alignment: .leading, spacing: 8) {
-                ZStack(alignment: .bottomLeading) {
-                    ItemThumbnail(item: item, broken: broken, cornerRadius: 12)
-                        .aspectRatio(16 / 9, contentMode: .fit)
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack(alignment: .bottomLeading) {
+                EntryArtwork(entry: entry, broken: broken, cornerRadius: 12)
+                    .aspectRatio(16 / 9, contentMode: .fit)
 
-                    LinearGradient(colors: [.clear, .black.opacity(0.34)],
-                                   startPoint: .center, endPoint: .bottom)
-                        .allowsHitTesting(false)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                LinearGradient(colors: [.clear, .black.opacity(0.34)],
+                               startPoint: .center, endPoint: .bottom)
+                    .allowsHitTesting(false)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-                    HStack(spacing: 4) {
-                        if let info = item.scene { SceneSupportBadge(info: info) }
-                    }
+                EntryBadge(entry: entry)
                     .padding(7)
 
-                    if hovering && !state.selectionMode {
+                if hovering {
+                    HStack(spacing: 6) {
+                        if let edit = actions.edit {
+                            Button(action: edit) {
+                                Image(systemName: "pencil")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .frame(width: 26, height: 26)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help("Edit Playlist")
+                            .accessibilityLabel("Edit Playlist")
+                            .padding(4)
+                            .background(.ultraThinMaterial, in: Capsule())
+                        }
                         Menu {
                             CardMenu(actions: actions)
                         } label: {
@@ -438,135 +543,95 @@ private struct LibraryCard: View {
                         .help("More")
                         .padding(4)
                         .background(.ultraThinMaterial, in: Capsule())
-                        .padding(8)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                        .transition(.opacity)
                     }
-                }
-                .overlay {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(state.ringColor, lineWidth: state.ringWidth)
-                }
-                .shadow(color: .black.opacity(hovering || state.current ? 0.20 : 0), radius: 16, y: 8)
-                .animation(WMMotion.hover, value: state)
-
-                Text(item.name)
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .opacity(broken ? 0.6 : 1)
-                Text(cardMeta)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            .contentShape(Rectangle())
-            .onTapGesture(perform: actions.click)
-
-            if state.selectionMode {
-                selectionBadge
                     .padding(8)
-                    .transition(.opacity.combined(with: .scale(scale: 0.85)))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .transition(.opacity)
+                }
             }
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(state.ringColor, lineWidth: state.ringWidth)
+            }
+            .shadow(color: .black.opacity(hovering || state.current ? 0.20 : 0), radius: 16, y: 8)
+            .animation(WMMotion.hover, value: state)
+
+            Text(entry.name)
+                .font(.subheadline.weight(.medium))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .opacity(broken ? 0.6 : 1)
+            Text(entryMeta(entry, broken: broken))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: actions.click)
         .onHover { inside in
             withAnimation(WMMotion.hover) { hovering = inside }
         }
         .contextMenu { CardMenu(actions: actions) }
-        .help(broken ? String(localized: "This file was moved, deleted, or can’t be played.") : item.name)
+        .help(broken ? String(localized: "This file was moved, deleted, or can’t be played.") : entry.name)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(item.name), \(cardMeta)")
-        .accessibilityAddTraits(state.current || state.selected ? .isSelected : [])
-    }
-
-    private var selectionBadge: some View {
-        Button(action: actions.toggleSelection) {
-            Image(systemName: state.selected ? "checkmark.circle.fill" : "circle")
-                .symbolRenderingMode(.palette)
-                .foregroundStyle(state.selected ? Color.white : Color.white.opacity(0.95),
-                                 state.selected ? WMTheme.accent : Color.white.opacity(0.55))
-                .font(.system(size: 16, weight: .semibold))
-                .padding(3)
-                .background(Circle().fill(Color.black.opacity(0.36)))
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .help(state.selected ? "Deselect" : "Select")
-        .accessibilityLabel(state.selected ? "Deselect wallpaper" : "Select wallpaper")
-    }
-
-    private var cardMeta: String {
-        if broken { return String(localized: "Missing or unreadable") }
-        if item.isWorkshop { return String(localized: "Workshop") }
-        return item.isScene ? String(localized: "Scene") : String(localized: "Video")
+        .accessibilityLabel("\(entry.name), \(entryMeta(entry, broken: broken))")
+        .accessibilityAddTraits(state.current ? .isSelected : [])
     }
 }
 
 @MainActor
 private struct LibraryListRow: View {
-    let item: VideoItem
+    let entry: LibraryEntry
     let broken: Bool
     let state: CardState
     let actions: CardActions
     @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 10) {
-            if state.selectionMode {
-                Button(action: actions.toggleSelection) {
-                    Image(systemName: state.selected ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(state.selected ? WMTheme.accent : Color.secondary.opacity(0.55))
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .frame(width: 16, height: 16)
-                .help(state.selected ? "Deselect" : "Select")
-                .accessibilityLabel(state.selected ? "Deselect wallpaper" : "Select wallpaper")
+        HStack(spacing: 12) {
+            EntryArtwork(entry: entry, broken: broken, cornerRadius: 8)
+                .frame(width: 96, height: 54)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(entry.name).font(.callout.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                EntryBadge(entry: entry)
             }
-
-            HStack(spacing: 12) {
-                ItemThumbnail(item: item, broken: broken, cornerRadius: 8)
-                    .frame(width: 96, height: 54)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(item.name).font(.callout.weight(.medium)).lineLimit(1).truncationMode(.middle)
-                    if let info = item.scene { SceneSupportBadge(info: info) }
-                }
-                Spacer(minLength: 8)
-                Menu {
-                    CardMenu(actions: actions)
-                } label: {
-                    Image(systemName: "ellipsis")
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
+            Spacer(minLength: 8)
+            if let edit = actions.edit {
+                Button(action: edit) { Image(systemName: "pencil") }
+                    .buttonStyle(.borderless)
+                    .help("Edit Playlist")
+                    .accessibilityLabel("Edit Playlist")
             }
-            .contentShape(Rectangle())
-            .onTapGesture(perform: actions.click)
+            Menu {
+                CardMenu(actions: actions)
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
         }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: actions.click)
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(state.current || state.selected ? WMTheme.accent.opacity(0.12)
-                                                      : (hovering ? Color.primary.opacity(0.045) : .clear))
+                .fill(state.current ? WMTheme.accent.opacity(0.12) : (hovering ? Color.primary.opacity(0.045) : .clear))
         }
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(state.current || state.selected || state.highlighted ? state.ringColor.opacity(0.5)
-                                                                                    : .clear,
-                              lineWidth: 1)
+                .strokeBorder(state.current || state.highlighted ? state.ringColor.opacity(0.5) : .clear, lineWidth: 1)
         }
         .onHover { inside in withAnimation(WMMotion.hover) { hovering = inside } }
         .contextMenu { CardMenu(actions: actions) }
-        .accessibilityAddTraits(state.current || state.selected ? .isSelected : [])
+        .accessibilityAddTraits(state.current ? .isSelected : [])
     }
 }
 
 // MARK: - Inspector
 
-/// The selected display's wallpaper and that display's settings.
+/// The selected display's wallpaper or playlist and that display's settings.
 @MainActor
 struct DisplayInspectorView: View {
     @ObservedObject var model: SettingsModel
@@ -575,7 +640,7 @@ struct DisplayInspectorView: View {
         ScrollView {
             if let screen = model.selectedScreen {
                 content(screen)
-                    .id(screen.id)  // a display's own state (the interval being typed) never carries over
+                    .id(screen.id)  // a display's own state never carries over
                     .transition(.opacity)
             }
         }
@@ -585,21 +650,29 @@ struct DisplayInspectorView: View {
 
     private func content(_ screen: ScreenInfo) -> some View {
         VStack(alignment: .leading, spacing: 20) {
-            if model.wallpaper(on: screen.id) != nil, let item = model.shownItem(on: screen.id) {
-                header(item, on: screen)
-                if let error = model.error(on: screen.id) {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
+            switch model.content(on: screen.id) {
+            case .wallpaper:
+                if let item = model.shownItem(on: screen.id) {
+                    InspectorHeader(title: item.name,
+                                    subtitle: item.isScene ? "Scene · \(screen.name)" : "Video · \(screen.name)") {
+                        ItemThumbnail(item: item, broken: !FileManager.default.fileExists(atPath: item.path),
+                                      cornerRadius: 8)
+                    }
+                    errorLine(screen)
+                    WallpaperSettingsCard(model: model, scope: .display(screen.id), item: item)
+                    energy(screen)
                 }
-                WallpaperSettingsCard(model: model, display: screen.id, item: item)
-                DisplaySettingsCard(model: model, display: screen.id)
-            } else {
+            case .playlist(let id):
+                if let playlist = model.playlist(id) {
+                    PlaylistSummary(model: model, playlist: playlist, screen: screen)
+                    errorLine(screen)
+                    energy(screen)
+                }
+            case nil:
                 VStack(spacing: 10) {
                     Image(systemName: "display").font(.system(size: 22, weight: .light))
                     Text(screen.name).font(.callout.weight(.medium))
-                    Text("This display has no live wallpaper. Click one in your library to use it here.")
+                    Text("This display has no live wallpaper. Click a wallpaper or a playlist in your library to use it here.")
                         .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
@@ -611,22 +684,85 @@ struct DisplayInspectorView: View {
         .padding(.top, 22)
     }
 
-    private func header(_ item: VideoItem, on screen: ScreenInfo) -> some View {
+    @ViewBuilder private func errorLine(_ screen: ScreenInfo) -> some View {
+        if let error = model.error(on: screen.id) {
+            Label(error, systemImage: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func energy(_ screen: ScreenInfo) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Divider()
+            InspectorSection(title: "Energy") {
+                ScenePowerRows(model: model, display: screen.id)
+            }
+        }
+    }
+}
+
+/// The top of an inspector: a square picture, a name and a line under it.
+struct InspectorHeader<Picture: View>: View {
+    let title: String
+    let subtitle: LocalizedStringKey
+    @ViewBuilder let picture: () -> Picture
+
+    var body: some View {
         HStack(spacing: 11) {
-            // ItemThumbnail takes the size of its scaled-to-fill image, so a frame alone does not bound it (a square
-            // preview would spill over the rows below). It is laid over a fixed square and clipped to it instead, which
-            // keeps the header the same height for every wallpaper.
-            Color.clear
+            picture()
                 .frame(width: 76, height: 76)
-                .overlay {
-                    ItemThumbnail(item: item, broken: !FileManager.default.fileExists(atPath: item.path),
-                                  cornerRadius: 8)
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.name).font(.callout.weight(.semibold)).lineLimit(2).truncationMode(.middle)
-                Text(item.isScene ? "Scene · \(screen.name)" : "Video · \(screen.name)")
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(title).font(.callout.weight(.semibold)).lineLimit(2).truncationMode(.middle)
+                Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+    }
+}
+
+/// A display's playlist in its inspector: what it shows now and how the playlist plays, with the way to its editor.
+@MainActor
+private struct PlaylistSummary: View {
+    @ObservedObject var model: SettingsModel
+    let playlist: Playlist
+    let screen: ScreenInfo
+
+    var body: some View {
+        let items = model.items(of: playlist)
+        VStack(alignment: .leading, spacing: 20) {
+            InspectorHeader(title: playlist.name, subtitle: "Playlist · \(screen.name)") {
+                PlaylistArtwork(playlist: playlist, items: items, cornerRadius: 8)
+            }
+            if let item = model.liveItem(on: screen.id) {
+                InspectorSection(title: "Now Showing") {
+                    HStack(spacing: 10) {
+                        ItemThumbnail(item: item, cornerRadius: 5)
+                            .frame(width: 64, height: 36)
+                        Text(item.name)
+                            .font(.callout.weight(.medium))
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                    }
+                }
+            }
+            InspectorSection(title: "Playlist") {
+                VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label(String(localized: "\(items.count) wallpapers"), systemImage: "rectangle.stack")
+                        Label(PlaylistText.eachFor(playlist), systemImage: "timer")
+                        Label(PlaylistText.name(of: playlist.transition), systemImage: "square.on.square")
+                    }
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    Button {
+                        model.editingPlaylistID = playlist.id
+                    } label: {
+                        Label("Edit Playlist…", systemImage: "pencil").frame(maxWidth: .infinity)
+                    }
+                    .controlSize(.small)
+                    .help("Change the playlist’s wallpapers, their order and settings, its timing and its transition.")
+                }
             }
         }
     }
@@ -651,113 +787,6 @@ struct SceneSupportBadge: View {
     var body: some View {
         WMChip(text: title, tint: tint, icon: "sparkles")
             .help(info.localizedNotes.joined(separator: "\n"))
-    }
-}
-
-// MARK: - Display settings
-
-/// Rotation and scene settings of one display.
-@MainActor
-struct DisplaySettingsCard: View {
-    @ObservedObject var model: SettingsModel
-    let display: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            InspectorSection(title: "Rotation", subtitle: "Runs on a playlist you curate in Playlists.") {
-                RotationBlock(model: model, display: display)
-            }
-
-            Divider()
-
-            InspectorSection(title: "Energy") {
-                ScenePowerRows(model: model, display: display)
-            }
-        }
-    }
-}
-
-@MainActor
-struct RotationBlock: View {
-    @ObservedObject var model: SettingsModel
-    let display: String
-    @State private var intervalText: String
-    @FocusState private var intervalFocused: Bool
-
-    init(model: SettingsModel, display: String) {
-        self._model = ObservedObject(wrappedValue: model)
-        self.display = display
-        self._intervalText = State(initialValue: String(model.config(for: display).intervalValue))
-    }
-
-    private var config: DisplayConfig { model.config(for: display) }
-    private var hasPlaylist: Bool { model.playlistIDs != nil }
-    private var canRotate: Bool { hasPlaylist && model.canRotate }
-    private var itemCount: Int { model.playlistItems.count }
-    private var enteredValue: Int? { Int(intervalText).flatMap { $0 > 0 ? min($0, 999) : nil } }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            WMSwitchRow("Rotate wallpaper", isOn: rotateBinding)
-                .disabled(!canRotate)
-                .help("Automatically switch this display between the wallpapers of your playlist, in playlist order.")
-            if config.rotateEnabled && canRotate { intervalRow }
-            if let helper {
-                Text(helper.text)
-                    .font(.caption)
-                    .foregroundStyle(helper.warning ? Color.orange : Color.secondary)
-            }
-        }
-        .animation(WMMotion.panel, value: config.rotateEnabled && canRotate)
-        .onChange(of: config.intervalValue) { _, value in intervalText = String(value) }
-    }
-
-    private var intervalRow: some View {
-        HStack(spacing: 8) {
-            Text("Every").font(.callout)
-            TextField(text: $intervalText) { EmptyView() }
-                .textFieldStyle(.roundedBorder)
-                .multilineTextAlignment(.trailing)
-                .frame(width: 56)
-                .focused($intervalFocused)
-                .onSubmit(commitInterval)
-                .onChange(of: intervalFocused) { _, focused in if !focused { commitInterval() } }
-                .accessibilityLabel("Interval value")
-            Picker("Interval unit", selection: unitBinding) {
-                Text("seconds").tag(IntervalUnit.seconds)
-                Text("minutes").tag(IntervalUnit.minutes)
-                Text("hours").tag(IntervalUnit.hours)
-            }
-            .labelsHidden().pickerStyle(.menu).frame(width: 104)
-        }
-    }
-
-    private var helper: (text: LocalizedStringKey, warning: Bool)? {
-        guard canRotate else {
-            if !hasPlaylist {
-                return ("Rotation cycles a playlist you choose. Set one up in Playlists.", false)
-            }
-            return ("Add at least two wallpapers to the playlist to rotate.", false)
-        }
-        guard config.rotateEnabled else { return nil }
-        if enteredValue == nil { return ("Enter a number from 1 to 999.", true) }
-        if config.intervalIsClamped { return ("Minimum is 5 seconds.", true) }
-        return ("Cycles through \(itemCount) wallpapers in playlist order.", false)
-    }
-
-    private var rotateBinding: Binding<Bool> {
-        Binding(get: { config.rotateEnabled && canRotate },
-                set: { on in model.updateDisplay(display) { $0.rotateEnabled = on } })
-    }
-
-    private var unitBinding: Binding<IntervalUnit> {
-        Binding(get: { config.intervalUnit },
-                set: { unit in model.updateDisplay(display) { $0.intervalUnit = unit } })
-    }
-
-    private func commitInterval() {
-        if let value = enteredValue { model.updateDisplay(display) { $0.intervalValue = value } }
-        intervalText = String(config.intervalValue)
     }
 }
 

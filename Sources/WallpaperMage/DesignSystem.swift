@@ -506,8 +506,19 @@ final class ThumbnailCache {
         if let image { cache.setObject(image, forKey: key) }
         return image
     }
+
+    /// A picture file (a playlist's own picture), decoded once.
+    func image(at url: URL) async -> NSImage? {
+        let key = url.path as NSString
+        if let cached = cache.object(forKey: key) { return cached }
+        guard let image = NSImage(contentsOf: url) else { return nil }
+        cache.setObject(image, forKey: key)
+        return image
+    }
 }
 
+/// A wallpaper's preview. It takes exactly the size it is offered: the picture fills it from an overlay, so a picture
+/// of another aspect ratio never makes the thumbnail larger than its frame.
 struct ItemThumbnail: View {
     let item: VideoItem
     var broken = false
@@ -516,33 +527,32 @@ struct ItemThumbnail: View {
     @State private var image: NSImage?
 
     var body: some View {
-        ZStack {
-            Rectangle().fill(Color.primary.opacity(0.05))
-
-            if broken {
-                VStack(spacing: 5) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 18))
-                    Text("Missing").font(.caption2)
+        Rectangle()
+            .fill(Color.primary.opacity(0.05))
+            .overlay {
+                if broken {
+                    VStack(spacing: 5) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 18))
+                        Text("Missing").font(.caption2)
+                    }
+                    .foregroundStyle(.orange)
+                } else if let image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .transition(.opacity)
+                } else {
+                    Image(systemName: item.isScene ? "photo" : "film")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.tertiary)
                 }
-                .foregroundStyle(.orange)
-            } else if let image {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .transition(.opacity)
-            } else {
-                Image(systemName: item.isScene ? "photo" : "film")
-                    .font(.system(size: 20))
-                    .foregroundStyle(.tertiary)
             }
-        }
-        .clipped()
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        .task(id: [item.path, item.previewPath ?? ""]) {
-            let loaded = await ThumbnailCache.shared.image(for: item)
-            withAnimation(.easeInOut(duration: 0.2)) { image = loaded }
-        }
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .task(id: [item.path, item.previewPath ?? ""]) {
+                let loaded = await ThumbnailCache.shared.image(for: item)
+                withAnimation(.easeInOut(duration: 0.2)) { image = loaded }
+            }
     }
 }
 

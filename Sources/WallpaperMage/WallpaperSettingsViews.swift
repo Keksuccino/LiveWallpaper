@@ -2,14 +2,15 @@ import SwiftUI
 import Core
 import SceneFormat
 
-// A wallpaper's settings on one display (the "Wallpaper" section of the Home inspector) and the display's "Energy"
-// power settings. Everything writes through SettingsModel (DisplayConfig.wallpaperOptions / .power), which commits to
-// the service.
+// A wallpaper's settings on one display (the "Wallpaper" section of the Home inspector) or in one playlist (the
+// playlist editor's inspector), and a display's "Energy" power settings. Everything writes through SettingsModel
+// (DisplayConfig.wallpaperOptions, Playlist.wallpaperOptions, DisplayConfig.power), which commits to the service.
 
 @MainActor
 struct WallpaperSettingsCard: View {
     @ObservedObject var model: SettingsModel
-    let display: String
+    /// Whose options these are: the display's or the playlist's.
+    let scope: OptionsScope
     let item: VideoItem
     @State private var sheet: WallpaperSheet?
     /// Groups the user folded away, by the group property's key.
@@ -19,10 +20,15 @@ struct WallpaperSettingsCard: View {
     @State private var confirmingApplyToAll = false
     @State private var pasteFailed = false
 
-    private var options: WallpaperOptions { model.options(on: display, for: item.id) }
+    private var options: WallpaperOptions { model.options(in: scope, for: item.id) }
 
     private func update(_ change: (inout WallpaperOptions) -> Void) {
-        model.updateOptions(on: display, for: item.id, change)
+        model.updateOptions(in: scope, for: item.id, change)
+    }
+
+    private var inPlaylist: Bool {
+        if case .playlist = scope { return true }
+        return false
     }
 
     var body: some View {
@@ -47,17 +53,21 @@ struct WallpaperSettingsCard: View {
             TextField("Name", text: $presetName)
             Button("Save") {
                 let name = presetName.trimmingCharacters(in: .whitespaces)
-                if !name.isEmpty { model.savePreset(named: name, for: item, on: display) }
+                if !name.isEmpty { model.savePreset(named: name, for: item, in: scope) }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Saves this wallpaper’s settings on this display under a name. A preset with the same name is replaced.")
+            Text(inPlaylist
+                 ? "Saves this wallpaper’s settings in this playlist under a name. A preset with the same name is replaced."
+                 : "Saves this wallpaper’s settings on this display under a name. A preset with the same name is replaced.")
         }
         .confirmationDialog("Apply these settings to all wallpapers?", isPresented: $confirmingApplyToAll) {
-            Button("Apply to All Wallpapers") { model.applyBuiltInsToAll(from: item, on: display) }
+            Button("Apply to All Wallpapers") { model.applyBuiltInsToAll(from: item, in: scope) }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Every other wallpaper on this display gets this wallpaper’s sound, speed, alignment and colour settings. Each keeps its own properties.")
+            Text(inPlaylist
+                 ? "Every other wallpaper in this playlist gets this wallpaper’s sound, speed, alignment and colour settings. Each keeps its own properties."
+                 : "Every other wallpaper on this display gets this wallpaper’s sound, speed, alignment and colour settings. Each keeps its own properties.")
         }
         .alert("No Wallpaper Settings on the Clipboard", isPresented: $pasteFailed) {
             Button("OK", role: .cancel) {}
@@ -101,7 +111,9 @@ struct WallpaperSettingsCard: View {
                 Button { confirmingApplyToAll = true } label: {
                     Label("Apply to All Wallpapers", systemImage: "square.stack.3d.up").frame(maxWidth: .infinity)
                 }
-                .help("Gives every other wallpaper on this display this wallpaper’s sound, speed, alignment and colour settings.")
+                .help(inPlaylist
+                      ? "Gives every other wallpaper in this playlist this wallpaper’s sound, speed, alignment and colour settings."
+                      : "Gives every other wallpaper on this display this wallpaper’s sound, speed, alignment and colour settings.")
                 HStack(spacing: 8) {
                     Button(action: copyJSON) {
                         Label("Share JSON", systemImage: "doc.on.doc").frame(maxWidth: .infinity)
@@ -168,7 +180,7 @@ struct WallpaperSettingsCard: View {
                 if property.key == "volume" {
                     WMSwitchRow(isOn: Binding(get: { options.muted }, set: { on in update { $0.muted = on } }),
                                 accessibilityLabel: Text("Mute")) { Label("Mute", systemImage: "speaker.slash") }
-                        .help("Silences this wallpaper on this display.")
+                        .help(inPlaylist ? "Silences this wallpaper in this playlist." : "Silences this wallpaper on this display.")
                     appSoundWarning
                 }
                 if property.key == "alignmentz", options.alignment.canLeaveBars {
@@ -212,8 +224,14 @@ struct WallpaperSettingsCard: View {
         }])
     }
 
-    /// Wallpaper Engine's rule for the position slider: the wallpaper's aspect ratio differs from the display's.
+    /// Wallpaper Engine's rule for the position slider: the wallpaper's aspect ratio differs from the display's. A
+    /// playlist's wallpaper is measured against the display selected on Home.
     private func positionMatters(_ sheet: WallpaperSheet) -> Bool {
+        let display: String?
+        switch scope {
+        case .display(let id): display = id
+        case .playlist: display = model.selectedDisplayID
+        }
         guard let content = sheet.contentSize, content.height > 0,
               let screen = model.screens.first(where: { $0.id == display }), screen.frame.height > 0 else { return true }
         return abs(content.width / content.height - screen.frame.width / screen.frame.height) > 0.001

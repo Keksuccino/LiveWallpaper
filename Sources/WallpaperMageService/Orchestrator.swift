@@ -1,10 +1,10 @@
 import AppKit
 import Core
 
-// Decides what every display shows. Each connected display that has a wallpaper gets a DisplayPlayer, which draws
-// it (and rotates it) on that display alone; WallpaperStills keeps such a display's system wallpaper a still of it,
-// which is also what its menu bar and the lock screen show. A display whose wallpaper is taken away gets macOS's
-// default wallpaper back. The service is the only writer of state.json (StateStore.commit / setMuted).
+// Decides what every display shows. Each connected display that has content (a wallpaper or a playlist) gets a
+// DisplayPlayer, which draws it on that display alone; WallpaperStills keeps such a display's system wallpaper a still
+// of what it shows, which is also what its menu bar and the lock screen show. A display whose content is taken away
+// gets macOS's default wallpaper back. The service is the only writer of state.json (StateStore.commit / setMuted).
 
 @MainActor final class Orchestrator {
     private static let unreadableLibrary = String(localized: "Couldn’t read your library. Using the previous list.")
@@ -85,7 +85,7 @@ import Core
         onChange?()
     }
 
-    /// Every rotating display moves on to its next wallpaper.
+    /// Every display that plays a playlist moves on to its next wallpaper.
     func next() {
         players.values.forEach { $0.next() }
         changed()
@@ -134,25 +134,25 @@ import Core
         let old = state
         state = fresh
         stills.delay = fresh.stillDelay
-        // A wallpaper taken away (or deleted from the library) gives the display macOS's default wallpaper back.
-        // It is set while the live window still covers it; reconcile() then closes the window.
+        // Content taken away (or deleted) gives the display macOS's default wallpaper back. It is set while the live
+        // window still covers it; reconcile() then closes the window.
         let connected = Set(NSScreen.screens.map(\.displayID))
         for (id, config) in old.displays
-        where config.wallpaperID != nil && fresh.config(for: id).wallpaperID == nil && connected.contains(id) {
+        where config.content != nil && fresh.config(for: id).content == nil && connected.contains(id) {
             stills.revert(id)
         }
         reconcile()
     }
 
-    /// A player for every connected display that has a wallpaper, none for the rest.
+    /// A player for every connected display that has content, none for the rest.
     private func reconcile() {
         let connected = NSScreen.screens.map(\.displayID)
-        for (id, player) in players where !connected.contains(id) || state.config(for: id).wallpaperID == nil {
+        for (id, player) in players where !connected.contains(id) || state.config(for: id).content == nil {
             player.stop()
             players[id] = nil
             stills.forget(id)
         }
-        for id in connected where state.config(for: id).wallpaperID != nil {
+        for id in connected where state.config(for: id).content != nil {
             if let player = players[id] {
                 player.update(state)
             } else {
@@ -166,7 +166,8 @@ import Core
         updateActivity()
     }
 
-    /// A player moved on by itself (rotation, failure): the stills follow and the status item and UI hear of it.
+    /// A player moved on by itself (a playlist's next wallpaper, a failure): the stills follow and the status item
+    /// and UI hear of it.
     private func changed() {
         syncStills()
         updateActivity()
@@ -177,7 +178,7 @@ import Core
     private func syncStills() {
         for (id, player) in players {
             if let item = player.currentItem {
-                stills.show(item, options: state.config(for: id).options(for: item.id), on: id)
+                stills.show(item, options: state.options(for: item.id, on: id), on: id)
             } else {
                 stills.forget(id)
             }

@@ -10,7 +10,7 @@
 ![Rust](https://img.shields.io/badge/renderer-Rust%20%2B%20Metal-orange)
 ![Swift](https://img.shields.io/badge/app-Swift%20%2B%20SwiftUI-F05138)
 
-**Wallpaper Mage** is a free, open-source animated wallpaper app for macOS. It plays videos and **Wallpaper Engine scenes** as your desktop wallpaper, a different one on every display if you like, rotates through a playlist on a timer, keeps the lock screen and menu bar in step with a still of it, and downloads wallpapers from the **Steam Workshop** with your own Steam account. Scenes are drawn by our own Rust + Metal renderer that sleeps when nothing is moving, so it stays light on battery.
+**Wallpaper Mage** is a free, open-source animated wallpaper app for macOS. It plays videos and **Wallpaper Engine scenes** as your desktop wallpaper, a different one on every display if you like, plays playlists of wallpapers with transitions between them, keeps the lock screen and menu bar in step with a still of it, and downloads wallpapers from the **Steam Workshop** with your own Steam account. Scenes are drawn by our own Rust + Metal renderer that sleeps when nothing is moving, so it stays light on battery.
 
 ![Wallpaper Mage settings window: a video wallpaper selected, with rotation and scene frame-rate options](assets/screenshots/library-detail.png)
 
@@ -23,7 +23,7 @@
 - **Steam Workshop browser**: browse Trending wallpapers, search, or paste a Workshop link; download with Valve's official SteamCMD and your own account.
 - **Every display its own**: each display gets its own wallpaper and settings, picked on a map of your display arrangement. Works with and without separate Spaces per display.
 - **Lock screen and menu bar to match**: each display's system wallpaper becomes a still of the live wallpaper, framed the same way, so the lock screen, the menu bar background and Mission Control show it too.
-- **Rotation**: cycle a display through your playlist every N seconds (minimum 5).
+- **Playlists**: named playlists of the wallpapers you pick, in your order, each wallpaper with its own settings in the playlist. Choose how long each one stays (minimum 5 seconds) and how the next one comes in: hard switch, fade, fade through black, blur, zoom or slide. A playlist shows a picture of your own or a collage of its first wallpapers.
 - **Battery-friendly**: a frame rate and render scale per wallpaper, "pause on battery", "skip repeated frames", "update only when the scene changes", pause while the screen is locked or the desktop is covered.
 - **Menu bar control**: pause, next wallpaper, mute and quit from a background service that keeps running after Settings closes.
 - **In your language**: English, German, French, Spanish (Spain and Mexico), Brazilian Portuguese, Polish, Russian, Ukrainian, Turkish, Greek, Japanese, Korean and Simplified Chinese. It follows your Mac's language, or the one you pick in Settings.
@@ -97,10 +97,10 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the process, IPC and bridge diagram.
 ## Usage
 
 - Add wallpapers by dropping them on the window, with Import Wallpapers (⌘O) or with Add Videos (⇧⌘O).
-- **Home** shows your displays as they are arranged in System Settings. Click a display to choose it (the leftmost one is chosen at first), then click a wallpaper in your library to put it on that display. The inspector on the right holds that display's settings.
-- **Remove Wallpaper** takes a display's live wallpaper away and gives the display the macOS default wallpaper back. **Use on All Displays** in a wallpaper's menu puts it on every display.
-- Rotation cycles a display through the playlist (Playlists page) in list order. Turn it on per display in the inspector and set how often it switches (minimum 5 seconds). Rotation needs at least two wallpapers in the playlist.
-- A wallpaper's settings (inspector → Wallpaper) work like Wallpaper Engine's: the options shown depend on the wallpaper, and they are kept per wallpaper and display. **Master volume** (Settings ⌘, → General) scales every wallpaper's sound.
+- **Home** shows your displays as they are arranged in System Settings. Click a display to choose it (the leftmost one is chosen at first), then click a wallpaper or a playlist in your library to put it on that display. Playlists come first in the library. The inspector on the right holds that display's settings.
+- **Remove Wallpaper** takes a display's live wallpaper away and gives the display the macOS default wallpaper back. **Use on All Displays** in a wallpaper's or playlist's menu puts it on every display.
+- **Add → New Playlist** makes a playlist and opens its editor; **Edit Playlist** (the pencil on its card, its menu or the inspector) opens it again. In the editor you name it, pick its picture, add and drag wallpapers into order, and set how long each stays and the transition. Click a wallpaper in the list to change its settings for this playlist in the inspector. **Add to Playlist** in a wallpaper's menu adds it to a playlist.
+- A wallpaper's settings (inspector → Wallpaper) work like Wallpaper Engine's: the options shown depend on the wallpaper, and they are kept per wallpaper and display; a playlist keeps its own for its wallpapers. **Master volume** (Settings ⌘, → General) scales every wallpaper's sound.
 - **App language** (Settings ⌘, → General) follows your Mac's language order by default; pick another and press **Restart Now** to switch Settings and the menu bar item to it.
 - **Update delay** (Settings ⌘, → General) sets how long the app waits before the picture on your lock screen and behind the menu bar follows a wallpaper change (2 seconds by default).
 - The **Steam** tab in Settings sets up Workshop downloads.
@@ -142,7 +142,7 @@ The build checks that Settings never links the old scene engine and that the ser
 
 ## Architecture
 
-Two processes: the SwiftUI **WallpaperMage** (Settings) app, which plays nothing, and the nested AppKit **WallpaperMageService**, which draws every display's wallpaper and owns the system wallpaper stills, rotation timers, the Unix socket and `state.json`. Settings sends commands to the service over the socket and never imports `SceneBridge`. The Rust renderer is statically linked into the service, not a separate process. Full diagram, state ownership and option mapping: [ARCHITECTURE.md](ARCHITECTURE.md).
+Two processes: the SwiftUI **WallpaperMage** (Settings) app, which plays nothing, and the nested AppKit **WallpaperMageService**, which draws every display's wallpaper and owns the system wallpaper stills, playlist timers and transitions, the Unix socket and `state.json`. Settings sends commands to the service over the socket and never imports `SceneBridge`. The Rust renderer is statically linked into the service, not a separate process. Full diagram, state ownership and option mapping: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## FAQ
 

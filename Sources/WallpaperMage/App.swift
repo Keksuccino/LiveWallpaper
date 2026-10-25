@@ -89,12 +89,11 @@ struct WallpaperMageApp: App {
 // MARK: - Navigation
 
 enum SidebarSelection: Hashable, CaseIterable {
-    case home, playlists, workshop, downloads
+    case home, workshop, downloads
 
     var title: String {
         switch self {
         case .home: return String(localized: "Home")
-        case .playlists: return String(localized: "Playlists")
         case .workshop: return String(localized: "Workshop")
         case .downloads: return String(localized: "Downloads")
         }
@@ -103,7 +102,6 @@ enum SidebarSelection: Hashable, CaseIterable {
     var symbol: String {
         switch self {
         case .home: return "house"
-        case .playlists: return "list.bullet.rectangle"
         case .workshop: return "square.grid.2x2"
         case .downloads: return "arrow.down.circle"
         }
@@ -146,7 +144,6 @@ struct RootView: View {
         VStack(spacing: 0) {
             List {
                 sidebarRow(.home)
-                sidebarRow(.playlists)
                 sidebarRow(.workshop)
                 sidebarRow(.downloads, count: workshop.downloadEntries.isEmpty ? nil : workshop.downloadEntries.count,
                            live: workshop.hasActiveDownloads)
@@ -165,6 +162,8 @@ struct RootView: View {
     private func sidebarRow(_ item: SidebarSelection, count: Int? = nil, live: Bool = false) -> some View {
         let selected = selection == item
         return Button {
+            // Home again leaves the playlist editor for the library.
+            if item == .home, selection == .home { model.editingPlaylistID = nil }
             selection = item
             sidebarFocused = true
         } label: {
@@ -220,15 +219,20 @@ struct RootView: View {
     @ViewBuilder private var content: some View {
         switch selection {
         case .home:
-            HomeView(model: model, openWorkshop: { selection = .workshop })
-                .wmInspectorPanel {
-                    DisplayInspectorView(model: model)
+            Group {
+                if let id = model.editingPlaylistID, model.playlist(id) != nil {
+                    PlaylistEditorView(model: model, playlistID: id)
+                        .id(id)  // another playlist's editor starts afresh
+                } else {
+                    HomeView(model: model, openWorkshop: { selection = .workshop })
+                        .wmInspectorPanel {
+                            DisplayInspectorView(model: model)
+                        }
                 }
-                // The panel reaches up into the toolbar strip, where the toolbar's background would blur it. Nothing
-                // else on Home scrolls under the toolbar (its header is pinned above the scrolling library).
-                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
-        case .playlists:
-            PlaylistView(model: model)
+            }
+            // The inspector panel reaches up into the toolbar strip, where the toolbar's background would blur it.
+            // Home's header is pinned above its scrolling library; the editor's page fades out under the strip.
+            .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         case .workshop:
             WorkshopView(model: model, workshop: workshop,
                          openSteamSetup: openSteamSettings,

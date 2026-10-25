@@ -13,8 +13,8 @@ import SceneFormat
     // Persisted in state.json; UI-bound. Every change is sent to the service (`.commit`). Bulk changes go through
     // `batch` (one write) and never write while loading.
     @Published var videos: [VideoItem] = [] { didSet { persist() } }
-    /// The rotation playlist; nil = none yet (LibraryState.playlist).
-    @Published private(set) var playlistIDs: [VideoItem.ID]? = nil { didSet { persist() } }
+    /// The user's playlists (LibraryState.playlists); edited through the playlist methods below.
+    @Published private(set) var playlists: [Playlist] = [] { didSet { persist() } }
     /// Per display (LibraryState.displays).
     @Published private(set) var displays: [String: DisplayConfig] = [:] { didSet { persist() } }
     @Published var stillDelay: Double = LibraryState.defaultStillDelay { didSet { persist() } }
@@ -30,8 +30,13 @@ import SceneFormat
     @Published private(set) var screens: [ScreenInfo] = []
     /// The display Home and its inspector configure: the leftmost one unless the user picked another. UI state only.
     @Published var selectedDisplayID: String?
-    /// A library item Home scrolls to and highlights once (Show in Library in the Workshop). UI state only.
-    @Published var focusedID: VideoItem.ID? = nil
+    /// A library item Home scrolls to and highlights once (Show in Library in the Workshop); Home then leaves the
+    /// playlist editor. UI state only.
+    @Published var focusedID: VideoItem.ID? = nil {
+        didSet { if focusedID != nil { editingPlaylistID = nil } }
+    }
+    /// The playlist Home shows its editor for instead of the library. UI state only.
+    @Published var editingPlaylistID: Playlist.ID?
 
     // Service mirror (read-only for views).
     /// A command the service answered with an error; cleared by clearStatus(). A service that cannot be reached
@@ -46,7 +51,7 @@ import SceneFormat
         // Starts from what state.json last held so fields this model does not edit survive.
         var state = written
         state.videos = videos
-        state.playlist = playlistIDs
+        state.playlists = playlists
         state.displays = displays
         state.stillDelay = stillDelay
         state.masterVolume = masterVolume
@@ -60,14 +65,20 @@ import SceneFormat
 
     func config(for display: String) -> DisplayConfig { displays[display] ?? DisplayConfig() }
 
-    /// The wallpaper set for `display`.
-    func wallpaper(on display: String) -> VideoItem? { snapshot.item(config(for: display).wallpaperID) }
+    /// What `display` is set to show: a wallpaper, a playlist or nothing.
+    func content(on display: String) -> DisplayContent? { config(for: display).content }
 
-    /// What the service shows live on `display` (a rotating display moves on from its wallpaper).
+    /// The playlist `display` plays.
+    func playlist(on display: String) -> Playlist? { playlist(content(on: display)?.playlistID) }
+
+    /// What the service shows live on `display` (a playlist moves on by itself).
     func liveItem(on display: String) -> VideoItem? { snapshot.item(serviceStatus?.display(display)?.itemID) }
 
-    /// What `display` shows: its live item, else its wallpaper.
-    func shownItem(on display: String) -> VideoItem? { liveItem(on: display) ?? wallpaper(on: display) }
+    /// What `display` shows: its live item, else its wallpaper or its playlist's first wallpaper.
+    func shownItem(on display: String) -> VideoItem? { liveItem(on: display) ?? snapshot.lineup(on: display).first }
+
+    /// How `display` shows `id` right now: with its playlist's options while it plays one that has it.
+    func shownOptions(on display: String, for id: UUID) -> WallpaperOptions { snapshot.options(for: id, on: display) }
 
     /// The picture of `display`'s system wallpaper, and the library item it is a still of (nil: another picture).
     func systemWallpaper(on display: String) -> (url: URL, stillOf: UUID?)? {
@@ -83,19 +94,19 @@ import SceneFormat
         edit { change(&$0.displays[display, default: DisplayConfig()]) }
     }
 
-    /// Puts `id` on `display` at once.
-    func setWallpaper(_ id: VideoItem.ID, on display: String) {
-        edit { $0.setWallpaper(id, on: display) }
+    /// Puts a wallpaper or a playlist on `display` at once.
+    func setContent(_ content: DisplayContent, on display: String) {
+        edit { $0.setContent(content, on: display) }
     }
 
-    /// Puts `id` on every connected display.
-    func setWallpaperOnAllDisplays(_ id: VideoItem.ID) {
-        edit { state in screens.forEach { state.setWallpaper(id, on: $0.id) } }
+    /// Puts a wallpaper or a playlist on every connected display.
+    func setContentOnAllDisplays(_ content: DisplayContent) {
+        edit { state in screens.forEach { state.setContent(content, on: $0.id) } }
     }
 
-    /// Takes `display`'s wallpaper away; the service gives it macOS's default wallpaper.
-    func removeWallpaper(from display: String) {
-        edit { $0.setWallpaper(nil, on: display) }
+    /// Takes `display`'s wallpaper or playlist away; the service gives it macOS's default wallpaper.
+    func removeContent(from display: String) {
+        edit { $0.setContent(nil, on: display) }
     }
 
     /// Mutes or unmutes every wallpaper.
@@ -106,16 +117,28 @@ import SceneFormat
         send(.setMuted(muted))
     }
 
-    func options(on display: String, for id: UUID) -> WallpaperOptions {
-        config(for: display).options(for: id)
+    func options(in scope: OptionsScope, for id: UUID) -> WallpaperOptions {
+        switch scope {
+        case .display(let display): return config(for: display).options(for: id)
+        case .playlist(let playlist): return self.playlist(playlist)?.options(for: id) ?? .standard
+        }
     }
 
-    /// Edits one wallpaper's options on one display and commits them to the service.
-    func updateOptions(on display: String, for id: UUID, _ change: (inout WallpaperOptions) -> Void) {
-        updateDisplay(display) { config in
-            var options = config.options(for: id)
-            change(&options)
-            config.wallpaperOptions[id.uuidString] = options
+    /// Edits one wallpaper's options on one display or in one playlist and commits them to the service.
+    func updateOptions(in scope: OptionsScope, for id: UUID, _ change: (inout WallpaperOptions) -> Void) {
+        switch scope {
+        case .display(let display):
+            updateDisplay(display) { config in
+                var options = config.options(for: id)
+                change(&options)
+                config.wallpaperOptions[id.uuidString] = options
+            }
+        case .playlist(let playlist):
+            updatePlaylist(playlist) { playlist in
+                var options = playlist.options(for: id)
+                change(&options)
+                playlist.wallpaperOptions[id.uuidString] = options
+            }
         }
     }
 
@@ -123,9 +146,9 @@ import SceneFormat
 
     func presets(for item: VideoItem) -> [WallpaperPreset] { presets[item.presetKey] ?? [] }
 
-    /// Saves the item's options on `display` under `name`; a preset of the same name is replaced.
-    func savePreset(named name: String, for item: VideoItem, on display: String) {
-        let preset = WallpaperPreset(name: name, options: options(on: display, for: item.id))
+    /// Saves the item's options in `scope` under `name`; a preset of the same name is replaced.
+    func savePreset(named name: String, for item: VideoItem, in scope: OptionsScope) {
+        let preset = WallpaperPreset(name: name, options: options(in: scope, for: item.id))
         var list = presets(for: item).filter { $0.name != name }
         list.append(preset)
         presets[item.presetKey] = list
@@ -135,28 +158,101 @@ import SceneFormat
         presets[item.presetKey] = presets(for: item).filter { $0.id != preset.id }
     }
 
-    /// Wallpaper Engine's built-in options of `item` on `display` go to every other wallpaper there; each keeps its own
-    /// properties and performance settings.
-    func applyBuiltInsToAll(from item: VideoItem, on display: String) {
-        let source = options(on: display, for: item.id)
-        updateDisplay(display) { config in
-            for other in videos where other.id != item.id {
-                config.wallpaperOptions[other.id.uuidString] = config.options(for: other.id).withBuiltIns(of: source)
+    /// Wallpaper Engine's built-in options of `item` go to every other wallpaper in `scope` (every library wallpaper on
+    /// a display, the playlist's wallpapers in a playlist); each keeps its own properties and performance settings.
+    func applyBuiltInsToAll(from item: VideoItem, in scope: OptionsScope) {
+        let source = options(in: scope, for: item.id)
+        switch scope {
+        case .display(let display):
+            updateDisplay(display) { config in
+                for other in videos where other.id != item.id {
+                    config.wallpaperOptions[other.id.uuidString] = config.options(for: other.id).withBuiltIns(of: source)
+                }
+            }
+        case .playlist(let playlist):
+            updatePlaylist(playlist) { playlist in
+                for other in playlist.items where other != item.id {
+                    playlist.wallpaperOptions[other.uuidString] = playlist.options(for: other).withBuiltIns(of: source)
+                }
             }
         }
     }
 
-    // MARK: Playlist
+    // MARK: Playlists
 
-    /// The playlist's items in order.
-    var playlistItems: [VideoItem] { snapshot.playlistItems }
-    var canRotate: Bool { snapshot.canRotate }
+    func playlist(_ id: Playlist.ID?) -> Playlist? {
+        guard let id else { return nil }
+        return playlists.first { $0.id == id }
+    }
 
-    /// Writes the playlist (nil = no playlist); ids no longer in the library are dropped.
-    func setPlaylist(_ ids: [VideoItem.ID]?) {
-        let valid = Set(videos.map(\.id))
-        let pruned = ids.map { $0.filter { valid.contains($0) } }
-        if pruned != playlistIDs { playlistIDs = pruned }
+    /// The playlist's wallpapers in order (ids no longer in the library are skipped).
+    func items(of playlist: Playlist) -> [VideoItem] { snapshot.items(of: playlist) }
+
+    /// Makes a playlist of `items` and returns its id. It is called "New Playlist", numbered when that name is taken.
+    @discardableResult func createPlaylist(with items: [VideoItem.ID] = []) -> Playlist.ID {
+        let names = Set(playlists.map(\.name))
+        var name = String(localized: "New Playlist")
+        var number = 2
+        while names.contains(name) {
+            name = String(localized: "New Playlist \(number)")
+            number += 1
+        }
+        let playlist = Playlist(name: name, items: Self.unique(items))
+        playlists.append(playlist)
+        return playlist.id
+    }
+
+    /// Edits a playlist and commits it. A wallpaper stays in a playlist once, and the options of wallpapers that left
+    /// it go with them.
+    func updatePlaylist(_ id: Playlist.ID, _ change: (inout Playlist) -> Void) {
+        guard let index = playlists.firstIndex(where: { $0.id == id }) else { return }
+        var playlist = playlists[index]
+        change(&playlist)
+        playlist.items = Self.unique(playlist.items)
+        let kept = Set(playlist.items.map(\.uuidString))
+        playlist.wallpaperOptions = playlist.wallpaperOptions.filter { kept.contains($0.key) }
+        playlist.intervalValue = Playlist.clampedInterval(playlist.intervalValue)
+        playlist.transitionDuration = Playlist.clampedTransitionDuration(playlist.transitionDuration)
+        if playlist != playlists[index] { playlists[index] = playlist }
+    }
+
+    /// Adds wallpapers to the end of a playlist (those already in it stay where they are).
+    func addToPlaylist(_ id: Playlist.ID, items: [VideoItem.ID]) {
+        updatePlaylist(id) { $0.items += items }
+    }
+
+    /// Deletes a playlist and its picture; the displays that played it get macOS's default wallpaper back.
+    func deletePlaylist(_ id: Playlist.ID) {
+        let image = playlist(id)?.imageURL
+        edit { $0.removePlaylist(id) }
+        if editingPlaylistID == id { editingPlaylistID = nil }
+        if let image { try? FileManager.default.removeItem(at: image) }
+    }
+
+    /// Makes the picture at `url` the playlist's own (a scaled-down copy, see PlaylistImage). False when it could not
+    /// be read as a picture.
+    func setPlaylistImage(_ id: Playlist.ID, from url: URL) async -> Bool {
+        let name = await Task.detached(priority: .userInitiated) { PlaylistImage.store(url) }.value
+        guard let name else { return false }
+        guard let old = playlist(id) else {
+            try? FileManager.default.removeItem(at: AppPaths.playlistImagesDirectory.appendingPathComponent(name))
+            return false
+        }
+        updatePlaylist(id) { $0.image = name }
+        if let previous = old.imageURL { try? FileManager.default.removeItem(at: previous) }
+        return true
+    }
+
+    /// The playlist shows its wallpapers' previews again; its own picture is deleted.
+    func clearPlaylistImage(_ id: Playlist.ID) {
+        guard let previous = playlist(id)?.imageURL else { return }
+        updatePlaylist(id) { $0.image = nil }
+        try? FileManager.default.removeItem(at: previous)
+    }
+
+    private static func unique(_ ids: [UUID]) -> [UUID] {
+        var seen = Set<UUID>()
+        return ids.filter { seen.insert($0).inserted }
     }
 
     let client = ServiceClient.shared
@@ -227,7 +323,7 @@ import SceneFormat
         videos.contains { $0.workshopID == workshopID }
     }
 
-    /// Removes from the library, the playlist and every display (which gets macOS's default wallpaper back).
+    /// Removes from the library, every playlist and every display (which gets macOS's default wallpaper back).
     /// Files are deleted only when AppPaths.isInsideLibrary(item.url) (imported Workshop copies); a local video is
     /// never touched.
     func remove(ids: Set<VideoItem.ID>) {
@@ -294,7 +390,7 @@ import SceneFormat
 
     private func apply(_ state: LibraryState) {
         videos = state.videos
-        playlistIDs = state.playlist
+        playlists = state.playlists
         displays = state.displays
         stillDelay = state.stillDelay
         masterVolume = state.masterVolume
@@ -368,6 +464,12 @@ import SceneFormat
         return NSRunningApplication.runningApplications(withBundleIdentifier: AppIdentity.settingsBundleID)
             .filter { $0.processIdentifier != me && !$0.isTerminated }
     }
+}
+
+/// Whose options a wallpaper's settings edit: a display's (for the wallpaper shown there on its own) or a playlist's.
+enum OptionsScope: Hashable {
+    case display(String)
+    case playlist(Playlist.ID)
 }
 
 /// A connected display.
