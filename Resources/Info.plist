@@ -6,8 +6,12 @@
 	<string>com.noob3301.WallpaperMage</string>
 	<key>CFBundleName</key>
 	<string>Wallpaper Mage</string>
+	<!-- Must equal the bundle's file name (WallpaperMage.app): macOS shows the localized display name from
+	     InfoPlist.strings ("Wallpaper Mage") only then, and the bare file name otherwise. -->
 	<key>CFBundleDisplayName</key>
-	<string>Wallpaper Mage</string>
+	<string>WallpaperMage</string>
+	<key>LSHasLocalizedDisplayName</key>
+	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleLocalizations</key>

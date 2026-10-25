@@ -60,9 +60,10 @@ cp Resources/MenuBarIcon.png Resources/MenuBarIcon@2x.png "$SERVICE/Contents/Res
 printf 'APPL????' > "$SERVICE/Contents/PkgInfo"
 
 # Translations: each String Catalog becomes <language>.lproj/<table>.strings(dict) in both bundles (Localizable: the
-# apps' text; InfoPlist: the permission prompts of Info.plist). The service needs its own copy: its menu and the error
-# messages it reports to Settings are looked up in the service's bundle. SwiftPM's executables have no resource bundle
-# of their own, so this is the only place the catalogs are compiled.
+# apps' text; InfoPlist: the permission prompts of Info.plist and the app's display name, which macOS uses only where
+# the bundle's file name equals its Info.plist CFBundleDisplayName: Settings, not the service). The service needs its
+# own copy: its menu and the error messages it reports to Settings are looked up in the service's bundle. SwiftPM's
+# executables have no resource bundle of their own, so this is the only place the catalogs are compiled.
 for bundle in "$APP" "$SERVICE"; do
   for catalog in Resources/Localizable.xcstrings Resources/InfoPlist.xcstrings; do
     xcrun xcstringstool compile "$catalog" --output-directory "$bundle/Contents/Resources"

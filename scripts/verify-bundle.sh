@@ -23,6 +23,8 @@ plist() { /usr/libexec/PlistBuddy -c "Print :$2" "$1/Contents/Info.plist"; }
 [[ "$(plist "$SERVICE" CFBundleIdentifier)" == "com.noob3301.WallpaperMage.service" ]] || fail "service bundle id"
 [[ "$(plist "$APP" WMRole)" == "settings" ]] || fail "Settings WMRole"
 [[ "$(plist "$SERVICE" WMRole)" == "service" ]] || fail "service WMRole"
+# macOS shows the translated name ("Wallpaper Mage") only while CFBundleDisplayName equals the file name.
+[[ "$(plist "$APP" CFBundleDisplayName)" == "$(basename "$APP" .app)" ]] || fail "Settings CFBundleDisplayName differs from the bundle's file name, so the Dock and Finder show the bare file name"
 test -s "$APP/Contents/Resources/Assets.car" || fail "missing app icon (Assets.car)"
 test -s "$APP/Contents/Resources/AppIcon.icns" || fail "missing app icon (AppIcon.icns)"
 for icon in MenuBarIcon.png MenuBarIcon@2x.png; do
