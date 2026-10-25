@@ -25,6 +25,9 @@ plist() { /usr/libexec/PlistBuddy -c "Print :$2" "$1/Contents/Info.plist"; }
 [[ "$(plist "$SERVICE" WMRole)" == "service" ]] || fail "service WMRole"
 test -s "$APP/Contents/Resources/Assets.car" || fail "missing app icon (Assets.car)"
 test -s "$APP/Contents/Resources/AppIcon.icns" || fail "missing app icon (AppIcon.icns)"
+for icon in MenuBarIcon.png MenuBarIcon@2x.png; do
+  test -s "$SERVICE/Contents/Resources/$icon" || fail "missing menu bar icon ($icon)"
+done
 [[ -n "$(plist "$APP" NSAudioCaptureUsageDescription 2>/dev/null || true)" ]] || fail "Settings Info.plist is missing NSAudioCaptureUsageDescription"
 [[ -n "$(plist "$SERVICE" NSAudioCaptureUsageDescription 2>/dev/null || true)" ]] || fail "service Info.plist is missing NSAudioCaptureUsageDescription"
 

@@ -128,6 +128,10 @@ enum ServiceEntry {
     private func buildStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem = item
+        let icon = Bundle.main.image(forResource: "MenuBarIcon")  // the logo's shape, 1x and 2x
+        icon?.isTemplate = true  // the menu bar tints it
+        icon?.accessibilityDescription = AppIdentity.name
+        item.button?.image = icon
         menu.autoenablesItems = false
         statusLine.isEnabled = false
         messageItem.isEnabled = false
@@ -155,12 +159,6 @@ enum ServiceEntry {
     }
 
     private func refreshMenu() {
-        let live = orchestrator.isLive
-        let symbol = live ? (orchestrator.isPaused ? "pause.rectangle.fill" : "play.rectangle.fill") : "play.rectangle"
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: AppIdentity.name)
-        image?.isTemplate = true
-        statusItem?.button?.image = image
-
         statusLine.title = statusText
         let message = orchestrator.message
         messageItem.isHidden = message == nil
@@ -174,7 +172,7 @@ enum ServiceEntry {
 
         pauseItem.title = orchestrator.isPaused ? String(localized: "Resume Wallpapers")
                                                 : String(localized: "Pause Wallpapers")
-        pauseItem.isEnabled = live || orchestrator.isPaused
+        pauseItem.isEnabled = orchestrator.isLive || orchestrator.isPaused
         nextItem.isEnabled = orchestrator.canRotate
         muteItem.state = orchestrator.muted ? .on : .off
     }

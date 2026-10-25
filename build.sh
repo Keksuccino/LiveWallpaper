@@ -56,6 +56,7 @@ printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 cp "$BIN_DIR/WallpaperMageService" "$SERVICE/Contents/MacOS/WallpaperMageService"
 cp Resources/Service-Info.plist "$SERVICE/Contents/Info.plist"
+cp Resources/MenuBarIcon.png Resources/MenuBarIcon@2x.png "$SERVICE/Contents/Resources/"  # scripts/make-icons.py
 printf 'APPL????' > "$SERVICE/Contents/PkgInfo"
 
 # Translations: each String Catalog becomes <language>.lproj/<table>.strings(dict) in both bundles (Localizable: the

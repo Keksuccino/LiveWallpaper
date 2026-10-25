@@ -6,7 +6,8 @@
 
 The artwork is the logo on one flat dark colour. It is cut out once (icons/source/logo.png); every variant is placed
 and scaled from that cutout, and every size is resampled from the variant's 1024 px render. Resources/AppIcon.icns is
-built from the macOS variant, and with Xcode's actool Resources/AppIcon.icon is compiled into Resources/Assets.car.
+built from the macOS variant, Resources/MenuBarIcon.png (+ @2x) from the logo's shape, and with Xcode's actool
+Resources/AppIcon.icon is compiled into Resources/Assets.car.
 """
 import json
 import shutil
@@ -26,6 +27,9 @@ SIZES = [16, 24, 32, 48, 64, 96, 128, 180, 192, 256, 512, 1024]
 MASTER = 1024
 # Supersampling for the shape masks, so their edges are antialiased.
 MASK_SS = 4
+# The menu bar icon's canvas in points, like the menu bar's own symbols, and how much of it the logo fills.
+MENU_BAR_POINTS = 18
+MENU_BAR_FILL = 0.9
 
 
 def cutout(artwork: Image.Image) -> tuple[Image.Image, tuple[int, int, int]]:
@@ -133,6 +137,14 @@ def variants(logo: Image.Image, bg: tuple[int, int, int]) -> dict[str, Image.Ima
     }
 
 
+def menu_bar_icon(logo: Image.Image) -> None:
+    """Resources/MenuBarIcon.png and @2x: the service's status item, the logo's shape as a template image (black and
+    alpha only; the menu bar tints it)."""
+    shape = silhouette(place(logo, MASTER, MENU_BAR_FILL), (0, 0, 0))
+    for scale, suffix in ((1, ""), (2, "@2x")):
+        resample(shape, MENU_BAR_POINTS * scale).save(RESOURCES / f"MenuBarIcon{suffix}.png", optimize=True)
+
+
 def app_icon_document(logo: Image.Image, bg: tuple[int, int, int]) -> Path:
     """Resources/AppIcon.icon: an Icon Composer document (the system draws the shape, glass and shadow)."""
     doc = RESOURCES / "AppIcon.icon"
@@ -197,6 +209,7 @@ def main() -> None:
     rounded = [Image.open(ICONS / "rounded" / f"{NAME}-rounded-{s}.png") for s in (16, 24, 32, 48, 64, 128, 256)]
     rounded[-1].save(ICONS / f"{NAME}.ico", sizes=[im.size for im in rounded], append_images=rounded[:-1])
     icns()
+    menu_bar_icon(logo)
     compile_app_icon(app_icon_document(logo, bg))
 
 
