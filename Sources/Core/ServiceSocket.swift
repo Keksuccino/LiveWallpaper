@@ -85,7 +85,9 @@ public enum ServiceSocket {
 
     /// Non-blocking connect bounded by `timeout`; returns a blocking socket.
     static func connect(to path: String, timeout: TimeInterval) throws -> Int32 {
-        guard var address = address(path) else { throw ServiceSocketError("The service socket path is too long.") }
+        guard var address = address(path) else {
+            throw ServiceSocketError(String(localized: "The service socket path is too long."))
+        }
         let fd = try makeSocket()
         let flags = fcntl(fd, F_GETFL)
         _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
@@ -106,7 +108,7 @@ public enum ServiceSocket {
             guard poll(&poller, 1, Int32(timeout * 1000)) == 1,
                   getsockopt(fd, SOL_SOCKET, SO_ERROR, &soError, &length) == 0, soError == 0 else {
                 Darwin.close(fd)
-                throw ServiceSocketError("Timed out connecting to the wallpaper service.")
+                throw ServiceSocketError(String(localized: "Timed out connecting to the wallpaper service."))
             }
         }
         _ = fcntl(fd, F_SETFL, flags & ~O_NONBLOCK)
@@ -318,15 +320,18 @@ public final class ServiceSocketClient: @unchecked Sendable {
         return try await withCheckedThrowingContinuation { continuation in
             queue.async { [self] in
                 guard fd >= 0, !closedByUser else {
-                    return continuation.resume(throwing: ServiceSocketError("Not connected to the wallpaper service."))
+                    let error = ServiceSocketError(String(localized: "Not connected to the wallpaper service."))
+                    return continuation.resume(throwing: error)
                 }
                 pending[id] = continuation
                 guard ServiceSocket.write(ServiceEnvelope(id: id, kind: .command, payload: command), to: fd) else {
                     pending[id] = nil
-                    return continuation.resume(throwing: ServiceSocketError("The wallpaper service connection broke."))
+                    let error = ServiceSocketError(String(localized: "The wallpaper service connection broke."))
+                    return continuation.resume(throwing: error)
                 }
                 queue.asyncAfter(deadline: .now() + Self.replyTimeout) { [self] in
-                    pending.removeValue(forKey: id)?.resume(throwing: ServiceSocketError("The wallpaper service didn’t answer in time."))
+                    let error = ServiceSocketError(String(localized: "The wallpaper service didn’t answer in time."))
+                    pending.removeValue(forKey: id)?.resume(throwing: error)
                 }
             }
         }
@@ -358,7 +363,8 @@ public final class ServiceSocketClient: @unchecked Sendable {
             fd = -1
             let failed = pending
             pending = [:]
-            failed.values.forEach { $0.resume(throwing: ServiceSocketError("The wallpaper service connection closed.")) }
+            let error = ServiceSocketError(String(localized: "The wallpaper service connection closed."))
+            failed.values.forEach { $0.resume(throwing: error) }
             if !closedByUser { onDisconnect() }
         }
     }

@@ -15,9 +15,16 @@ import SceneFormat
     @Published var videos: [VideoItem] = [] { didSet { persist() } }
     /// The rotation playlist; nil = none yet (LibraryState.playlist).
     @Published private(set) var playlistIDs: [VideoItem.ID]? = nil { didSet { persist() } }
-    /// Per display (LibraryState.displays). A display's `muted` goes to the service as `.setMuted`.
+    /// Per display (LibraryState.displays).
     @Published private(set) var displays: [String: DisplayConfig] = [:] { didSet { persist() } }
     @Published var stillDelay: Double = LibraryState.defaultStillDelay { didSet { persist() } }
+    /// Scales every wallpaper's own volume (LibraryState.masterVolume).
+    @Published var masterVolume: Double = 1 { didSet { persist() } }
+    /// Saved presets per wallpaper (LibraryState.presets).
+    @Published private(set) var presets: [String: [WallpaperPreset]] = [:] { didSet { persist() } }
+    /// Every wallpaper is silent (LibraryState.muted). The service owns it (its menu toggles it too): it changes
+    /// through `setMuted`, never by a commit.
+    @Published private(set) var muted = false
 
     /// The connected displays, as arranged in System Settings > Displays. UI state only.
     @Published private(set) var screens: [ScreenInfo] = []
@@ -46,6 +53,8 @@ import SceneFormat
         state.playlist = playlistIDs
         state.displays = displays
         state.stillDelay = stillDelay
+        state.masterVolume = masterVolume
+        state.presets = presets
         return state
     }
 
@@ -73,7 +82,7 @@ import SceneFormat
     /// Why `display`'s wallpaper could not be shown, as the service reported it.
     func error(on display: String) -> String? { serviceStatus?.display(display)?.error }
 
-    /// Edits one display's settings and commits them to the service. `muted` is not changed here (`setMuted`).
+    /// Edits one display's settings and commits them to the service.
     func updateDisplay(_ display: String, _ change: (inout DisplayConfig) -> Void) {
         edit { change(&$0.displays[display, default: DisplayConfig()]) }
     }
@@ -93,23 +102,51 @@ import SceneFormat
         edit { $0.setWallpaper(nil, on: display) }
     }
 
-    func setMuted(_ muted: Bool, on display: String) {
-        guard config(for: display).muted != muted else { return }
-        batch(persisting: false) { displays[display, default: DisplayConfig()].muted = muted }
-        written.displays[display, default: DisplayConfig()].muted = muted
-        send(.setMuted(display: display, muted: muted))
+    /// Mutes or unmutes every wallpaper.
+    func setMuted(_ muted: Bool) {
+        guard self.muted != muted else { return }
+        self.muted = muted
+        written.muted = muted
+        send(.setMuted(muted))
     }
 
-    func sceneOptions(on display: String, for id: UUID) -> SceneOptions {
-        config(for: display).sceneOptions(for: id)
+    func options(on display: String, for id: UUID) -> WallpaperOptions {
+        config(for: display).options(for: id)
     }
 
-    /// Edits one scene's options on one display and commits them to the service.
-    func updateSceneOptions(on display: String, for id: UUID, _ change: (inout SceneOptions) -> Void) {
+    /// Edits one wallpaper's options on one display and commits them to the service.
+    func updateOptions(on display: String, for id: UUID, _ change: (inout WallpaperOptions) -> Void) {
         updateDisplay(display) { config in
-            var options = config.sceneOptions(for: id)
+            var options = config.options(for: id)
             change(&options)
-            config.sceneOptions[id.uuidString] = options
+            config.wallpaperOptions[id.uuidString] = options
+        }
+    }
+
+    // MARK: Presets
+
+    func presets(for item: VideoItem) -> [WallpaperPreset] { presets[item.presetKey] ?? [] }
+
+    /// Saves the item's options on `display` under `name`; a preset of the same name is replaced.
+    func savePreset(named name: String, for item: VideoItem, on display: String) {
+        let preset = WallpaperPreset(name: name, options: options(on: display, for: item.id))
+        var list = presets(for: item).filter { $0.name != name }
+        list.append(preset)
+        presets[item.presetKey] = list
+    }
+
+    func deletePreset(_ preset: WallpaperPreset, of item: VideoItem) {
+        presets[item.presetKey] = presets(for: item).filter { $0.id != preset.id }
+    }
+
+    /// Wallpaper Engine's built-in options of `item` on `display` go to every other wallpaper there; each keeps its own
+    /// properties and performance settings.
+    func applyBuiltInsToAll(from item: VideoItem, on display: String) {
+        let source = options(on: display, for: item.id)
+        updateDisplay(display) { config in
+            for other in videos where other.id != item.id {
+                config.wallpaperOptions[other.id.uuidString] = config.options(for: other.id).withBuiltIns(of: source)
+            }
         }
     }
 
@@ -270,6 +307,9 @@ import SceneFormat
         playlistIDs = state.playlist
         displays = state.displays
         stillDelay = state.stillDelay
+        masterVolume = state.masterVolume
+        presets = state.presets
+        muted = state.muted
     }
 
     private static func deleteDownloadedFiles(of item: VideoItem) {
@@ -299,20 +339,14 @@ import SceneFormat
         }
     }
 
-    /// A status arrived (reply or push): the service owns each display's `muted` (its menu can toggle them all).
+    /// A status arrived (reply or push): the service owns the app's `muted` (its menu can toggle it).
     private func statusReceived(_ status: ServiceStatus) {
         if commitPending {
             commitPending = false
             persist(force: true)
         }
-        let changed = status.displays.filter { display in
-            displays[display.id].map { $0.muted != display.muted } ?? false
-        }
-        guard !changed.isEmpty else { return }
-        batch(persisting: false) {
-            for display in changed { displays[display.id]?.muted = display.muted }
-        }
-        for display in changed { written.displays[display.id]?.muted = display.muted }
+        muted = status.muted
+        written.muted = status.muted
     }
 
     // MARK: Screens

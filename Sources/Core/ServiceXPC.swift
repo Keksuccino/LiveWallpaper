@@ -6,13 +6,13 @@ import Foundation
 
 /// What the UI asks the service to do. One command per call; the reply carries the resulting status.
 public enum ServiceCommand: Codable, Equatable, Sendable {
-    /// The UI's edited library and settings. The service keeps each display's `muted` from its own copy, writes
+    /// The UI's edited library and settings. The service keeps the app's `muted` from its own copy, writes
     /// state.json (bumping the revision) and shows what the displays should show.
     case commit(LibraryState)
     case pause
     case resume
     case next                                    // every rotating display moves on to its next wallpaper
-    case setMuted(display: String?, muted: Bool) // nil = every display
+    case setMuted(Bool)                          // the whole app's mute (LibraryState.muted)
     case quit                                    // stop and terminate the service
     case status                                  // no-op: just reply with the current status
 }
@@ -22,18 +22,16 @@ public struct DisplayStatus: Codable, Equatable, Sendable {
     public var id: String                 // DisplayIdentity UUID
     public var itemID: UUID?              // what it shows live, nil when nothing
     public var error: String?             // user-facing reason its wallpaper could not be shown
-    public var muted: Bool
     /// The picture file of the display's system wallpaper.
     public var systemWallpaper: String?
     /// The library item `systemWallpaper` is a still of; nil when it is some other picture.
     public var stillItemID: UUID?
 
-    public init(id: String, itemID: UUID? = nil, error: String? = nil, muted: Bool = true,
-                systemWallpaper: String? = nil, stillItemID: UUID? = nil) {
+    public init(id: String, itemID: UUID? = nil, error: String? = nil, systemWallpaper: String? = nil,
+                stillItemID: UUID? = nil) {
         self.id = id
         self.itemID = itemID
         self.error = error
-        self.muted = muted
         self.systemWallpaper = systemWallpaper
         self.stillItemID = stillItemID
     }
@@ -42,12 +40,16 @@ public struct DisplayStatus: Codable, Equatable, Sendable {
 /// What the service reports back after every command and whenever a display changes.
 public struct ServiceStatus: Codable, Equatable, Sendable {
     public var paused: Bool
+    /// Every wallpaper is silent (LibraryState.muted).
+    public var muted: Bool
     public var displays: [DisplayStatus]  // every connected display
     public var stateRevision: Int         // revision of state.json the service last wrote or loaded
     public var message: String?           // latest user-facing message about the service as a whole
 
-    public init(paused: Bool = false, displays: [DisplayStatus] = [], stateRevision: Int = 0, message: String? = nil) {
+    public init(paused: Bool = false, muted: Bool = false, displays: [DisplayStatus] = [], stateRevision: Int = 0,
+                message: String? = nil) {
         self.paused = paused
+        self.muted = muted
         self.displays = displays
         self.stateRevision = stateRevision
         self.message = message

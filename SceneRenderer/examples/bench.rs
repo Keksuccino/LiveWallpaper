@@ -1,10 +1,10 @@
 //! Plays a scene into an off-window CAMetalLayer at a fixed size and fps, then prints the
 //! process CPU time and peak memory.
 //!
-//! Usage: bench <scene.pkg> [seconds] [fps] [width height] [--fit mode] [--pan x y] [--zoom z]
-//! [--scale s] [--hold]
+//! Usage: bench <scene.pkg> [seconds] [fps] [width height] [--align cover|fill|center|stretch|free]
+//! [--blur] [--scale s] [--hold]
 use objc2_quartz_core::CAMetalLayer;
-use scene_renderer::FitMode;
+use scene_renderer::{Alignment, Framing};
 
 fn flag(a: &[String], name: &str) -> Option<usize> {
     a.iter().position(|x| x == name)
@@ -16,7 +16,7 @@ fn main() {
     let fps: f32 = a.get(3).and_then(|s| s.parse().ok()).unwrap_or(30.0);
     let w: u32 = a.get(4).and_then(|s| s.parse().ok()).unwrap_or(3024);
     let h: u32 = a.get(5).and_then(|s| s.parse().ok()).unwrap_or(1964);
-    let r = scene_renderer::Renderer::new(a[1].clone()).expect("load");
+    let r = scene_renderer::Renderer::new(a[1].clone(), None).expect("load");
     let layer = CAMetalLayer::new();
     r.attach_layer(
         "bench".into(),
@@ -30,24 +30,15 @@ fn main() {
             r.apply_property(name.to_string(), value.to_string());
         }
     }
-    if let Some(i) = flag(&a, "--fit") {
-        let mode = match a.get(i + 1).map(String::as_str) {
-            Some("fit") => FitMode::Fit,
-            Some("stretch") => FitMode::Stretch,
-            Some("unscaled") => FitMode::Unscaled,
-            Some("blurred") => FitMode::MatchBlurred,
-            _ => FitMode::Fill,
+    if let Some(i) = flag(&a, "--align") {
+        let alignment = match a.get(i + 1).map(String::as_str) {
+            Some("fill") => Alignment::Fill,
+            Some("center") => Alignment::Center,
+            Some("stretch") => Alignment::Stretch,
+            Some("free") => Alignment::Free,
+            _ => Alignment::Cover,
         };
-        r.set_fit_mode(mode);
-    }
-    if let Some(i) = flag(&a, "--pan") {
-        let x = a.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(0.0);
-        let y = a.get(i + 2).and_then(|s| s.parse().ok()).unwrap_or(0.0);
-        r.set_pan_zoom(x, y, 1.0);
-    }
-    if let Some(i) = flag(&a, "--zoom") {
-        let z = a.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(1.0);
-        r.set_pan_zoom(0.0, 0.0, z);
+        r.set_framing(Framing { alignment, blur_bars: flag(&a, "--blur").is_some(), ..Framing::default() });
     }
     if let Some(i) = flag(&a, "--scale") {
         let s = a.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(1.0);

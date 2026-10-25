@@ -216,7 +216,9 @@ public enum SceneAnalyzer {
             needsSharedAssets: needsSharedAssets)
     }
 
-    /// One sentence per distinct reason, in a fixed order, at most 5 notes and 80 characters.
+    /// One sentence per distinct reason, in a fixed order, at most 5 notes and 80 characters. The library stores them
+    /// as written here and the Settings app translates them when it shows them, so each sentence is also a key of its
+    /// String Catalog (Resources/Localizable.xcstrings): change both together.
     public static func notes(for support: SceneSupportLevel, unsupported: Set<SceneFeature>) -> [String] {
         var notes: [String] = []
         func collect(_ feature: SceneFeature, _ text: String) {

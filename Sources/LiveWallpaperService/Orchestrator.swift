@@ -7,7 +7,7 @@ import Core
 // default wallpaper back. The service is the only writer of state.json (StateStore.commit / setMuted).
 
 @MainActor final class Orchestrator {
-    private static let unreadableLibrary = "Couldn’t read your library. Using the previous list."
+    private static let unreadableLibrary = String(localized: "Couldn’t read your library. Using the previous list.")
 
     /// Fired after any change of what the displays show or of the properties below (status item and socket status
     /// listen).
@@ -43,8 +43,8 @@ import Core
 
     var isLive: Bool { players.values.contains { $0.current != nil } }
     var canRotate: Bool { players.values.contains { $0.current != nil && $0.rotates } }
-    /// Every display with a wallpaper is muted (the menu's Mute Sound).
-    var muted: Bool { players.keys.allSatisfy { state.config(for: $0).muted } }
+    /// Every wallpaper is silent (the menu's Mute Sound).
+    var muted: Bool { state.muted }
 
     // MARK: Lifecycle
 
@@ -105,9 +105,9 @@ import Core
         onChange?()
     }
 
-    /// `display` nil = every display. Written to state.json and applied at once.
-    func setMuted(_ muted: Bool, display: String?) {
-        guard StateStore.setMuted(muted, display: display) != nil else { return }
+    /// Mutes or unmutes every wallpaper. Written to state.json and applied at once.
+    func setMuted(_ muted: Bool) {
+        guard StateStore.setMuted(muted) != nil else { return }
         reload()
     }
 
@@ -128,10 +128,10 @@ import Core
             let wallpaper = stills.systemWallpapers[id]
             let picture = wallpaper?.url ?? NSWorkspace.shared.desktopImageURL(for: screen)
             return DisplayStatus(id: id, itemID: players[id]?.current, error: players[id]?.error,
-                                 muted: state.config(for: id).muted, systemWallpaper: picture?.path,
-                                 stillItemID: wallpaper?.stillOf)
+                                 systemWallpaper: picture?.path, stillItemID: wallpaper?.stillOf)
         }
-        return ServiceStatus(paused: isPaused, displays: displays, stateRevision: state.revision, message: message)
+        return ServiceStatus(paused: isPaused, muted: state.muted, displays: displays, stateRevision: state.revision,
+                             message: message)
     }
 
     // MARK: Applying
@@ -183,8 +183,7 @@ import Core
     private func syncStills() {
         for (id, player) in players {
             if let item = player.currentItem {
-                let options = item.isScene ? state.config(for: id).sceneOptions(for: item.id) : nil
-                stills.show(item, options: options, on: id)
+                stills.show(item, options: state.config(for: id).options(for: item.id), on: id)
             } else {
                 stills.forget(id)
             }

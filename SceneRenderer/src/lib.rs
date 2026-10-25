@@ -3,9 +3,12 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod api;
+pub mod camera;
 pub mod engine;
 pub mod gpu;
+pub mod light;
 pub mod mat;
+pub mod model;
 pub mod particles;
 pub mod puppet;
 pub mod scene;
@@ -33,7 +36,7 @@ pub enum Error {
     Metal(String),
 }
 
-pub use api::{RenderStats, Renderer, SceneProperty};
-pub use engine::FitMode;
+pub use api::{lookup_table, LookupTable, RenderStats, Renderer, SceneProperty};
+pub use engine::{framing_view, Alignment, ColorGrade, Framing};
 
 uniffi::setup_scaffolding!();

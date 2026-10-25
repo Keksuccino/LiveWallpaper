@@ -25,7 +25,7 @@ struct DisplayPicker: View {
                 Text(screen.name)
                     .font(.headline)
                     .lineLimit(1)
-                Text(item?.name ?? "No live wallpaper. Click one in your library to use it here.")
+                Text(item?.name ?? String(localized: "No live wallpaper. Click one in your library to use it here."))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -121,7 +121,7 @@ private struct DisplayTile: View {
             }
         }
         .help(screen.name)
-        .accessibilityLabel("\(screen.name), \(item?.name ?? "no live wallpaper")")
+        .accessibilityLabel("\(screen.name), \(item?.name ?? String(localized: "no live wallpaper"))")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
@@ -143,8 +143,7 @@ private struct DisplayTile: View {
                         .scaledToFill()
                         .transition(.opacity)
                 } else if let item {
-                    WallpaperPreview(item: item, fitMode: item.isScene
-                                     ? model.sceneOptions(on: screen.id, for: item.id).fitMode : nil)
+                    WallpaperPreview(item: item, options: model.options(on: screen.id, for: item.id))
                         .id(item.id)
                         .transition(.opacity)
                 } else {
@@ -171,13 +170,12 @@ private struct DisplayTile: View {
     }
 }
 
-/// A wallpaper's preview picture placed on a display the way the wallpaper is: a video fills it like its player,
-/// a scene follows its fit mode (zoom and pan aside).
+/// A wallpaper's preview picture placed on a display roughly the way the wallpaper is: its alignment, blurred bars
+/// and flip (position and zoom aside).
 @MainActor
 private struct WallpaperPreview: View {
     let item: VideoItem
-    /// nil for a video.
-    let fitMode: SceneFitMode?
+    let options: WallpaperOptions
     @State private var image: NSImage?
 
     var body: some View {
@@ -192,19 +190,24 @@ private struct WallpaperPreview: View {
         }
     }
 
-    @ViewBuilder private func placed(_ picture: Image) -> some View {
-        switch fitMode ?? .fill {
-        case .fill:
-            picture.scaledToFill()
-        case .stretch:
-            picture
-        case .fit, .none:
-            picture.scaledToFit()
-        case .matchBlurred:
-            picture.scaledToFill()
-                .blur(radius: 12)
-                .overlay { picture.scaledToFit() }
+    private func placed(_ picture: Image) -> some View {
+        Group {
+            switch options.alignment {
+            case .cover:
+                picture.scaledToFill()
+            case .stretch:
+                picture
+            case .fill, .center, .free:
+                if options.blurBars {
+                    picture.scaledToFill()
+                        .blur(radius: 12)
+                        .overlay { picture.scaledToFit() }
+                } else {
+                    picture.scaledToFit()
+                }
+            }
         }
+        .scaleEffect(x: options.flip ? -1 : 1, y: 1)
     }
 }
 

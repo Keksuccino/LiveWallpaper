@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Checks the layout of an assembled LiveWallpaper.app: the settings app and its background service, executables,
-# ids, matching versions, the executables' minimum system version and SDK, ad-hoc signatures that verify, the linked
-# scene renderer and no Homebrew load paths.
+# ids, matching versions, the compiled String Catalogs in both, the executables' minimum system version and SDK,
+# ad-hoc signatures that verify, the linked scene renderer and no Homebrew load paths.
 # Used by build.yml and release.yml.
 #   scripts/verify-bundle.sh [path/to/LiveWallpaper.app] [expected-version]
 set -euo pipefail
@@ -25,6 +25,19 @@ plist() { /usr/libexec/PlistBuddy -c "Print :$2" "$1/Contents/Info.plist"; }
 [[ "$(plist "$SERVICE" LWRole)" == "service" ]] || fail "service LWRole"
 [[ -n "$(plist "$APP" NSAudioCaptureUsageDescription 2>/dev/null || true)" ]] || fail "Settings Info.plist is missing NSAudioCaptureUsageDescription"
 [[ -n "$(plist "$SERVICE" NSAudioCaptureUsageDescription 2>/dev/null || true)" ]] || fail "service Info.plist is missing NSAudioCaptureUsageDescription"
+
+# Both apps look their text up in their own bundle, in every language their Info.plist lists. Even the English tables
+# hold what a key alone cannot give: the plural forms, the names of Wallpaper Engine's properties (looked up by their
+# `ui_` keys) and the permission prompts.
+for bundle in "$APP" "$SERVICE"; do
+  languages="$(/usr/libexec/PlistBuddy -c "Print :CFBundleLocalizations" "$bundle/Contents/Info.plist" | sed -n 's/^ *//; /^[a-z][A-Za-z-]*$/p')"
+  [[ -n "$languages" ]] || fail "$(basename "$bundle") lists no CFBundleLocalizations"
+  for language in $languages; do
+    for table in Localizable.strings Localizable.stringsdict InfoPlist.strings; do
+      test -f "$bundle/Contents/Resources/$language.lproj/$table" || fail "$(basename "$bundle") has no $language.lproj/$table"
+    done
+  done
+done
 
 V_APP="$(plist "$APP" CFBundleShortVersionString)"
 [[ "$(plist "$SERVICE" CFBundleShortVersionString)" == "$V_APP" ]] || fail "service version differs from the app"

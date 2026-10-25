@@ -38,12 +38,7 @@ pub fn resolve_user_values(value: &Value, props: &HashMap<String, Value>) -> Val
 }
 
 impl Bound {
-    #[cfg(test)]
-    pub fn parse_for_test(v: Option<&Value>, default: Value) -> Self {
-        Self::parse(v, default)
-    }
-
-    fn parse(v: Option<&Value>, default: Value) -> Self {
+    pub(crate) fn parse(v: Option<&Value>, default: Value) -> Self {
         let Some(v) = v else {
             return Self {
                 value: default,
@@ -150,6 +145,17 @@ impl Blend {
     }
 }
 
+/// Which triangles a model material leaves out (`cullmode`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Cull {
+    /// `normal`: the back faces.
+    Back,
+    /// `reversed`: the front faces.
+    Front,
+    /// `nocull`: none.
+    None,
+}
+
 #[derive(Debug, Clone)]
 pub struct Material {
     pub shader: String,
@@ -157,23 +163,43 @@ pub struct Material {
     /// Texture names by slot; `None` keeps the shader default or the bound render target.
     pub textures: Vec<Option<String>>,
     pub combos: BTreeMap<String, i64>,
-    /// `constantshadervalues`, keyed by the uniform annotation's `material` name.
+    /// `constantshadervalues`, keyed by the uniform annotation's `material` name. A value that
+    /// follows a user property (`usershadervalues`) without a constant of its own is `Null`: the
+    /// shader's default applies until the property is set.
     pub constants: HashMap<String, Bound>,
+    /// Depth and culling of a model's material; image layers ignore them.
+    pub cull: Cull,
+    pub depth_test: bool,
+    pub depth_write: bool,
 }
 
 impl Material {
     pub(crate) fn load(vfs: &Vfs, path: &str) -> Result<Self, Error> {
+        Self::load_blended(vfs, path, Blend::Translucent)
+    }
+
+    /// A material whose file may leave `blending` out, taking `blend` then: image materials are
+    /// translucent, model materials opaque (an `arsenal` texture keeps detail in its alpha).
+    pub(crate) fn load_blended(vfs: &Vfs, path: &str, blend: Blend) -> Result<Self, Error> {
         let json = vfs.json(path)?;
         let pass = &json["passes"][0];
+        let enabled = |key: &str| pass[key].as_str() != Some("disabled");
         let mut m = Self {
             shader: pass["shader"]
                 .as_str()
                 .unwrap_or("genericimage2")
                 .to_string(),
-            blend: Blend::parse(pass["blending"].as_str()),
+            blend: pass["blending"].as_str().map_or(blend, |b| Blend::parse(Some(b))),
             textures: Vec::new(),
             combos: BTreeMap::new(),
             constants: HashMap::new(),
+            cull: match pass["cullmode"].as_str() {
+                Some("nocull") => Cull::None,
+                Some("reversed") => Cull::Front,
+                _ => Cull::Back,
+            },
+            depth_test: enabled("depthtest"),
+            depth_write: enabled("depthwrite"),
         };
         m.apply_overrides(pass);
         Ok(m)
@@ -203,6 +229,17 @@ impl Material {
                 let _ = self
                     .constants
                     .insert(k.clone(), Bound::parse(Some(v), Value::Null));
+            }
+        }
+        // `{"<user property>": "<material name>"}`: the property drives that shader value.
+        if let Some(values) = pass["usershadervalues"].as_object() {
+            for (property, key) in values {
+                let Some(key) = key.as_str() else { continue };
+                let constant = self.constants.entry(key.to_string()).or_insert_with(|| {
+                    Bound::parse(None, Value::Null)
+                });
+                constant.user = Some(property.clone());
+                constant.condition = None;
             }
         }
     }
@@ -292,6 +329,11 @@ pub struct Layer {
     pub particles: Option<ParticleLayer>,
     /// Set for puppet models; the layer keeps its material but draws a skinned mesh.
     pub puppet: Option<PuppetLayer>,
+    /// Set for model objects: the `.mdl` mesh drawn in 3D with its own materials.
+    pub model: Option<String>,
+    /// The image's model file says `fullscreen`: in a perspective scene the layer covers the
+    /// whole target instead of being placed in 3D.
+    pub fullscreen: bool,
     pub effects: Vec<Effect>,
 }
 
@@ -406,6 +448,14 @@ pub struct Scene {
     pub parallax: Parallax,
     pub shake: CameraShake,
     pub layers: Vec<Layer>,
+    /// The camera models and perspective scenes are seen through.
+    pub camera: crate::camera::Camera,
+    /// Light objects, in scene order.
+    pub lights: Vec<crate::light::LightSpec>,
+    /// `general.ambientcolor` and `general.skylightcolor`: the light model shaders blend by how
+    /// much a surface faces up.
+    pub ambient: Bound,
+    pub skylight: Bound,
     /// Object kinds this renderer does not draw yet, with counts (reported as load warnings).
     pub skipped: BTreeMap<String, usize>,
 }
@@ -422,8 +472,8 @@ impl Scene {
             enabled: Bound::parse(general.get("cameraparallax"), Value::Bool(false)),
             amount: Bound::parse(general.get("cameraparallaxamount"), Value::from(0.5)),
             delay: Bound::parse(general.get("cameraparallaxdelay"), Value::from(0.1)),
-            // Scenes that never touched the slider leave it out; full influence is the default.
-            mouse_influence: Bound::parse(general.get("cameraparallaxmouseinfluence"), Value::from(1.0)),
+            // Scenes that never touched the slider leave it out; Wallpaper Engine's scene starts at 0.5.
+            mouse_influence: Bound::parse(general.get("cameraparallaxmouseinfluence"), Value::from(0.5)),
         };
         let mut scene = Self {
             width,
@@ -437,6 +487,10 @@ impl Scene {
                 speed: Bound::parse(general.get("camerashakespeed"), Value::from(3.0)),
             },
             layers: Vec::new(),
+            camera: crate::camera::Camera::load(vfs, &json, warnings),
+            lights: Vec::new(),
+            ambient: Bound::parse(general.get("ambientcolor"), Value::from("0 0 0")),
+            skylight: Bound::parse(general.get("skylightcolor"), Value::from("0 0 0")),
             skipped: BTreeMap::new(),
             scripts: Vec::new(),
             sounds: Vec::new(),
@@ -463,6 +517,21 @@ impl Scene {
                     }
                 }
                 Some("sound") => scene.sounds.extend(crate::sound::SoundSpec::parse(obj)),
+                Some("light") => match crate::light::LightSpec::parse(obj) {
+                    Some(light) => scene.lights.push(light),
+                    None => {
+                        let kind = obj["light"].as_str().unwrap_or("?");
+                        *scene.skipped.entry(format!("{kind} light")).or_default() += 1;
+                    }
+                },
+                // A model object places its mesh like a group places its children.
+                Some("model") => match Self::layer(vfs, obj, true, warnings) {
+                    Ok(layer) => scene.layers.push(Layer {
+                        model: obj["model"].as_str().map(str::to_string),
+                        ..layer
+                    }),
+                    Err(e) => warnings.push(format!("model {}: {e}", obj["name"].as_str().unwrap_or("?"))),
+                },
                 Some(other) => *scene.skipped.entry(other.to_string()).or_default() += 1,
             }
         }
@@ -510,10 +579,12 @@ impl Scene {
                     .cloned(),
             });
         let mut puppet = None;
+        let mut fullscreen = false;
         let material = if group || text.is_some() || particles.is_some() {
             None
         } else {
             let model = vfs.json(obj["image"].as_str().unwrap_or(""))?;
+            fullscreen = model["fullscreen"].as_bool() == Some(true);
             if let Some(path) = model["puppet"].as_str() {
                 let animations = obj["animationlayers"]
                     .as_array()
@@ -572,6 +643,8 @@ impl Scene {
             text,
             particles,
             puppet,
+            model: None,
+            fullscreen,
             effects,
         })
     }

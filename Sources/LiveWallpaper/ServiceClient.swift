@@ -155,11 +155,11 @@ struct ServiceError: LocalizedError {
 
     @discardableResult
     func perform(_ command: ServiceCommand) async throws -> ServiceStatus {
-        guard let connection else { throw ServiceError("The wallpaper service isn’t connected.") }
+        guard let connection else { throw ServiceError(String(localized: "The wallpaper service isn’t connected.")) }
         if case .quit = command { quitRequested = true }
         let data = try await connection.send(command: ServiceCoding.encode(command))
         guard let result = ServiceCoding.decode(ServiceStatus.self, from: data) else {
-            throw ServiceError("The wallpaper service sent an unreadable answer.")
+            throw ServiceError(String(localized: "The wallpaper service sent an unreadable answer."))
         }
         adopt(result)
         return result

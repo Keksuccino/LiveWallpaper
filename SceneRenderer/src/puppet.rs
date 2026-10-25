@@ -114,64 +114,70 @@ use crate::Error;
 /// `MDLA` animations. Every version seen in local scenes (`MDLV0017`/`0019`/`0021`/`0023`,
 /// `MDLS0002`/`0004`, `MDLA0005`/`0006`) shares the field layout below, so a new version number
 /// needs no code. The vertex layout comes from the attribute mask, see `Attributes`.
-const MESH_KIND: &[u8; 4] = b"MDLV";
+pub(crate) const MESH_KIND: &[u8; 4] = b"MDLV";
 const SKELETON_KIND: &[u8; 4] = b"MDLS";
 const ATTACHMENT_KIND: &[u8; 4] = b"MDAT";
 const ANIMATION_KIND: &[u8; 4] = b"MDLA";
 
 /// The vertex flags word of the mesh chunk is an attribute mask. A vertex stores the attributes
-/// whose bit is set, in this order: position, normal, tangent, bone indices, bone weights, uv.
-/// Sizes in bytes: position 12 (bit 0) or 16 (bit 16, a fourth float we drop), normal 12 (bit 1),
-/// tangent 16 (bit 2), uv 8 (bit 3), bone indices 16 (bit 23), bone weights 16 (bit 24).
-/// Checked against all 30 local meshes (flags `0xf` = 48 bytes, `0x0180000f` = 80,
-/// `0x0181000e` = 84); the format is not documented anywhere we could find.
-const ATTR_POSITION: u32 = 1 << 0;
-const ATTR_NORMAL: u32 = 1 << 1;
-const ATTR_TANGENT: u32 = 1 << 2;
-const ATTR_UV: u32 = 1 << 3;
-const ATTR_POSITION4: u32 = 1 << 16;
+/// whose bit is set, in this order: position, normal, tangent, bone indices, bone weights, uv,
+/// uv pair. Sizes in bytes: position 12 (bit 0) or 16 (bit 16, a fourth float we drop), normal 12
+/// (bit 1), tangent 16 (bit 2), uv 8 (bit 3), uv pair 16 (bit 5: two texture coordinate sets, the
+/// second for lightmaps), bone indices 16 (bit 23), bone weights 16 (bit 24).
+/// Checked against all 30 local puppet meshes (flags `0xf` = 48 bytes, `0x0180000f` = 80,
+/// `0x0181000e` = 84) and the static models of the default 3D scenes (`0x9` = 20, `0xb` = 32,
+/// `0x27` = 56 in `arsenal`, whose model JSON asks for a second uv channel); the format is not
+/// documented anywhere we could find.
+pub(crate) const ATTR_POSITION: u32 = 1 << 0;
+pub(crate) const ATTR_NORMAL: u32 = 1 << 1;
+pub(crate) const ATTR_TANGENT: u32 = 1 << 2;
+pub(crate) const ATTR_UV: u32 = 1 << 3;
+pub(crate) const ATTR_UV_PAIR: u32 = 1 << 5;
+pub(crate) const ATTR_POSITION4: u32 = 1 << 16;
 const ATTR_BONES: u32 = 1 << 23;
 const ATTR_WEIGHTS: u32 = 1 << 24;
 const ATTR_KNOWN: u32 = ATTR_POSITION
     | ATTR_NORMAL
     | ATTR_TANGENT
     | ATTR_UV
+    | ATTR_UV_PAIR
     | ATTR_POSITION4
     | ATTR_BONES
     | ATTR_WEIGHTS;
 
 #[derive(Clone, Copy)]
-struct Attributes(u32);
+pub(crate) struct Attributes(u32);
 
 impl Attributes {
-    fn from_flags(flags: u32) -> Result<Self, Error> {
+    pub(crate) fn from_flags(flags: u32) -> Result<Self, Error> {
         let skin = flags & (ATTR_BONES | ATTR_WEIGHTS);
         if flags & !ATTR_KNOWN != 0
             || flags & (ATTR_POSITION | ATTR_POSITION4) == 0
             || (skin != 0 && skin != ATTR_BONES | ATTR_WEIGHTS)
         {
             return Err(Error::Unsupported(format!(
-                "puppet: vertex attribute flags 0x{flags:x} are not understood"
+                "model: vertex attribute flags 0x{flags:x} are not understood"
             )));
         }
         Ok(Self(flags))
     }
 
-    fn has(self, bit: u32) -> bool {
+    pub(crate) fn has(self, bit: u32) -> bool {
         self.0 & bit != 0
     }
 
-    fn skinned(self) -> bool {
+    pub(crate) fn skinned(self) -> bool {
         self.has(ATTR_BONES)
     }
 
-    fn stride(self) -> usize {
+    pub(crate) fn stride(self) -> usize {
         [
             (ATTR_POSITION, 12),
             (ATTR_POSITION4, 16),
             (ATTR_NORMAL, 12),
             (ATTR_TANGENT, 16),
             (ATTR_UV, 8),
+            (ATTR_UV_PAIR, 16),
             (ATTR_BONES, 16),
             (ATTR_WEIGHTS, 16),
         ]
@@ -183,9 +189,9 @@ impl Attributes {
 }
 const KEYFRAME_SIZE: usize = 9 * 4;
 
-const MAX_STRING: usize = 4096;
-const MAX_VERTICES: usize = 4_000_000;
-const MAX_INDICES: usize = 16_000_000;
+pub(crate) const MAX_STRING: usize = 4096;
+pub(crate) const MAX_VERTICES: usize = 4_000_000;
+pub(crate) const MAX_INDICES: usize = 16_000_000;
 const MAX_BONES: usize = 4096;
 const MAX_ATTACHMENTS: usize = 4096;
 const MAX_ANIMATIONS: usize = 4096;
@@ -500,11 +506,17 @@ fn parse_mesh(data: &[u8]) -> Result<Mesh, Error> {
             }
         }
 
-        let uv = if attributes.has(ATTR_UV) {
+        let mut uv = if attributes.has(ATTR_UV) {
             read_vec2(&mut r, "vertex uv")?
         } else {
             [0.0, 0.0]
         };
+        if attributes.has(ATTR_UV_PAIR) {
+            let pair = read_vec4(&mut r, "vertex uv pair")?;
+            if !attributes.has(ATTR_UV) {
+                uv = [pair[0], pair[1]];
+            }
+        }
         vertices.push(Vertex {
             position,
             normal,
@@ -958,7 +970,7 @@ fn read_matrix(r: &mut Reader<'_>) -> Result<[[f32; 4]; 4], Error> {
     Ok(matrix)
 }
 
-fn read_vec2(r: &mut Reader<'_>, what: &str) -> Result<[f32; 2], Error> {
+pub(crate) fn read_vec2(r: &mut Reader<'_>, what: &str) -> Result<[f32; 2], Error> {
     let mut values = [0.0f32; 2];
     for value in &mut values {
         *value = finite_f32(r, what)?;
@@ -966,7 +978,7 @@ fn read_vec2(r: &mut Reader<'_>, what: &str) -> Result<[f32; 2], Error> {
     Ok(values)
 }
 
-fn read_vec3(r: &mut Reader<'_>, what: &str) -> Result<[f32; 3], Error> {
+pub(crate) fn read_vec3(r: &mut Reader<'_>, what: &str) -> Result<[f32; 3], Error> {
     let mut values = [0.0f32; 3];
     for value in &mut values {
         *value = finite_f32(r, what)?;
@@ -974,7 +986,7 @@ fn read_vec3(r: &mut Reader<'_>, what: &str) -> Result<[f32; 3], Error> {
     Ok(values)
 }
 
-fn read_vec4(r: &mut Reader<'_>, what: &str) -> Result<[f32; 4], Error> {
+pub(crate) fn read_vec4(r: &mut Reader<'_>, what: &str) -> Result<[f32; 4], Error> {
     let mut values = [0.0f32; 4];
     for value in &mut values {
         *value = finite_f32(r, what)?;
@@ -990,7 +1002,7 @@ fn lerp3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
     ]
 }
 
-fn finite_f32(r: &mut Reader<'_>, what: &str) -> Result<f32, Error> {
+pub(crate) fn finite_f32(r: &mut Reader<'_>, what: &str) -> Result<f32, Error> {
     let at = r.pos;
     let value = r.f32()?;
     if !value.is_finite() {
@@ -1004,7 +1016,7 @@ fn read_u16(r: &mut Reader<'_>) -> Result<u16, Error> {
     Ok(u16::from_le_bytes([bytes[0], bytes[1]]))
 }
 
-fn cstring<'a>(r: &mut Reader<'a>, max: usize, what: &str) -> Result<&'a [u8], Error> {
+pub(crate) fn cstring<'a>(r: &mut Reader<'a>, max: usize, what: &str) -> Result<&'a [u8], Error> {
     let start = r.pos;
     let rest = r
         .data
@@ -1038,12 +1050,12 @@ fn chunk_at(data: &[u8], off: usize, kind: &[u8; 4]) -> bool {
 }
 
 /// Reads a chunk tag of any version of `kind`. `nul` says the tag is followed by a 0 byte.
-fn read_chunk(r: &mut Reader<'_>, kind: &[u8; 4], nul: bool) -> Result<(), Error> {
+pub(crate) fn read_chunk(r: &mut Reader<'_>, kind: &[u8; 4], nul: bool) -> Result<(), Error> {
     let at = r.pos;
     let tag = r.bytes(8)?;
     if !(tag.starts_with(kind) && tag[4..].iter().all(u8::is_ascii_digit)) {
         return Err(Error::Unsupported(format!(
-            "puppet: expected a {} chunk at 0x{at:x}, found {}",
+            "model: expected a {} chunk at 0x{at:x}, found {}",
             String::from_utf8_lossy(kind),
             String::from_utf8_lossy(tag)
         )));
@@ -1063,8 +1075,8 @@ fn u32_at(data: &[u8], pos: usize) -> Option<u32> {
     Some(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
 }
 
-fn bad(message: impl Into<String>) -> Error {
-    Error::Format(format!("puppet: {}", message.into()))
+pub(crate) fn bad(message: impl Into<String>) -> Error {
+    Error::Format(format!("model: {}", message.into()))
 }
 
 #[cfg(test)]
@@ -1503,8 +1515,16 @@ mod tests {
 
     #[test]
     fn unknown_attribute_bits_are_reported() {
-        let data = mesh_with_flags(0x0000_000f | 1 << 5, 48, 3);
+        let data = mesh_with_flags(0x0000_000f | 1 << 6, 48, 3);
         let err = Puppet::parse(&data).expect_err("unknown flags");
-        assert!(err.to_string().contains("not understood"), "{err}");
+        assert!(matches!(err, Error::Unsupported(_)), "{err}");
+    }
+
+    #[test]
+    fn the_uv_pair_gives_the_first_uv() {
+        // Position, normal, tangent and two uv sets: 56 bytes, the static `arsenal` layout.
+        let data = mesh_with_flags(ATTR_POSITION | ATTR_NORMAL | ATTR_TANGENT | ATTR_UV_PAIR, 56, 3);
+        let model = Puppet::parse(&data).expect("parse a mesh with a uv pair");
+        assert_eq!(model.vertices.len(), 3);
     }
 }

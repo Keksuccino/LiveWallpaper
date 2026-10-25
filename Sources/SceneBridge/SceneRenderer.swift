@@ -597,9 +597,9 @@ public protocol RendererProtocol : AnyObject {
     func setAudioSpectrum(left: [Float], right: [Float]) 
     
     /**
-     * How the scene is mapped onto the target: fill, fit, stretch, unscaled or blurred fit.
+     * Wallpaper Engine's colour options and image filter.
      */
-    func setFitMode(mode: FitMode) 
+    func setColorGrade(grade: ColorGrade) 
     
     /**
      * Frames per second; 0 means the display's rate.
@@ -612,6 +612,11 @@ public protocol RendererProtocol : AnyObject {
     func setFrameSize(width: UInt32, height: UInt32) 
     
     /**
+     * Where and how big the scene is on the target (Wallpaper Engine's alignment and flip).
+     */
+    func setFraming(framing: Framing) 
+    
+    /**
      * Hides text layers that scripts compute (clocks and the like). The lock screen loop uses
      * this: a frame recorded once cannot follow the time.
      */
@@ -620,9 +625,9 @@ public protocol RendererProtocol : AnyObject {
     func setMuted(muted: Bool) 
     
     /**
-     * Moves the picture on screen (in screen widths and heights) and magnifies it.
+     * Whether the scene's camera parallax follows the pointer (when the scene has one).
      */
-    func setPanZoom(panX: Float, panY: Float, zoom: Float) 
+    func setParallaxEnabled(enabled: Bool) 
     
     /**
      * Pointer in 0...1 screen coordinates (origin top-left), for parallax and cursor effects.
@@ -633,6 +638,11 @@ public protocol RendererProtocol : AnyObject {
      * Left button pressed on the desktop, for scripts that react to clicks and drags.
      */
     func setPointerDown(down: Bool) 
+    
+    /**
+     * Playback speed of the scene's clock: 1 as authored, 0.1...2. Sounds keep their pitch.
+     */
+    func setRate(rate: Float) 
     
     /**
      * Fraction of the target's pixels the scene is drawn in; the layer scales it up.
@@ -698,13 +708,15 @@ open class Renderer:
     /**
      * Opens `scene.pkg` (or an unpacked scene folder). Shared assets are looked up in the
      * library's sibling `WallpaperEngineAssets` folder. Fails if the scene cannot be drawn at all;
-     * partial support is reported by `load_errors`.
+     * partial support is reported by `load_errors`. `storage_path`, when given, is the file in
+     * which the scene's scripts keep their `localStorage` from one run to the next.
      */
-public convenience init(pkgPath: String)throws  {
+public convenience init(pkgPath: String, storagePath: String?)throws  {
     let pointer =
         try rustCallWithError(FfiConverterTypeError.lift) {
     uniffi_scene_renderer_fn_constructor_renderer_new(
-        FfiConverterString.lower(pkgPath),$0
+        FfiConverterString.lower(pkgPath),
+        FfiConverterOptionString.lower(storagePath),$0
     )
 }
     self.init(unsafeFromRawPointer: pointer)
@@ -829,11 +841,11 @@ open func setAudioSpectrum(left: [Float], right: [Float]) {try! rustCall() {
 }
     
     /**
-     * How the scene is mapped onto the target: fill, fit, stretch, unscaled or blurred fit.
+     * Wallpaper Engine's colour options and image filter.
      */
-open func setFitMode(mode: FitMode) {try! rustCall() {
-    uniffi_scene_renderer_fn_method_renderer_set_fit_mode(self.uniffiClonePointer(),
-        FfiConverterTypeFitMode.lower(mode),$0
+open func setColorGrade(grade: ColorGrade) {try! rustCall() {
+    uniffi_scene_renderer_fn_method_renderer_set_color_grade(self.uniffiClonePointer(),
+        FfiConverterTypeColorGrade.lower(grade),$0
     )
 }
 }
@@ -860,6 +872,16 @@ open func setFrameSize(width: UInt32, height: UInt32) {try! rustCall() {
 }
     
     /**
+     * Where and how big the scene is on the target (Wallpaper Engine's alignment and flip).
+     */
+open func setFraming(framing: Framing) {try! rustCall() {
+    uniffi_scene_renderer_fn_method_renderer_set_framing(self.uniffiClonePointer(),
+        FfiConverterTypeFraming.lower(framing),$0
+    )
+}
+}
+    
+    /**
      * Hides text layers that scripts compute (clocks and the like). The lock screen loop uses
      * this: a frame recorded once cannot follow the time.
      */
@@ -878,13 +900,11 @@ open func setMuted(muted: Bool) {try! rustCall() {
 }
     
     /**
-     * Moves the picture on screen (in screen widths and heights) and magnifies it.
+     * Whether the scene's camera parallax follows the pointer (when the scene has one).
      */
-open func setPanZoom(panX: Float, panY: Float, zoom: Float) {try! rustCall() {
-    uniffi_scene_renderer_fn_method_renderer_set_pan_zoom(self.uniffiClonePointer(),
-        FfiConverterFloat.lower(panX),
-        FfiConverterFloat.lower(panY),
-        FfiConverterFloat.lower(zoom),$0
+open func setParallaxEnabled(enabled: Bool) {try! rustCall() {
+    uniffi_scene_renderer_fn_method_renderer_set_parallax_enabled(self.uniffiClonePointer(),
+        FfiConverterBool.lower(enabled),$0
     )
 }
 }
@@ -906,6 +926,16 @@ open func setPointer(x: Float, y: Float) {try! rustCall() {
 open func setPointerDown(down: Bool) {try! rustCall() {
     uniffi_scene_renderer_fn_method_renderer_set_pointer_down(self.uniffiClonePointer(),
         FfiConverterBool.lower(down),$0
+    )
+}
+}
+    
+    /**
+     * Playback speed of the scene's clock: 1 as authored, 0.1...2. Sounds keep their pitch.
+     */
+open func setRate(rate: Float) {try! rustCall() {
+    uniffi_scene_renderer_fn_method_renderer_set_rate(self.uniffiClonePointer(),
+        FfiConverterFloat.lower(rate),$0
     )
 }
 }
@@ -1008,6 +1038,355 @@ public func FfiConverterTypeRenderer_lift(_ pointer: UnsafeMutableRawPointer) th
 #endif
 public func FfiConverterTypeRenderer_lower(_ value: Renderer) -> UnsafeMutableRawPointer {
     return FfiConverterTypeRenderer.lower(value)
+}
+
+
+/**
+ * Wallpaper Engine's colour options and image filter, as its settings store them.
+ */
+public struct ColorGrade {
+    /**
+     * "Show colour options": the four sliders below apply.
+     */
+    public var adjust: Bool
+    /**
+     * The sliders as fractions of their range, 0...1, 0.5 = unchanged.
+     */
+    public var brightness: Float
+    public var contrast: Float
+    public var saturation: Float
+    public var hue: Float
+    /**
+     * The image filter: a lookup table's name in `materials/lut` ("" = none), and how much of it
+     * is mixed in, 0...1.
+     */
+    public var filter: String
+    public var filterStrength: Float
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * "Show colour options": the four sliders below apply.
+         */adjust: Bool, 
+        /**
+         * The sliders as fractions of their range, 0...1, 0.5 = unchanged.
+         */brightness: Float, contrast: Float, saturation: Float, hue: Float, 
+        /**
+         * The image filter: a lookup table's name in `materials/lut` ("" = none), and how much of it
+         * is mixed in, 0...1.
+         */filter: String, filterStrength: Float) {
+        self.adjust = adjust
+        self.brightness = brightness
+        self.contrast = contrast
+        self.saturation = saturation
+        self.hue = hue
+        self.filter = filter
+        self.filterStrength = filterStrength
+    }
+}
+
+
+
+extension ColorGrade: Equatable, Hashable {
+    public static func ==(lhs: ColorGrade, rhs: ColorGrade) -> Bool {
+        if lhs.adjust != rhs.adjust {
+            return false
+        }
+        if lhs.brightness != rhs.brightness {
+            return false
+        }
+        if lhs.contrast != rhs.contrast {
+            return false
+        }
+        if lhs.saturation != rhs.saturation {
+            return false
+        }
+        if lhs.hue != rhs.hue {
+            return false
+        }
+        if lhs.filter != rhs.filter {
+            return false
+        }
+        if lhs.filterStrength != rhs.filterStrength {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(adjust)
+        hasher.combine(brightness)
+        hasher.combine(contrast)
+        hasher.combine(saturation)
+        hasher.combine(hue)
+        hasher.combine(filter)
+        hasher.combine(filterStrength)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeColorGrade: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ColorGrade {
+        return
+            try ColorGrade(
+                adjust: FfiConverterBool.read(from: &buf), 
+                brightness: FfiConverterFloat.read(from: &buf), 
+                contrast: FfiConverterFloat.read(from: &buf), 
+                saturation: FfiConverterFloat.read(from: &buf), 
+                hue: FfiConverterFloat.read(from: &buf), 
+                filter: FfiConverterString.read(from: &buf), 
+                filterStrength: FfiConverterFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ColorGrade, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.adjust, into: &buf)
+        FfiConverterFloat.write(value.brightness, into: &buf)
+        FfiConverterFloat.write(value.contrast, into: &buf)
+        FfiConverterFloat.write(value.saturation, into: &buf)
+        FfiConverterFloat.write(value.hue, into: &buf)
+        FfiConverterString.write(value.filter, into: &buf)
+        FfiConverterFloat.write(value.filterStrength, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeColorGrade_lift(_ buf: RustBuffer) throws -> ColorGrade {
+    return try FfiConverterTypeColorGrade.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeColorGrade_lower(_ value: ColorGrade) -> RustBuffer {
+    return FfiConverterTypeColorGrade.lower(value)
+}
+
+
+/**
+ * Where and how big the scene is on the target.
+ */
+public struct Framing {
+    public var alignment: Alignment
+    /**
+     * Cover and fill: the place along the axis that overflows or has bars, 0...1 (0 = left/top).
+     */
+    public var position: Float
+    /**
+     * Center and free: horizontal and vertical placement, 0...1 (0.5 = centred).
+     */
+    public var x: Float
+    public var y: Float
+    /**
+     * Free: magnification, 0...2 (1 = one design pixel per target pixel).
+     */
+    public var zoom: Float
+    /**
+     * Mirrors the picture left to right.
+     */
+    public var flip: Bool
+    /**
+     * Bars the alignment leaves are filled with a blurred copy of the picture.
+     */
+    public var blurBars: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(alignment: Alignment, 
+        /**
+         * Cover and fill: the place along the axis that overflows or has bars, 0...1 (0 = left/top).
+         */position: Float, 
+        /**
+         * Center and free: horizontal and vertical placement, 0...1 (0.5 = centred).
+         */x: Float, y: Float, 
+        /**
+         * Free: magnification, 0...2 (1 = one design pixel per target pixel).
+         */zoom: Float, 
+        /**
+         * Mirrors the picture left to right.
+         */flip: Bool, 
+        /**
+         * Bars the alignment leaves are filled with a blurred copy of the picture.
+         */blurBars: Bool) {
+        self.alignment = alignment
+        self.position = position
+        self.x = x
+        self.y = y
+        self.zoom = zoom
+        self.flip = flip
+        self.blurBars = blurBars
+    }
+}
+
+
+
+extension Framing: Equatable, Hashable {
+    public static func ==(lhs: Framing, rhs: Framing) -> Bool {
+        if lhs.alignment != rhs.alignment {
+            return false
+        }
+        if lhs.position != rhs.position {
+            return false
+        }
+        if lhs.x != rhs.x {
+            return false
+        }
+        if lhs.y != rhs.y {
+            return false
+        }
+        if lhs.zoom != rhs.zoom {
+            return false
+        }
+        if lhs.flip != rhs.flip {
+            return false
+        }
+        if lhs.blurBars != rhs.blurBars {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(alignment)
+        hasher.combine(position)
+        hasher.combine(x)
+        hasher.combine(y)
+        hasher.combine(zoom)
+        hasher.combine(flip)
+        hasher.combine(blurBars)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFraming: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Framing {
+        return
+            try Framing(
+                alignment: FfiConverterTypeAlignment.read(from: &buf), 
+                position: FfiConverterFloat.read(from: &buf), 
+                x: FfiConverterFloat.read(from: &buf), 
+                y: FfiConverterFloat.read(from: &buf), 
+                zoom: FfiConverterFloat.read(from: &buf), 
+                flip: FfiConverterBool.read(from: &buf), 
+                blurBars: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: Framing, into buf: inout [UInt8]) {
+        FfiConverterTypeAlignment.write(value.alignment, into: &buf)
+        FfiConverterFloat.write(value.position, into: &buf)
+        FfiConverterFloat.write(value.x, into: &buf)
+        FfiConverterFloat.write(value.y, into: &buf)
+        FfiConverterFloat.write(value.zoom, into: &buf)
+        FfiConverterBool.write(value.flip, into: &buf)
+        FfiConverterBool.write(value.blurBars, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFraming_lift(_ buf: RustBuffer) throws -> Framing {
+    return try FfiConverterTypeFraming.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFraming_lower(_ value: Framing) -> RustBuffer {
+    return FfiConverterTypeFraming.lower(value)
+}
+
+
+/**
+ * One of Wallpaper Engine's colour lookup tables, for pictures the renderer does not draw (the service's videos).
+ */
+public struct LookupTable {
+    /**
+     * Edge length of the colour cube.
+     */
+    public var size: UInt32
+    /**
+     * RGBA8 texels, slices stacked top to bottom: x = red, y = green, slice = blue.
+     */
+    public var rgba: Data
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Edge length of the colour cube.
+         */size: UInt32, 
+        /**
+         * RGBA8 texels, slices stacked top to bottom: x = red, y = green, slice = blue.
+         */rgba: Data) {
+        self.size = size
+        self.rgba = rgba
+    }
+}
+
+
+
+extension LookupTable: Equatable, Hashable {
+    public static func ==(lhs: LookupTable, rhs: LookupTable) -> Bool {
+        if lhs.size != rhs.size {
+            return false
+        }
+        if lhs.rgba != rhs.rgba {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(size)
+        hasher.combine(rgba)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLookupTable: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LookupTable {
+        return
+            try LookupTable(
+                size: FfiConverterUInt32.read(from: &buf), 
+                rgba: FfiConverterData.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LookupTable, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.size, into: &buf)
+        FfiConverterData.write(value.rgba, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLookupTable_lift(_ buf: RustBuffer) throws -> LookupTable {
+    return try FfiConverterTypeLookupTable.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLookupTable_lower(_ value: LookupTable) -> RustBuffer {
+    return FfiConverterTypeLookupTable.lower(value)
 }
 
 
@@ -1176,6 +1555,109 @@ public func FfiConverterTypeSceneProperty_lower(_ value: SceneProperty) -> RustB
     return FfiConverterTypeSceneProperty.lower(value)
 }
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * How the scene is placed on the target: Wallpaper Engine's alignment options.
+ */
+
+public enum Alignment {
+    
+    /**
+     * Covers the target; the overflow is cropped and `position` picks the part that shows.
+     */
+    case cover
+    /**
+     * Shows the whole scene; `position` places it between the bars this leaves.
+     */
+    case fill
+    /**
+     * One design pixel per target pixel, placed by `x` and `y`.
+     */
+    case center
+    /**
+     * The scene is stretched onto the target, ignoring the aspect ratio.
+     */
+    case stretch
+    /**
+     * Like center, magnified by `zoom`; `x` and `y` can move the scene all the way off the target.
+     */
+    case free
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAlignment: FfiConverterRustBuffer {
+    typealias SwiftType = Alignment
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Alignment {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .cover
+        
+        case 2: return .fill
+        
+        case 3: return .center
+        
+        case 4: return .stretch
+        
+        case 5: return .free
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: Alignment, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .cover:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .fill:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .center:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .stretch:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .free:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAlignment_lift(_ buf: RustBuffer) throws -> Alignment {
+    return try FfiConverterTypeAlignment.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAlignment_lower(_ value: Alignment) -> RustBuffer {
+    return FfiConverterTypeAlignment.lower(value)
+}
+
+
+
+extension Alignment: Equatable, Hashable {}
+
+
+
 
 public enum Error {
 
@@ -1271,108 +1753,29 @@ extension Error: Foundation.LocalizedError {
     }
 }
 
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
-/**
- * How the scene is mapped onto the target.
- */
-
-public enum FitMode {
-    
-    /**
-     * Cover the target; the overflow is cropped.
-     */
-    case fill
-    /**
-     * Show the whole scene; the rest stays empty.
-     */
-    case fit
-    /**
-     * Stretch the scene onto the target, ignoring the aspect ratio.
-     */
-    case stretch
-    /**
-     * One scene pixel per target pixel.
-     */
-    case unscaled
-    /**
-     * Show the whole scene; a blurred copy of it fills the rest.
-     */
-    case matchBlurred
-}
-
-
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public struct FfiConverterTypeFitMode: FfiConverterRustBuffer {
-    typealias SwiftType = FitMode
+fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
+    typealias SwiftType = String?
 
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FitMode {
-        let variant: Int32 = try readInt(&buf)
-        switch variant {
-        
-        case 1: return .fill
-        
-        case 2: return .fit
-        
-        case 3: return .stretch
-        
-        case 4: return .unscaled
-        
-        case 5: return .matchBlurred
-        
-        default: throw UniffiInternalError.unexpectedEnumCase
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
         }
+        writeInt(&buf, Int8(1))
+        FfiConverterString.write(value, into: &buf)
     }
 
-    public static func write(_ value: FitMode, into buf: inout [UInt8]) {
-        switch value {
-        
-        
-        case .fill:
-            writeInt(&buf, Int32(1))
-        
-        
-        case .fit:
-            writeInt(&buf, Int32(2))
-        
-        
-        case .stretch:
-            writeInt(&buf, Int32(3))
-        
-        
-        case .unscaled:
-            writeInt(&buf, Int32(4))
-        
-        
-        case .matchBlurred:
-            writeInt(&buf, Int32(5))
-        
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
 }
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFitMode_lift(_ buf: RustBuffer) throws -> FitMode {
-    return try FfiConverterTypeFitMode.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFitMode_lower(_ value: FitMode) -> RustBuffer {
-    return FfiConverterTypeFitMode.lower(value)
-}
-
-
-
-extension FitMode: Equatable, Hashable {}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -1448,6 +1851,33 @@ fileprivate struct FfiConverterSequenceTypeSceneProperty: FfiConverterRustBuffer
         return seq
     }
 }
+/**
+ * The part of a `design`-sized picture a `target`-sized view shows when placed with `framing`, in the picture's
+ * units (y down): left, right, top, bottom, with left and right swapped when the framing flips. For pictures the
+ * renderer does not draw itself (the service's videos), so they are placed exactly like scenes.
+ */
+public func framingView(framing: Framing, designWidth: Float, designHeight: Float, targetWidth: Float, targetHeight: Float) -> [Float] {
+    return try!  FfiConverterSequenceFloat.lift(try! rustCall() {
+    uniffi_scene_renderer_fn_func_framing_view(
+        FfiConverterTypeFraming.lower(framing),
+        FfiConverterFloat.lower(designWidth),
+        FfiConverterFloat.lower(designHeight),
+        FfiConverterFloat.lower(targetWidth),
+        FfiConverterFloat.lower(targetHeight),$0
+    )
+})
+}
+/**
+ * The lookup table `name` from the shared assets folder `assets` (`materials/lut/<name>.tex`).
+ */
+public func lookupTable(assets: String, name: String)throws  -> LookupTable {
+    return try  FfiConverterTypeLookupTable.lift(try rustCallWithError(FfiConverterTypeError.lift) {
+    uniffi_scene_renderer_fn_func_lookup_table(
+        FfiConverterString.lower(assets),
+        FfiConverterString.lower(name),$0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -1463,6 +1893,12 @@ private var initializationResult: InitializationResult = {
     let scaffolding_contract_version = ffi_scene_renderer_uniffi_contract_version()
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
+    }
+    if (uniffi_scene_renderer_checksum_func_framing_view() != 63042) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_scene_renderer_checksum_func_lookup_table() != 30990) {
+        return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_scene_renderer_checksum_method_renderer_apply_antialiasing() != 48672) {
         return InitializationResult.apiChecksumMismatch
@@ -1497,7 +1933,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_scene_renderer_checksum_method_renderer_set_audio_spectrum() != 11514) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_scene_renderer_checksum_method_renderer_set_fit_mode() != 22736) {
+    if (uniffi_scene_renderer_checksum_method_renderer_set_color_grade() != 32726) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_scene_renderer_checksum_method_renderer_set_fps_cap() != 60966) {
@@ -1506,19 +1942,25 @@ private var initializationResult: InitializationResult = {
     if (uniffi_scene_renderer_checksum_method_renderer_set_frame_size() != 12791) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_scene_renderer_checksum_method_renderer_set_framing() != 26929) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_scene_renderer_checksum_method_renderer_set_hide_scripted_text() != 59373) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_scene_renderer_checksum_method_renderer_set_muted() != 42835) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_scene_renderer_checksum_method_renderer_set_pan_zoom() != 45150) {
+    if (uniffi_scene_renderer_checksum_method_renderer_set_parallax_enabled() != 23284) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_scene_renderer_checksum_method_renderer_set_pointer() != 12874) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_scene_renderer_checksum_method_renderer_set_pointer_down() != 54417) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_scene_renderer_checksum_method_renderer_set_rate() != 19170) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_scene_renderer_checksum_method_renderer_set_render_scale() != 43863) {
@@ -1536,7 +1978,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_scene_renderer_checksum_method_renderer_stop() != 28675) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_scene_renderer_checksum_constructor_renderer_new() != 52247) {
+    if (uniffi_scene_renderer_checksum_constructor_renderer_new() != 16649) {
         return InitializationResult.apiChecksumMismatch
     }
 

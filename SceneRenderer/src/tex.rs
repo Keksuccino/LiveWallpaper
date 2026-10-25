@@ -92,6 +92,9 @@ pub fn decode(data: &[u8]) -> Result<Tex, Error> {
     }
     let format_raw = r.i32()?;
     let flags = r.u32()?;
+    // A volume (flag 64: Wallpaper Engine's colour lookup tables) has one more header field and a
+    // depth for every mip; it comes out as its slices stacked top to bottom.
+    let volume = flags & 64 != 0;
     let mut dims = [0usize; 4];
     for d in &mut dims {
         let x = r.i32()?;
@@ -101,6 +104,9 @@ pub fn decode(data: &[u8]) -> Result<Tex, Error> {
         *d = x as usize;
     }
     let _ = r.u32()?;
+    if volume {
+        let _ = r.u32()?;
+    }
     let container = r.cstring()?;
     let version: u32 = container
         .strip_prefix("TEXB")
@@ -137,9 +143,12 @@ pub fn decode(data: &[u8]) -> Result<Tex, Error> {
         let mut mips = Vec::with_capacity(mip_count);
         for _ in 0..mip_count {
             let (w, h) = (r.i32()?, r.i32()?);
-            if !(0..=MAX_DIM).contains(&w) || !(0..=MAX_DIM).contains(&h) {
+            let depth = if volume { r.i32()? } else { 1 };
+            let sizes = [(w, 0), (h, 0), (depth, 1)];
+            if sizes.iter().any(|&(x, min)| !(min..=MAX_DIM).contains(&x)) {
                 return Err(Error::Format("mip size is out of range".into()));
             }
+            let h = h * depth;
             let (mut lz4, mut raw_size) = (false, 0);
             if version >= 2 {
                 lz4 = r.u32()? == 1;
@@ -202,6 +211,19 @@ pub fn decode(data: &[u8]) -> Result<Tex, Error> {
         images,
         frames,
     })
+}
+
+/// A colour lookup table (one of Wallpaper Engine's `materials/lut` volumes): its edge length and its RGBA8 texels,
+/// the slices stacked top to bottom (x = red, y = green, slice = blue).
+pub fn lookup_table(data: &[u8]) -> Result<(usize, Vec<u8>), Error> {
+    let mut tex = decode(data)?;
+    let mip = tex.images.first_mut().and_then(|m| m.first_mut());
+    match mip {
+        Some(m) if tex.format == Format::Rgba8 && m.width > 0 && m.height == m.width * m.width => {
+            Ok((m.width, std::mem::take(&mut m.data)))
+        }
+        _ => Err(Error::Format("not a colour lookup table".into())),
+    }
 }
 
 fn read_frames(r: &mut Reader<'_>) -> Result<Vec<Frame>, Error> {
@@ -329,6 +351,24 @@ mod tests {
         let t = decode(&f).unwrap();
         assert_eq!((t.texture_width, t.texture_height), (4, 2));
         assert_eq!((t.image_width, t.image_height), (4, 2));
+    }
+
+    #[test]
+    fn a_volume_comes_out_as_stacked_slices() {
+        // A 2x2x2 RGBA lookup table: flag 64 adds a header field and a depth per mip.
+        let mut f = b"TEXV0005\0TEXI0001\0".to_vec();
+        for v in [0i32, 64, 2, 2, 4, 2, 2, 0] {
+            f.extend(v.to_le_bytes());
+        }
+        f.extend(b"TEXB0002\0");
+        for v in [1i32, 1, 2, 2, 2, 0, 32, 32] {
+            f.extend(v.to_le_bytes());
+        }
+        f.extend((0..32u8).collect::<Vec<_>>());
+        let t = decode(&f).unwrap();
+        let mip = &t.images[0][0];
+        assert_eq!((mip.width, mip.height), (2, 4));
+        assert_eq!(mip.data[31], 31);
     }
 
     #[test]

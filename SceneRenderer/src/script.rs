@@ -46,6 +46,8 @@ pub struct Events {
     pub created: Vec<Created>,
     /// Draw-order moves: layer id, new index.
     pub moves: Vec<(i64, usize)>,
+    /// Everything in the scripts' `localStorage`, when they changed it.
+    pub storage: Option<Value>,
 }
 
 impl Events {
@@ -82,11 +84,17 @@ impl Events {
             .flatten()
             .filter_map(|m| Some((m["id"].as_i64()?, m["index"].as_u64()? as usize)))
             .collect();
-        Self { values, dirty, scene, created, moves }
+        let storage = Some(v["storage"].clone()).filter(Value::is_object);
+        Self { values, dirty, scene, created, moves, storage }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.values.is_empty() && self.dirty.is_empty() && self.scene.is_empty() && self.created.is_empty() && self.moves.is_empty()
+        self.values.is_empty()
+            && self.dirty.is_empty()
+            && self.scene.is_empty()
+            && self.created.is_empty()
+            && self.moves.is_empty()
+            && self.storage.is_none()
     }
 }
 
@@ -107,6 +115,8 @@ pub struct FrameState {
     /// Audio spectrum, 0..1 per band, any band count.
     pub left: Vec<f32>,
     pub right: Vec<f32>,
+    /// Ids of the sound objects that are playing.
+    pub playing: Vec<i64>,
 }
 
 pub struct Host {
@@ -213,8 +223,23 @@ impl Host {
             "down": s.cursor_down,
             "left": s.left,
             "right": s.right,
+            "playing": s.playing,
         });
         let out = self.call("__lw_frame", input.to_string())?;
+        Ok(Events::parse(&out))
+    }
+
+    /// Puts back what the scripts kept in `localStorage` in an earlier run (a JSON object).
+    pub fn set_storage(&mut self, json: &str) -> Result<(), Error> {
+        self.call("__lw_storage", json.to_string()).map(|_| ())
+    }
+
+    /// User property values that changed (all of them once after the scripts started), for
+    /// `engine.userProperties` and every script's `applyUserProperties`. `colors` names the
+    /// colour properties, which scripts see as vectors.
+    pub fn user_properties(&mut self, values: &Map<String, Value>, colors: &[String]) -> Result<Events, Error> {
+        let input = serde_json::json!({ "values": values, "colors": colors });
+        let out = self.call("__lw_user_properties", input.to_string())?;
         Ok(Events::parse(&out))
     }
 
@@ -266,6 +291,7 @@ mod tests {
             cursor_down: false,
             left: vec![1.0; 64],
             right: vec![0.0; 64],
+            playing: vec![],
         })
         .expect("frame")
     }
@@ -281,6 +307,53 @@ mod tests {
         assert_eq!(e.values, vec![(0, json!("x"))]);
         let e = frame(&mut h, 1.0);
         assert_eq!(e.values, vec![(0, json!("a-b"))]);
+    }
+
+    #[test]
+    fn sound_layers_obey_scripts_and_user_properties_reach_them() {
+        let mut h = Host::new().expect("runtime");
+        h.set_layers(&json!([
+            { "id": 7, "name": "dino", "origin": "0 0 0", "scale": "1 1 1", "angles": "0 0 0",
+              "color": "1 1 1", "alpha": 1.0, "visible": true, "text": "" },
+            { "id": 9, "name": "jump", "sound": true, "volume": 1.0, "playing": false },
+        ]))
+        .expect("layers");
+        let src = "'use strict';\n\
+            let level = '';\n\
+            export function applyUserProperties(p) { if (p.level) level = p.level; }\n\
+            export function update(value) {\n\
+              if (level === 'mario') { thisScene.getLayer('jump').play(); level = ''; }\n\
+              return engine.userProperties.tint.x;\n\
+            }";
+        let _ = h.add(0, 7, "alpha", src, &json!({}), &json!(1.0)).expect("add");
+        let values = json!({ "level": "mario", "tint": "0.5 0 0" });
+        let _ = h.user_properties(values.as_object().unwrap(), &["tint".to_string()]).expect("props");
+        let e = frame(&mut h, 1.0);
+        assert_eq!(e.values, vec![(0, json!(0.5))]);
+        let jump = e.dirty.iter().find(|(id, _)| *id == 9).map(|(_, d)| d.clone());
+        assert_eq!(jump.and_then(|d| d.get("sound").cloned()), Some(json!("play")));
+        // The sound object is not one of the drawn layers.
+        let src = "'use strict';\nexport function update(v) { return thisScene.getLayerCount(); }";
+        let _ = h.add(1, 7, "alpha", src, &json!({}), &json!(1.0)).expect("add");
+        assert!(frame(&mut h, 2.0).values.contains(&(1, json!(1))));
+    }
+
+    #[test]
+    fn local_storage_is_restored_and_reported_when_it_changes() {
+        let mut h = host_with_layer();
+        h.set_storage(r#"{"highscore": 7}"#).expect("storage");
+        let src = "'use strict';\n\
+            export function update(value) {\n\
+              const best = localStorage.get('highscore', localStorage.LOCATION_GLOBAL);\n\
+              if (best < 8) localStorage.set('highscore', best + 1, localStorage.LOCATION_GLOBAL);\n\
+              return best;\n\
+            }";
+        let _ = h.add(0, 7, "alpha", src, &json!({}), &json!(1.0)).expect("add");
+        let e = frame(&mut h, 1.0);
+        assert_eq!(e.values, vec![(0, json!(7))]);
+        assert_eq!(e.storage, Some(json!({ "highscore": 8 })));
+        // Unchanged storage is not sent again.
+        assert_eq!(frame(&mut h, 2.0).storage, None);
     }
 
     #[test]
@@ -359,6 +432,7 @@ mod tests {
                 cursor_down: down,
                 left: vec![],
                 right: vec![],
+                playing: vec![],
             })
             .expect("frame")
         };

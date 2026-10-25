@@ -48,6 +48,9 @@ public struct VideoItem: Identifiable, Codable, Hashable, Sendable {
     public var name: String { title ?? url.deletingPathExtension().lastPathComponent }
     public var isWorkshop: Bool { workshopID != nil }
     public var kind: ItemKind { scene == nil ? .video : .scene }
+    /// Where the item's presets are kept (LibraryState.presets): a Workshop item keeps them when it is downloaded
+    /// again under a new id.
+    public var presetKey: String { workshopID ?? id.uuidString }
     public var isScene: Bool { scene != nil }
 
     /// Identifies the file's content: its size and modification time. Changes when a Workshop item is re-downloaded
@@ -73,14 +76,6 @@ public enum IntervalUnit: String, CaseIterable, Identifiable, Codable, Sendable 
     case seconds, minutes, hours
 
     public var id: String { rawValue }
-
-    public var label: String {
-        switch self {
-        case .seconds: return "Seconds"
-        case .minutes: return "Minutes"
-        case .hours: return "Hours"
-        }
-    }
 
     public var multiplier: TimeInterval {
         switch self {
@@ -132,29 +127,23 @@ public struct SceneInfo: Codable, Hashable, Sendable {
 /// it survives restarts and reconnecting. A display without a wallpaper keeps whatever system wallpaper it has.
 public struct DisplayConfig: Codable, Equatable, Sendable {
     public var wallpaperID: UUID?
-    /// Changed only through StateStore.setMuted, never by a commit (the service's menu mutes every display).
-    public var muted: Bool
     /// Cycles the playlist (LibraryState.playlist), going on from the wallpaper.
     public var rotateEnabled: Bool
     public var intervalValue: Int
     public var intervalUnit: IntervalUnit
-    /// Frame rate of scenes that do not set their own; the service lowers it on battery.
-    public var sceneFPS: Int
     public var power: PowerOptions
-    /// Per scene, keyed by VideoItem.id.uuidString.
-    public var sceneOptions: [String: SceneOptions]
+    /// Per wallpaper, keyed by VideoItem.id.uuidString.
+    public var wallpaperOptions: [String: WallpaperOptions]
 
-    public init(wallpaperID: UUID? = nil, muted: Bool = true, rotateEnabled: Bool = false, intervalValue: Int = 5,
-                intervalUnit: IntervalUnit = .minutes, sceneFPS: Int = LibraryState.defaultSceneFPS,
-                power: PowerOptions = PowerOptions(), sceneOptions: [String: SceneOptions] = [:]) {
+    public init(wallpaperID: UUID? = nil, rotateEnabled: Bool = false, intervalValue: Int = 5,
+                intervalUnit: IntervalUnit = .minutes, power: PowerOptions = PowerOptions(),
+                wallpaperOptions: [String: WallpaperOptions] = [:]) {
         self.wallpaperID = wallpaperID
-        self.muted = muted
         self.rotateEnabled = rotateEnabled
         self.intervalValue = LibraryState.clampedInterval(intervalValue)
         self.intervalUnit = intervalUnit
-        self.sceneFPS = LibraryState.clampedSceneFPS(sceneFPS)
         self.power = power
-        self.sceneOptions = sceneOptions
+        self.wallpaperOptions = wallpaperOptions
     }
 
     public var intervalSeconds: TimeInterval {
@@ -164,29 +153,31 @@ public struct DisplayConfig: Codable, Equatable, Sendable {
         Double(intervalValue) * intervalUnit.multiplier < LibraryState.minimumInterval
     }
 
-    public func sceneOptions(for id: UUID) -> SceneOptions { sceneOptions[id.uuidString] ?? .standard }
+    public func options(for id: UUID) -> WallpaperOptions { wallpaperOptions[id.uuidString] ?? .standard }
 
+    // `sceneOptions` is the key of the per-wallpaper options since scenes were the first to have them. Older files
+    // also hold a `muted` per display, which is ignored: sound is muted per wallpaper and for the whole app.
     private enum CodingKeys: String, CodingKey {
-        case wallpaperID, muted, rotateEnabled, intervalValue, intervalUnit, sceneFPS, power, sceneOptions
+        case wallpaperID, rotateEnabled, intervalValue, intervalUnit, power
+        case wallpaperOptions = "sceneOptions"
     }
 
     // Every key may be missing, so a file written before a setting existed still loads.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.init(wallpaperID: try c.decodeIfPresent(UUID.self, forKey: .wallpaperID),
-                  muted: try c.decodeIfPresent(Bool.self, forKey: .muted) ?? true,
                   rotateEnabled: try c.decodeIfPresent(Bool.self, forKey: .rotateEnabled) ?? false,
                   intervalValue: try c.decodeIfPresent(Int.self, forKey: .intervalValue) ?? 5,
                   intervalUnit: try c.decodeIfPresent(IntervalUnit.self, forKey: .intervalUnit) ?? .minutes,
-                  sceneFPS: try c.decodeIfPresent(Int.self, forKey: .sceneFPS) ?? LibraryState.defaultSceneFPS,
                   power: try c.decodeIfPresent(PowerOptions.self, forKey: .power) ?? PowerOptions(),
-                  sceneOptions: try c.decodeIfPresent([String: SceneOptions].self, forKey: .sceneOptions) ?? [:])
+                  wallpaperOptions: try c.decodeIfPresent([String: WallpaperOptions].self,
+                                                          forKey: .wallpaperOptions) ?? [:])
     }
 }
 
 public struct LibraryState: Codable, Equatable, Sendable {
     public static let minimumInterval: TimeInterval = 5
-    public static let currentSchema = 3
+    public static let currentSchema = 5
 
     public var schema: Int
     public var revision: Int          // bumped by StateStore.commit on every write
@@ -197,20 +188,29 @@ public struct LibraryState: Codable, Equatable, Sendable {
     public var displays: [String: DisplayConfig]
     /// Seconds the service waits before it makes a new still for the system wallpaper (see `stillDelayOptions`).
     public var stillDelay: Double
+    /// 0...1, scales every wallpaper's own volume on every display.
+    public var masterVolume: Double
+    /// Silences every wallpaper (the menu bar's Mute Sound). Changed only through StateStore.setMuted, never by a
+    /// commit.
+    public var muted: Bool
+    /// The presets the user saved, per wallpaper (VideoItem.presetKey).
+    public var presets: [String: [WallpaperPreset]]
 
     public init(schema: Int = LibraryState.currentSchema, revision: Int = 0, videos: [VideoItem] = [],
                 playlist: [UUID]? = nil, displays: [String: DisplayConfig] = [:],
-                stillDelay: Double = LibraryState.defaultStillDelay) {
+                stillDelay: Double = LibraryState.defaultStillDelay, masterVolume: Double = 1, muted: Bool = false,
+                presets: [String: [WallpaperPreset]] = [:]) {
         self.schema = schema
         self.revision = revision
         self.videos = videos
         self.playlist = playlist
         self.displays = displays
         self.stillDelay = LibraryState.clampedStillDelay(stillDelay)
+        self.masterVolume = min(max(masterVolume, 0), 1)
+        self.muted = muted
+        self.presets = presets
     }
 
-    public static let defaultSceneFPS = 30
-    public static func clampedSceneFPS(_ fps: Int) -> Int { min(max(fps, 10), 120) }
     public static func clampedInterval(_ value: Int) -> Int { min(max(value, 1), 999) }
 
     /// The choices for `stillDelay`. The wait exists because a slider in Settings sends a change for every step, and
@@ -223,12 +223,17 @@ public struct LibraryState: Codable, Equatable, Sendable {
     // MARK: Codable with migration
     // Schema 1 and 2 files hold one wallpaper with its settings for the whole desktop. Reading one gives that
     // wallpaper and its settings to every display connected at the time; the next commit writes them per display.
+    // Files before schema 4 muted sound by default (the desktop's or each display's `muted`), from before wallpapers
+    // had working sound with a volume of their own; reading one leaves the sound on. From schema 4 on, `muted` is the
+    // whole app's mute.
+    // Files before schema 5 also had a frame rate per display for the wallpapers without their own, and a cap; reading
+    // one gives every wallpaper of the library the frame rate it ran at (see `LegacyFrameRate`).
     // Files written by older versions may also hold `sameForBoth` and a `lock` section; both are ignored.
 
     private enum CodingKeys: String, CodingKey {
-        case schema, revision, videos, playlist, displays, stillDelay
+        case schema, revision, videos, playlist, displays, stillDelay, masterVolume, presets
         // schema 2
-        case desktop, muted, sceneFPS, sceneOptions, power
+        case desktop, muted, sceneOptions, power
         // schema 1
         case selectedID, rotateEnabled, intervalValue, intervalUnit, applyToDesktop
     }
@@ -240,13 +245,24 @@ public struct LibraryState: Codable, Equatable, Sendable {
         videos = try c.decodeIfPresent([VideoItem].self, forKey: .videos) ?? []
         stillDelay = LibraryState.clampedStillDelay(
             try c.decodeIfPresent(Double.self, forKey: .stillDelay) ?? Self.defaultStillDelay)
+        masterVolume = min(max(try c.decodeIfPresent(Double.self, forKey: .masterVolume) ?? 1, 0), 1)
+        presets = try c.decodeIfPresent([String: [WallpaperPreset]].self, forKey: .presets) ?? [:]
+        let fileSchema = try c.decodeIfPresent(Int.self, forKey: .schema) ?? 1
+        muted = fileSchema >= 4 ? try c.decodeIfPresent(Bool.self, forKey: .muted) ?? false : false
+        var rates: [String: LegacyFrameRate] = [:]
         if c.contains(.displays) {
             playlist = try c.decodeIfPresent([UUID].self, forKey: .playlist)
             displays = try c.decode([String: DisplayConfig].self, forKey: .displays)
+            if fileSchema < 5 { rates = try c.decode([String: LegacyFrameRate].self, forKey: .displays) }
         } else {
             let legacy = try Self.legacyDesktop(c)
             playlist = legacy.playlist
             displays = Self.everyDisplay(legacy.config)
+            let rate = try LegacyFrameRate(from: decoder)
+            rates = displays.mapValues { _ in rate }
+        }
+        for (id, rate) in rates {
+            displays[id].map { config in displays[id] = rate.applied(to: config, videos: videos) }
         }
     }
 
@@ -258,6 +274,9 @@ public struct LibraryState: Codable, Equatable, Sendable {
         try c.encodeIfPresent(playlist, forKey: .playlist)
         try c.encode(displays, forKey: .displays)
         try c.encode(stillDelay, forKey: .stillDelay)
+        try c.encode(masterVolume, forKey: .masterVolume)
+        try c.encode(muted, forKey: .muted)
+        try c.encode(presets, forKey: .presets)
     }
 
     /// `config` for every display connected now (DisplayIdentity.active).
@@ -282,14 +301,40 @@ public struct LibraryState: Codable, Equatable, Sendable {
         }
         let config = DisplayConfig(
             wallpaperID: desktop.enabled ? desktop.selectedID : nil,
-            muted: try c.decodeIfPresent(Bool.self, forKey: .muted) ?? true,
             rotateEnabled: desktop.rotateEnabled,
             intervalValue: desktop.intervalValue,
             intervalUnit: desktop.intervalUnit,
-            sceneFPS: try c.decodeIfPresent(Int.self, forKey: .sceneFPS) ?? Self.defaultSceneFPS,
             power: try c.decodeIfPresent(PowerOptions.self, forKey: .power) ?? PowerOptions(),
-            sceneOptions: try c.decodeIfPresent([String: SceneOptions].self, forKey: .sceneOptions) ?? [:])
+            wallpaperOptions: try c.decodeIfPresent([String: WallpaperOptions].self, forKey: .sceneOptions) ?? [:])
         return (desktop.playlist, config)
+    }
+
+    /// The frame rates a display of a file before schema 5 gave its wallpapers: the display's own (`sceneFPS`) for the
+    /// wallpapers without one, all of them capped by `power.frameRateCap`. Schema 1 and 2 files hold the same keys at
+    /// the top level.
+    private struct LegacyFrameRate: Decodable {
+        var sceneFPS: Int?
+        var power: Power?
+        var sceneOptions: [String: Rate]?
+
+        struct Power: Decodable { var frameRateCap: Int? }
+        struct Rate: Decodable { var fps: Int? }
+
+        /// `config` with every wallpaper of `videos` set to the frame rate it ran at, where that is not what decoding
+        /// gave it.
+        func applied(to config: DisplayConfig, videos: [VideoItem]) -> DisplayConfig {
+            var config = config
+            let cap = power?.frameRateCap.map { max($0, 1) } ?? .max
+            for item in videos {
+                let key = item.id.uuidString
+                let rate = min(sceneOptions?[key]?.fps ?? sceneFPS ?? WallpaperOptions.defaultFPS, cap)
+                var options = config.options(for: item.id)
+                guard WallpaperOptions.clampedFPS(rate) != options.fps else { continue }
+                options.fps = WallpaperOptions.clampedFPS(rate)
+                config.wallpaperOptions[key] = options
+            }
+            return config
+        }
     }
 
     private struct LegacyDesktop: Decodable {
@@ -350,18 +395,19 @@ public struct LibraryState: Codable, Equatable, Sendable {
         displays[display, default: DisplayConfig()].wallpaperID = id
     }
 
-    /// Takes the items out of the library, the playlist and every display (with their scene settings).
+    /// Takes the items out of the library, the playlist and every display (with their wallpaper options and presets).
     public mutating func remove(_ ids: Set<UUID>) {
+        for item in videos where ids.contains(item.id) { presets[item.presetKey] = nil }
         videos.removeAll { ids.contains($0.id) }
         playlist = playlist?.filter { !ids.contains($0) }
         for key in displays.keys {
             if let wallpaper = displays[key]?.wallpaperID, ids.contains(wallpaper) { displays[key]?.wallpaperID = nil }
-            for id in ids { displays[key]?.sceneOptions[id.uuidString] = nil }
+            for id in ids { displays[key]?.wallpaperOptions[id.uuidString] = nil }
         }
     }
 
     /// Puts `item` in place of the library item `id` (a Workshop item downloaded again gets a new id): the
-    /// playlist and every display that used the old one use the new one, with the same scene settings.
+    /// playlist and every display that used the old one use the new one, with the same wallpaper options.
     public mutating func replace(_ id: UUID, with item: VideoItem) {
         guard let index = videos.firstIndex(where: { $0.id == id }) else { return }
         videos[index] = item
@@ -369,8 +415,8 @@ public struct LibraryState: Codable, Equatable, Sendable {
         playlist = playlist?.map { $0 == id ? item.id : $0 }
         for key in displays.keys {
             if displays[key]?.wallpaperID == id { displays[key]?.wallpaperID = item.id }
-            if let options = displays[key]?.sceneOptions.removeValue(forKey: id.uuidString) {
-                displays[key]?.sceneOptions[item.id.uuidString] = options
+            if let options = displays[key]?.wallpaperOptions.removeValue(forKey: id.uuidString) {
+                displays[key]?.wallpaperOptions[item.id.uuidString] = options
             }
         }
     }
@@ -448,28 +494,25 @@ public enum StateStore {
         return object["schema"] as? Int ?? 1
     }
 
-    /// Writes state.json atomically and bumps `state.revision` past anything already on disk. A display's `muted`
-    /// is not changed by a commit: the value on disk wins (it is changed only by `setMuted`, which the service's
-    /// menu also uses). Returns false if the file could not be written.
+    /// Writes state.json atomically and bumps `state.revision` past anything already on disk. The app's `muted` is
+    /// not changed by a commit: the value on disk wins (it is changed only by `setMuted`, which the service's menu
+    /// also uses). Returns false if the file could not be written.
     @discardableResult
     public static func commit(_ state: inout LibraryState) -> Bool {
         let onDisk = load()
-        for (id, config) in onDisk?.displays ?? [:] where state.displays[id] != nil {
-            state.displays[id]?.muted = config.muted
-        }
+        if let onDisk { state.muted = onDisk.muted }
         state.revision = max(state.revision, onDisk?.revision ?? 0) + 1
         state.schema = LibraryState.currentSchema
         return write(state)
     }
 
-    /// The only write besides `commit`: mutes or unmutes `display`, or every display that has settings when it is
-    /// nil (read, change, write, revision + 1). Returns the written state, nil on failure.
+    /// The only write besides `commit`: mutes or unmutes every wallpaper (read, change, write, revision + 1). Returns
+    /// the written state, nil on failure.
     @discardableResult
-    public static func setMuted(_ muted: Bool, display: String?) -> LibraryState? {
+    public static func setMuted(_ muted: Bool) -> LibraryState? {
         var state = load() ?? LibraryState()
-        let ids = display.map { [$0] } ?? Array(state.displays.keys)
-        guard ids.contains(where: { state.config(for: $0).muted != muted }) || diskSchema() == nil else { return state }
-        for id in ids { state.displays[id, default: DisplayConfig()].muted = muted }
+        guard state.muted != muted || diskSchema() == nil else { return state }
+        state.muted = muted
         state.revision += 1
         return write(state) ? state : nil
     }

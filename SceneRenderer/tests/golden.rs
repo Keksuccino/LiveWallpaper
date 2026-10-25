@@ -54,7 +54,7 @@ fn local_scenes(library: &Path) -> Vec<(String, PathBuf)> {
 
 /// Renders one frame as RGBA8 (the API returns BGRA8).
 fn render_rgba(path: &Path) -> Result<(Vec<u8>, Vec<String>), String> {
-    let r = scene_renderer::Renderer::new(path.to_string_lossy().into_owned())
+    let r = scene_renderer::Renderer::new(path.to_string_lossy().into_owned(), None)
         .map_err(|e| format!("load: {e}"))?;
     r.set_frame_size(WIDTH, HEIGHT);
     let mut px = r.render_frame(TIME).map_err(|e| format!("render: {e}"))?;

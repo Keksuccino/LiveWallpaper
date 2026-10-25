@@ -16,14 +16,17 @@
 
 ## Features
 
-- **Video wallpapers**: drop in MP4, MOV or M4V files; they play muted (or with sound) and loop.
-- **Wallpaper Engine scenes on a Mac**: a from-scratch renderer for `.pkg` scene packages: layers, effects, bloom, particles, puppet animation, text, parallax, SceneScript (QuickJS) and audio-reactive properties.
+- **Video wallpapers**: drop in MP4, MOV or M4V files; they loop, with their sound if you like.
+- **Wallpaper Engine scenes on a Mac**: a from-scratch renderer for `.pkg` scene packages: layers, effects, bloom, particles, puppet animation, text, parallax, sound, SceneScript (QuickJS) and audio-reactive properties.
+- **Wallpaper Engine's wallpaper settings**: every wallpaper gets the options Wallpaper Engine shows for it — volume, playback speed, alignment (cover, fill, center, stretch, free, with position and zoom), flip, image filters, brightness/contrast/saturation/hue — plus the scene's own properties with their conditions, groups and translations, and presets you can save, load, share and apply to all wallpapers.
+- **Sound**: volume and mute per wallpaper and display, plus a master volume and a global mute (in Settings and the menu bar), all kept across restarts.
 - **Steam Workshop browser**: browse Trending wallpapers, search, or paste a Workshop link; download with Valve's official SteamCMD and your own account.
 - **Every display its own**: each display gets its own wallpaper and settings, picked on a map of your display arrangement. Works with and without separate Spaces per display.
 - **Lock screen and menu bar to match**: each display's system wallpaper becomes a still of the live wallpaper, framed the same way, so the lock screen, the menu bar background and Mission Control show it too.
 - **Rotation**: cycle a display through your playlist every N seconds (minimum 5).
-- **Battery-friendly**: frame-rate cap, render scale, "pause on battery", "skip repeated frames", "update only when the scene changes", pause while the screen is locked or the desktop is covered.
+- **Battery-friendly**: a frame rate and render scale per wallpaper, "pause on battery", "skip repeated frames", "update only when the scene changes", pause while the screen is locked or the desktop is covered.
 - **Menu bar control**: pause, next wallpaper, mute and quit from a background service that keeps running after Settings closes.
+- **In your language**: English, German, French, Spanish (Spain and Mexico), Brazilian Portuguese, Polish, Russian, Ukrainian, Turkish, Greek, Japanese, Korean and Simplified Chinese.
 - **Native and small**: SwiftUI settings app plus an AppKit background service. No Electron, no web view, no Homebrew libraries.
 
 ## Screenshots
@@ -57,7 +60,7 @@ Swift service ──commands──▶ channel ──▶ render thread
 - **No queue lag.** If two frames are still waiting to be presented, the next tick is skipped so the queue drains and the picture never trails the pointer.
 - **One command buffer for all displays.** Every screen is encoded into one buffer per frame, with transient targets pooled and reused inside the frame.
 - **Parallax with the scene's own delay.** The pointer is eased toward its position using the scene's configured delay rather than jumping.
-- **Power rules in the service.** The effective frame rate is the smallest of the scene setting, the frame-rate cap and the battery FPS; render scale and pause-on-battery apply the same way. Only changed values reach the renderer. While the screen is locked, nothing is drawn and sounds stop.
+- **Power rules in the service.** The effective frame rate is the wallpaper's own, or the battery FPS when that is lower and applies; render scale and pause-on-battery apply the same way. Only changed values reach the renderer. While the screen is locked, nothing is drawn and sounds stop.
 - **Stills for the system wallpaper.** A second, off-screen renderer draws one frame of the scene at each display's size, framed like the live one, and the service sets it as that display's system wallpaper. It is drawn again only when the wallpaper, a display or the framing changes.
 
 ### Shader pipeline: GLSL 1.20 to Metal
@@ -97,6 +100,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the process, IPC and bridge diagram.
 - **Home** shows your displays as they are arranged in System Settings. Click a display to choose it (the leftmost one is chosen at first), then click a wallpaper in your library to put it on that display. The inspector on the right holds that display's settings.
 - **Remove Wallpaper** takes a display's live wallpaper away and gives the display the macOS default wallpaper back. **Use on All Displays** in a wallpaper's menu puts it on every display.
 - Rotation cycles a display through the playlist (Playlists page) in list order. Turn it on per display in the inspector and set how often it switches (minimum 5 seconds). Rotation needs at least two wallpapers in the playlist.
+- A wallpaper's settings (inspector → Wallpaper) work like Wallpaper Engine's: the options shown depend on the wallpaper, and they are kept per wallpaper and display. **Master volume** (Settings ⌘, → General) scales every wallpaper's sound.
 - **Update delay** (Settings ⌘, → General) sets how long the app waits before the picture on your lock screen and behind the menu bar follows a wallpaper change (2 seconds by default).
 - The **Steam** tab in Settings sets up Workshop downloads.
 - The service's menu bar item offers Open Settings, Pause/Resume, Next Wallpaper, Mute Sound (every display) and Quit Live Wallpaper.
@@ -144,7 +148,7 @@ Two processes: the SwiftUI **LiveWallpaper** (Settings) app, which plays nothing
 
 **Do I need Wallpaper Engine or Steam?** Local videos need neither. Workshop downloads use Valve's SteamCMD with your own Steam account, and the Steam tab in Settings walks you through it.
 
-**Does it drain the battery?** Videos use `AVPlayer`. Scenes only render while something changes, and you can cap FPS, lower render scale or pause on battery.
+**Does it drain the battery?** Videos use `AVPlayer`. Scenes only render while something changes, and you can lower the frame rate or render scale, or pause on battery.
 
 **Can I use a live wallpaper on the lock screen?** The lock screen shows a still of it. macOS draws the lock screen from the system wallpaper, which the app sets to a still of the live wallpaper on every display.
 

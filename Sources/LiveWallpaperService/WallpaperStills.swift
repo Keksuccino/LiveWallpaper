@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 import CryptoKit
 import ImageIO
 import UniformTypeIdentifiers
@@ -14,7 +15,7 @@ import SceneBridge
 
 @MainActor final class WallpaperStills {
     /// Bump when the still of an unchanged wallpaper would come out differently; every display gets a new one.
-    private static let revision = 1
+    private static let revision = 2
     nonisolated private static let directory = AppPaths.wallpaperStillsDirectory
     /// The picture macOS itself starts with (a link to the still of its current default wallpaper).
     private static let defaultWallpaper = URL(fileURLWithPath: "/System/Library/CoreServices/DefaultDesktop.heic")
@@ -42,8 +43,8 @@ import SceneBridge
     private var work: Task<Void, Never>?
     private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
 
-    /// `display` now shows `item`; `options` are its scene options there (nil for a video).
-    func show(_ item: VideoItem, options: SceneOptions?, on display: String) {
+    /// `display` now shows `item` with these wallpaper options.
+    func show(_ item: VideoItem, options: WallpaperOptions, on display: String) {
         let look = Look(item: item, options: options)
         guard look != looks[display] else { return }
         looks[display] = look
@@ -193,29 +194,33 @@ import SceneBridge
     /// Writes the still of every target, all of the same look: one renderer or video frame serves all of them.
     nonisolated private static func make(_ jobs: [Target], of look: Look) async throws {
         try AppPaths.ensureDirectory(directory)
-        if let scene = look.scene {
-            try renderScene(scene, path: look.path, into: jobs)
+        if look.isScene {
+            try renderScene(look.options, path: look.path, into: jobs)
         } else {
             guard let frame = await VideoStills.cgImage(for: URL(fileURLWithPath: look.path), maxPixelSize: nil) else {
                 throw StillError.noFrame
             }
+            let grader = VideoGrader()
+            let graded = grader.update(look.options) ? try gradedImage(frame, with: grader) : frame
             for job in jobs {
                 try Task.checkCancellation()
-                try write(fill(frame, into: job), to: job.url)
+                try write(place(graded, look.options, into: job), to: job.url)
             }
         }
     }
 
     /// A scene is drawn by a renderer of its own, with the live one's framing and properties.
-    nonisolated private static func renderScene(_ scene: SceneLook, path: String, into jobs: [Target]) throws {
-        let renderer = try Renderer(pkgPath: path)
+    nonisolated private static func renderScene(_ options: WallpaperOptions, path: String, into jobs: [Target]) throws {
+        // No script storage: a still must not write what the live scene keeps.
+        let renderer = try Renderer(pkgPath: path, storagePath: nil)
         defer { renderer.stop() }
         renderer.setMuted(muted: true)
         // A clock or date the scene computes would stay frozen in the still.
         renderer.setHideScriptedText(hide: true)
-        renderer.setFitMode(mode: scene.fitMode.renderer)
-        renderer.setPanZoom(of: scene.options)
-        for (name, value) in scene.properties.sorted(by: { $0.key < $1.key }) {
+        renderer.setFraming(framing: options.framing)
+        renderer.setColorGrade(grade: options.colorGrade)
+        renderer.applyAntialiasing(samples: options.antialiasing ? 4 : 1)
+        for (name, value) in options.properties.sorted(by: { $0.key < $1.key }) {
             renderer.applyProperty(name: name, valueJson: value.json)
         }
         // Particles and scripts need a second to settle; the warm-up frames are tiny.
@@ -245,20 +250,53 @@ import SceneBridge
         return image
     }
 
-    /// The video frame scaled to fill the display and centred, like the player's aspect-fill layer.
-    nonisolated private static func fill(_ frame: CGImage, into job: Target) throws -> CGImage {
+    /// The video frame through the colour options and image filter, like the player's video composition.
+    nonisolated private static func gradedImage(_ frame: CGImage, with grader: VideoGrader) throws -> CGImage {
+        let image = grader.apply(CIImage(cgImage: frame))
+        guard let graded = VideoGrader.context.createCGImage(image, from: image.extent) else { throw StillError.encode }
+        return graded
+    }
+
+    /// The video frame placed on the display like the player places it (VideoPlacement), with the blurred copy
+    /// behind it where the alignment leaves bars.
+    nonisolated private static func place(_ frame: CGImage, _ options: WallpaperOptions, into job: Target) throws -> CGImage {
         guard let context = CGContext(data: nil, width: job.width, height: job.height, bitsPerComponent: 8,
                                       bytesPerRow: 0, space: job.colorSpace,
                                       bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
         else { throw StillError.encode }
-        let scale = max(Double(job.width) / Double(frame.width), Double(job.height) / Double(frame.height))
-        let size = CGSize(width: Double(frame.width) * scale, height: Double(frame.height) * scale)
+        let size = CGSize(width: job.width, height: job.height)
+        context.setFillColor(CGColor(gray: 0, alpha: 1))
+        context.fill(CGRect(origin: .zero, size: size))
         context.interpolationQuality = .high
-        context.draw(frame, in: CGRect(x: (Double(job.width) - size.width) / 2,
-                                       y: (Double(job.height) - size.height) / 2,
-                                       width: size.width, height: size.height))
+        let content = CGSize(width: frame.width, height: frame.height)
+        let cover = WallpaperOptions(alignment: .cover)
+        guard let placement = VideoPlacement(options, content: content, target: size)
+                ?? VideoPlacement(cover, content: content, target: size) else { throw StillError.encode }
+        if placement.blurredBars, let backdrop = blurred(frame) {
+            let covered = VideoPlacement(cover, content: content, target: size)?.frame ?? CGRect(origin: .zero, size: size)
+            draw(backdrop, in: covered, flipped: placement.flipped, on: context, height: size.height)
+        }
+        draw(frame, in: placement.frame, flipped: placement.flipped, on: context, height: size.height)
         guard let image = context.makeImage() else { throw StillError.encode }
         return image
+    }
+
+    /// Draws `image` into `frame` (origin at the top-left, as VideoPlacement counts), mirrored when `flipped`.
+    nonisolated private static func draw(_ image: CGImage, in frame: CGRect, flipped: Bool, on context: CGContext,
+                                         height: CGFloat) {
+        context.saveGState()
+        context.translateBy(x: frame.midX, y: height - frame.midY)
+        context.scaleBy(x: flipped ? -1 : 1, y: 1)
+        context.draw(image, in: CGRect(x: -frame.width / 2, y: -frame.height / 2, width: frame.width, height: frame.height))
+        context.restoreGState()
+    }
+
+    /// A strongly blurred copy of `image`, for the bars.
+    nonisolated private static func blurred(_ image: CGImage) -> CGImage? {
+        let source = CIImage(cgImage: image)
+        let blurred = source.clampedToExtent().applyingGaussianBlur(sigma: Double(max(image.width, image.height)) / 60)
+            .cropped(to: source.extent)
+        return VideoGrader.context.createCGImage(blurred, from: source.extent)
     }
 
     /// Written under a temporary name first, so a half-written file is never taken for a finished still.
@@ -281,38 +319,27 @@ import SceneBridge
 
     // MARK: What a still shows
 
-    /// Everything that decides a still apart from the display: the item, its content and, for a scene, its framing
-    /// and properties (frame rate, sound and render scale do not change the picture).
+    /// Everything that decides a still apart from the display: the item, its content and the options that change
+    /// its picture (sound, speed, frame rate, render scale and the pointer's parallax do not).
     private struct Look: Codable, Equatable, Sendable {
         var itemID: UUID
         var path: String
         var stamp: String
-        var scene: SceneLook?
+        var isScene: Bool
+        var options: WallpaperOptions
 
-        init(item: VideoItem, options: SceneOptions?) {
+        init(item: VideoItem, options: WallpaperOptions) {
             itemID = item.id
             path = item.path
             stamp = item.contentStamp
-            scene = item.isScene ? SceneLook(options ?? .standard) : nil
+            isScene = item.isScene
+            var picture = options
+            (picture.volume, picture.muted, picture.rate, picture.fps, picture.renderScale) =
+                (1, false, 1, WallpaperOptions.defaultFPS, 1)
+            (picture.audioResponse, picture.mouseParallax) = (false, true)
+            if !item.isScene { (picture.antialiasing, picture.properties) = (false, [:]) }
+            self.options = picture
         }
-    }
-
-    private struct SceneLook: Codable, Equatable, Sendable {
-        var fitMode: SceneFitMode
-        var panX: Double
-        var panY: Double
-        var zoom: Double
-        var properties: [String: ScenePropertyValue]
-
-        init(_ options: SceneOptions) {
-            fitMode = options.fitMode
-            panX = options.panX
-            panY = options.panY
-            zoom = options.zoom
-            properties = options.properties
-        }
-
-        var options: SceneOptions { SceneOptions(zoom: zoom, fitMode: fitMode, panX: panX, panY: panY) }
     }
 
     /// The still one display needs. Displays of the same look, size and colour space share one file.
@@ -335,7 +362,7 @@ import SceneBridge
             // space, like the player's layer does, when that is an RGB space a bitmap context can draw into.
             let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
             let display = screen.colorSpace?.cgColorSpace
-            colorSpace = look.scene == nil && display?.model == .rgb ? display! : sRGB
+            colorSpace = !look.isScene && display?.model == .rgb ? display! : sRGB
             let key = Key(revision: WallpaperStills.revision, look: look, width: width, height: height,
                           colorSpace: Self.identity(of: colorSpace))
             let encoder = JSONEncoder()

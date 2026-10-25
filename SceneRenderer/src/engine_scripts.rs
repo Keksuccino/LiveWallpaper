@@ -38,6 +38,13 @@ impl Engine {
             self.warnings.push(format!("{e}; scripts disabled"));
             return;
         }
+        // What the scripts stored in earlier runs; a missing or unreadable file is a first run.
+        let stored = self.script_storage.as_ref().and_then(|p| std::fs::read_to_string(p).ok());
+        if let Some(text) = stored.filter(|t| serde_json::from_str::<Map<String, Value>>(t).is_ok()) {
+            if let Err(e) = host.set_storage(&text) {
+                self.warnings.push(format!("{e}; stored script values not restored"));
+            }
+        }
         let mut all = Events::default();
         for id in 0..self.scene.scripts.len() {
             let spec = self.scene.scripts[id].clone();
@@ -67,6 +74,22 @@ impl Engine {
         }
         self.script_host = Some(host);
         self.apply_script_events(all);
+        // Scripts learn the stored property values the way they learn later changes.
+        let values: Map<String, Value> = self.props.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        self.notify_scripts(&values);
+    }
+
+    /// Hands changed user property values to the scripts (`engine.userProperties` and their
+    /// `applyUserProperties`) and applies what they change in return.
+    pub(super) fn notify_scripts(&mut self, values: &Map<String, Value>) {
+        let Some(host) = self.script_host.as_mut() else { return };
+        let events = host.user_properties(values, &self.color_properties);
+        self.warnings.extend(host.take_log());
+        match events {
+            Ok(events) if !events.is_empty() => self.apply_script_events(events),
+            Ok(_) => {}
+            Err(e) => self.warnings.push(format!("{e}; user properties not sent to scripts")),
+        }
     }
 
     /// Runs one frame of every script and applies what they changed.
@@ -87,6 +110,7 @@ impl Engine {
             cursor_down: input.pointer_down,
             left: self.audio[0].clone(),
             right: self.audio[1].clone(),
+            playing: self.sounds.playing(),
         };
         let events = match host.frame(&state) {
             Ok(e) => e,
@@ -107,8 +131,11 @@ impl Engine {
         self.script_host.as_ref().is_some_and(Host::animated)
     }
 
-    /// The scripts' view of every layer, in draw order.
+    /// The scripts' view of every layer, in draw order, followed by the sound objects.
     fn script_layers(&self) -> Value {
+        let sounds = self.sounds.script_view().into_iter().map(|(id, name, volume, playing)| {
+            json!({ "id": id, "name": name, "sound": true, "volume": volume, "playing": playing })
+        });
         let layers = self
             .scene
             .layers
@@ -130,9 +157,15 @@ impl Engine {
                     "effects": l.effects.iter().map(|e| json!({
                         "name": e.name,
                         "visible": e.visible.truthy(&self.props),
+                        "passes": e.passes.iter().map(|p| {
+                            p.material.constants.iter()
+                                .map(|(k, v)| (k.clone(), v.get(&self.props)))
+                                .collect::<Map<_, _>>()
+                        }).collect::<Vec<_>>(),
                     })).collect::<Vec<_>>(),
                 })
             })
+            .chain(sounds)
             .collect();
         Value::Array(layers)
     }
@@ -171,6 +204,9 @@ impl Engine {
     }
 
     fn apply_script_events(&mut self, events: Events) {
+        if let (Some(storage), Some(path)) = (&events.storage, &self.script_storage) {
+            self.save_script_storage(path.clone(), storage);
+        }
         let mut changes = Changes::default();
         for (id, value) in events.values {
             let Some(spec) = self.scene.scripts.get(id) else { continue };
@@ -201,6 +237,17 @@ impl Engine {
         }
     }
 
+    /// Writes the scripts' `localStorage`: to a temporary file first, so a crash never leaves half
+    /// a file behind. Scripts write rarely (a high score, a setting), so this stays off the frame's
+    /// hot path in practice.
+    fn save_script_storage(&mut self, path: std::path::PathBuf, storage: &Value) {
+        let partial = path.with_extension("partial");
+        let written = std::fs::write(&partial, storage.to_string()).and_then(|_| std::fs::rename(&partial, &path));
+        if let Err(e) = written {
+            self.warnings.push(format!("script storage {}: {e}", path.display()));
+        }
+    }
+
     /// Applies a scene setting a script wrote. Fields the renderer does not read yet are ignored.
     fn set_scene_field(&mut self, field: &str, value: Value) {
         let fixed = |value: Value| Bound { value, user: None, condition: None };
@@ -219,6 +266,10 @@ impl Engine {
     }
 
     fn set_field(&mut self, layer_id: i64, field: &str, value: Value, changes: &mut Changes) {
+        if self.sounds.has(layer_id) {
+            self.sounds.command(layer_id, field, &value);
+            return;
+        }
         let Some(index) = self.layer_index(layer_id) else { return };
         // `effect:<n>:visible` comes from an IEffect; the renderer checks it every frame.
         if let Some(rest) = field.strip_prefix("effect:") {
@@ -334,10 +385,12 @@ impl Engine {
         let ids: Vec<i64> = self.scene.layers.iter().map(|l| l.id).collect();
         for c in created {
             let path = self.resolve_asset(&c.path, &c.workshop);
+            // A registered asset is a particle system or an image model.
+            let kind = if path.starts_with("particles/") { "particle" } else { "image" };
             let obj = json!({
                 "id": c.id,
                 "name": c.path,
-                "image": path,
+                kind: path,
                 "origin": "0 0 0",
                 "scale": "1 1 1",
                 "visible": true,

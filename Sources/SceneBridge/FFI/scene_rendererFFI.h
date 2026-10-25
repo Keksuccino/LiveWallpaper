@@ -263,7 +263,7 @@ void uniffi_scene_renderer_fn_free_renderer(void*_Nonnull ptr, RustCallStatus *_
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_CONSTRUCTOR_RENDERER_NEW
 #define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_CONSTRUCTOR_RENDERER_NEW
-void*_Nonnull uniffi_scene_renderer_fn_constructor_renderer_new(RustBuffer pkg_path, RustCallStatus *_Nonnull out_status
+void*_Nonnull uniffi_scene_renderer_fn_constructor_renderer_new(RustBuffer pkg_path, RustBuffer storage_path, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_APPLY_ANTIALIASING
@@ -321,9 +321,9 @@ void uniffi_scene_renderer_fn_method_renderer_set_audio_response(void*_Nonnull p
 void uniffi_scene_renderer_fn_method_renderer_set_audio_spectrum(void*_Nonnull ptr, RustBuffer left, RustBuffer right, RustCallStatus *_Nonnull out_status
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_FIT_MODE
-#define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_FIT_MODE
-void uniffi_scene_renderer_fn_method_renderer_set_fit_mode(void*_Nonnull ptr, RustBuffer mode, RustCallStatus *_Nonnull out_status
+#ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_COLOR_GRADE
+#define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_COLOR_GRADE
+void uniffi_scene_renderer_fn_method_renderer_set_color_grade(void*_Nonnull ptr, RustBuffer grade, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_FPS_CAP
@@ -336,6 +336,11 @@ void uniffi_scene_renderer_fn_method_renderer_set_fps_cap(void*_Nonnull ptr, flo
 void uniffi_scene_renderer_fn_method_renderer_set_frame_size(void*_Nonnull ptr, uint32_t width, uint32_t height, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_FRAMING
+#define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_FRAMING
+void uniffi_scene_renderer_fn_method_renderer_set_framing(void*_Nonnull ptr, RustBuffer framing, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_HIDE_SCRIPTED_TEXT
 #define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_HIDE_SCRIPTED_TEXT
 void uniffi_scene_renderer_fn_method_renderer_set_hide_scripted_text(void*_Nonnull ptr, int8_t hide, RustCallStatus *_Nonnull out_status
@@ -346,9 +351,9 @@ void uniffi_scene_renderer_fn_method_renderer_set_hide_scripted_text(void*_Nonnu
 void uniffi_scene_renderer_fn_method_renderer_set_muted(void*_Nonnull ptr, int8_t muted, RustCallStatus *_Nonnull out_status
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_PAN_ZOOM
-#define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_PAN_ZOOM
-void uniffi_scene_renderer_fn_method_renderer_set_pan_zoom(void*_Nonnull ptr, float pan_x, float pan_y, float zoom, RustCallStatus *_Nonnull out_status
+#ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_PARALLAX_ENABLED
+#define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_PARALLAX_ENABLED
+void uniffi_scene_renderer_fn_method_renderer_set_parallax_enabled(void*_Nonnull ptr, int8_t enabled, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_POINTER
@@ -359,6 +364,11 @@ void uniffi_scene_renderer_fn_method_renderer_set_pointer(void*_Nonnull ptr, flo
 #ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_POINTER_DOWN
 #define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_POINTER_DOWN
 void uniffi_scene_renderer_fn_method_renderer_set_pointer_down(void*_Nonnull ptr, int8_t down, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_RATE
+#define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_RATE
+void uniffi_scene_renderer_fn_method_renderer_set_rate(void*_Nonnull ptr, float rate, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_SET_RENDER_SCALE
@@ -384,6 +394,16 @@ RustBuffer uniffi_scene_renderer_fn_method_renderer_stats(void*_Nonnull ptr, Rus
 #ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_STOP
 #define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_METHOD_RENDERER_STOP
 void uniffi_scene_renderer_fn_method_renderer_stop(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_FUNC_FRAMING_VIEW
+#define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_FUNC_FRAMING_VIEW
+RustBuffer uniffi_scene_renderer_fn_func_framing_view(RustBuffer framing, float design_width, float design_height, float target_width, float target_height, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_FUNC_LOOKUP_TABLE
+#define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_FN_FUNC_LOOKUP_TABLE
+RustBuffer uniffi_scene_renderer_fn_func_lookup_table(RustBuffer assets, RustBuffer name, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_FFI_SCENE_RENDERER_RUSTBUFFER_ALLOC
@@ -666,6 +686,18 @@ void ffi_scene_renderer_rust_future_free_void(uint64_t handle
 void ffi_scene_renderer_rust_future_complete_void(uint64_t handle, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_FUNC_FRAMING_VIEW
+#define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_FUNC_FRAMING_VIEW
+uint16_t uniffi_scene_renderer_checksum_func_framing_view(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_FUNC_LOOKUP_TABLE
+#define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_FUNC_LOOKUP_TABLE
+uint16_t uniffi_scene_renderer_checksum_func_lookup_table(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_APPLY_ANTIALIASING
 #define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_APPLY_ANTIALIASING
 uint16_t uniffi_scene_renderer_checksum_method_renderer_apply_antialiasing(void
@@ -732,9 +764,9 @@ uint16_t uniffi_scene_renderer_checksum_method_renderer_set_audio_spectrum(void
     
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_FIT_MODE
-#define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_FIT_MODE
-uint16_t uniffi_scene_renderer_checksum_method_renderer_set_fit_mode(void
+#ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_COLOR_GRADE
+#define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_COLOR_GRADE
+uint16_t uniffi_scene_renderer_checksum_method_renderer_set_color_grade(void
     
 );
 #endif
@@ -750,6 +782,12 @@ uint16_t uniffi_scene_renderer_checksum_method_renderer_set_frame_size(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_FRAMING
+#define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_FRAMING
+uint16_t uniffi_scene_renderer_checksum_method_renderer_set_framing(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_HIDE_SCRIPTED_TEXT
 #define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_HIDE_SCRIPTED_TEXT
 uint16_t uniffi_scene_renderer_checksum_method_renderer_set_hide_scripted_text(void
@@ -762,9 +800,9 @@ uint16_t uniffi_scene_renderer_checksum_method_renderer_set_muted(void
     
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_PAN_ZOOM
-#define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_PAN_ZOOM
-uint16_t uniffi_scene_renderer_checksum_method_renderer_set_pan_zoom(void
+#ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_PARALLAX_ENABLED
+#define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_PARALLAX_ENABLED
+uint16_t uniffi_scene_renderer_checksum_method_renderer_set_parallax_enabled(void
     
 );
 #endif
@@ -777,6 +815,12 @@ uint16_t uniffi_scene_renderer_checksum_method_renderer_set_pointer(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_POINTER_DOWN
 #define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_POINTER_DOWN
 uint16_t uniffi_scene_renderer_checksum_method_renderer_set_pointer_down(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_RATE
+#define UNIFFI_FFIDEF_UNIFFI_SCENE_RENDERER_CHECKSUM_METHOD_RENDERER_SET_RATE
+uint16_t uniffi_scene_renderer_checksum_method_renderer_set_rate(void
     
 );
 #endif

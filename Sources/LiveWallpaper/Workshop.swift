@@ -19,6 +19,17 @@ import AVFoundation
 struct WorkshopItem: Identifiable, Hashable {
     enum Kind: String {
         case video, scene, web, application, unknown
+
+        /// The chip that names the kind; nil when it is unknown.
+        var label: String? {
+            switch self {
+            case .video: return String(localized: "Video")
+            case .scene: return String(localized: "Scene")
+            case .web: return String(localized: "Web")
+            case .application: return String(localized: "Application")
+            case .unknown: return nil
+            }
+        }
     }
 
     let id: String                 // publishedfileid, digits only
@@ -72,75 +83,79 @@ enum WorkshopError: Error, Equatable {
 
     var title: String {
         switch self {
-        case .invalidInput: return "That isn’t a Workshop link"
-        case .network: return "Couldn’t reach Steam"
-        case .rateLimited: return "Steam asked us to slow down"
-        case .itemNotFound: return "Item not found"
-        case .itemUnavailable: return "This item isn’t available"
-        case .notWallpaperEngineItem: return "Not a Wallpaper Engine item"
-        case .unsupportedType: return "Not a supported wallpaper"
-        case .unsupportedFormat: return "Video format not supported"
-        case .unsupportedCodec: return "This video can’t be played"
-        case .steamcmdMissing: return "SteamCMD isn’t installed"
-        case .rosettaMissing: return "Rosetta is needed"
-        case .usernameMissing: return "Enter your Steam username"
-        case .needsLogin: return "Steam login needed"
-        case .notOwned: return "Steam refused the download"
-        case .steamcmdFailed: return "Download failed"
-        case .timedOut: return "Steam took too long"
-        case .contentMissing: return "The download finished without a wallpaper"
-        case .importFailed: return "Couldn’t add the wallpaper"
-        case .apiKeyRejected: return "Steam rejected the API key"
-        case .cancelled: return "Cancelled"
+        case .invalidInput: return String(localized: "That isn’t a Workshop link")
+        case .network: return String(localized: "Couldn’t reach Steam")
+        case .rateLimited: return String(localized: "Steam asked us to slow down")
+        case .itemNotFound: return String(localized: "Item not found")
+        case .itemUnavailable: return String(localized: "This item isn’t available")
+        case .notWallpaperEngineItem: return String(localized: "Not a Wallpaper Engine item")
+        case .unsupportedType: return String(localized: "Not a supported wallpaper")
+        case .unsupportedFormat: return String(localized: "Video format not supported")
+        case .unsupportedCodec: return String(localized: "This video can’t be played")
+        case .steamcmdMissing: return String(localized: "SteamCMD isn’t installed")
+        case .rosettaMissing: return String(localized: "Rosetta is needed")
+        case .usernameMissing: return String(localized: "Enter your Steam username")
+        case .needsLogin: return String(localized: "Steam login needed")
+        case .notOwned: return String(localized: "Steam refused the download")
+        case .steamcmdFailed: return String(localized: "Download failed")
+        case .timedOut: return String(localized: "Steam took too long")
+        case .contentMissing: return String(localized: "The download finished without a wallpaper")
+        case .importFailed: return String(localized: "Couldn’t add the wallpaper")
+        case .apiKeyRejected: return String(localized: "Steam rejected the API key")
+        case .cancelled: return String(localized: "Cancelled")
         }
     }
 
     var message: String {
         switch self {
         case .invalidInput:
-            return "Paste a link from steamcommunity.com (…/filedetails/?id=1234567890) or just the item number."
+            return String(localized: "Paste a link from steamcommunity.com (…/filedetails/?id=1234567890) or just the item number.")
         case .network(let detail):
-            return "Check your internet connection and try again. (\(detail))"
+            return String(localized: "Check your internet connection and try again. (\(detail))")
         case .rateLimited:
-            return "Wait a minute and try again."
+            return String(localized: "Wait a minute and try again.")
         case .itemNotFound:
-            return "Steam has no public item with that number. It may have been removed or be private."
+            return String(localized: "Steam has no public item with that number. It may have been removed or be private.")
         case .itemUnavailable(let reason):
-            return reason.isEmpty ? "The creator or Steam has hidden or removed it." : "It was removed: \(reason)"
+            return reason.isEmpty ? String(localized: "The creator or Steam has hidden or removed it.")
+                                  : String(localized: "It was removed: \(reason)")
         case .notWallpaperEngineItem:
-            return "This item belongs to a different game’s Workshop. Only Wallpaper Engine wallpapers work here."
+            return String(localized: "This item belongs to a different game’s Workshop. Only Wallpaper Engine wallpapers work here.")
         case .unsupportedType(let kind):
             switch kind {
-            case .web: return "Web wallpapers need a browser-based renderer. Only video and scene wallpapers can play here."
-            case .application: return "Application wallpapers are programs, not videos. Only video and scene wallpapers can play here."
-            default: return "Only video and scene wallpapers can play here."
+            case .web:
+                return String(localized: "Web wallpapers need a browser-based renderer. Only video and scene wallpapers can play here.")
+            case .application:
+                return String(localized: "Application wallpapers are programs, not videos. Only video and scene wallpapers can play here.")
+            default: return String(localized: "Only video and scene wallpapers can play here.")
             }
         case .unsupportedFormat(let ext):
-            return "This wallpaper’s video is a .\(ext) file. Live Wallpaper plays MP4, MOV and M4V and doesn’t convert other formats."
+            return String(localized: "This wallpaper’s video is a .\(ext) file. Live Wallpaper plays MP4, MOV and M4V and doesn’t convert other formats.")
         case .unsupportedCodec:
-            return "macOS can’t decode this video (probably VP9 or AV1). Choose a wallpaper with an H.264 or HEVC video."
+            return String(localized: "macOS can’t decode this video (probably VP9 or AV1). Choose a wallpaper with an H.264 or HEVC video.")
         case .steamcmdMissing:
-            return "Open Steam Settings and choose Install Steam tools. Live Wallpaper downloads Valve’s tool for you."
+            return String(localized: "Open Steam Settings and choose Install Steam tools. Live Wallpaper downloads Valve’s tool for you.")
         case .rosettaMissing:
-            return "SteamCMD is an Intel program. On Apple silicon install Rosetta once: softwareupdate --install-rosetta --agree-to-license"
+            return String(localized: "SteamCMD is an Intel program. On Apple silicon install Rosetta once: softwareupdate --install-rosetta --agree-to-license")
         case .usernameMissing:
-            return "Open Steam Settings and sign in with the Steam account that owns Wallpaper Engine."
+            return String(localized: "Open Steam Settings and sign in with the Steam account that owns Wallpaper Engine.")
         case .needsLogin:
-            return "Open Steam Settings and sign in, so Steam’s tool can download with your account."
+            return String(localized: "Open Steam Settings and sign in, so Steam’s tool can download with your account.")
         case .notOwned:
-            return "The most common reason is that this Steam account doesn’t own Wallpaper Engine, which is a paid app. Sign in with the account that does."
+            return String(localized: "The most common reason is that this Steam account doesn’t own Wallpaper Engine, which is a paid app. Sign in with the account that does.")
         case .steamcmdFailed(let detail):
-            return detail.isEmpty ? "SteamCMD reported an error. Try again in a moment." : "SteamCMD said: \(detail)"
+            return detail.isEmpty ? String(localized: "SteamCMD reported an error. Try again in a moment.")
+                                  : String(localized: "SteamCMD said: \(detail)")
         case .timedOut:
-            return "SteamCMD stopped responding. Try again; the first run after installing can take a few minutes."
+            return String(localized: "SteamCMD stopped responding. Try again; the first run after installing can take a few minutes.")
         case .contentMissing:
-            return "SteamCMD reported success but no wallpaper file was found. Try downloading again."
+            return String(localized: "SteamCMD reported success but no wallpaper file was found. Try downloading again.")
         case .importFailed(let detail):
-            return "The file was downloaded but couldn’t be saved to your library. (\(detail))"
+            return String(localized: "The file was downloaded but couldn’t be saved to your library. (\(detail))")
         case .apiKeyRejected:
-            return "Check the key in Steam Settings, or remove it and paste a Workshop link instead."
+            return String(localized: "Check the key in Steam Settings, or remove it and paste a Workshop link instead.")
         case .cancelled:
-            return "The download was cancelled."
+            return String(localized: "The download was cancelled.")
         }
     }
 
@@ -191,15 +206,16 @@ enum WorkshopSort: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .trending: return "Trending"
-        case .newest: return "Newest"
-        case .popular: return "Most Subscribed"
+        case .trending: return String(localized: "Trending")
+        case .newest: return String(localized: "Newest")
+        case .popular: return String(localized: "Most Subscribed")
         }
     }
 }
 
-/// Curated browse topics. A topic is just Steam's ranked text search on the topic name, so it rides the
-/// existing search path (no extra endpoint, no API change). Chips are text-only on purpose.
+/// Curated browse topics. A topic is just Steam's ranked text search on the topic name (the raw value, in English like
+/// the Workshop's own tags), so it rides the existing search path (no extra endpoint, no API change). Chips are
+/// text-only on purpose.
 enum WorkshopTopic: String, CaseIterable, Identifiable {
     case anime = "Anime"
     case nature = "Nature"
@@ -215,6 +231,22 @@ enum WorkshopTopic: String, CaseIterable, Identifiable {
     case animal = "Animal"
 
     var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .anime: return String(localized: "Anime")
+        case .nature: return String(localized: "Nature")
+        case .cyberpunk: return String(localized: "Cyberpunk")
+        case .space: return String(localized: "Space")
+        case .abstract: return String(localized: "Abstract")
+        case .game: return String(localized: "Game")
+        case .music: return String(localized: "Music")
+        case .aesthetic: return String(localized: "Aesthetic")
+        case .fantasy: return String(localized: "Fantasy")
+        case .landscape: return String(localized: "Landscape")
+        case .city: return String(localized: "City")
+        case .animal: return String(localized: "Animal")
+        }
+    }
 }
 
 /// What the browse grid offers: everything, or one kind of wallpaper.
@@ -224,9 +256,9 @@ enum WorkshopKindFilter: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .all: return "All"
-        case .video: return "Videos"
-        case .scene: return "Scenes"
+        case .all: return String(localized: "All")
+        case .video: return String(localized: "Videos")
+        case .scene: return String(localized: "Scenes")
         }
     }
 
@@ -325,7 +357,7 @@ enum WorkshopListState: Equatable {
     let brewInstallCommand = "brew install --cask steamcmd"
     let rosettaInstallCommand = "softwareupdate --install-rosetta --agree-to-license"
     var loginCommand: String {
-        "steamcmd +login \(trimmedUsername.isEmpty ? "<your Steam username>" : trimmedUsername)"
+        "steamcmd +login \(trimmedUsername.isEmpty ? String(localized: "<your Steam username>") : trimmedUsername)"
     }
     var canBrowse: Bool { !trimmedKey.isEmpty }
 
@@ -534,7 +566,7 @@ enum WorkshopListState: Equatable {
                 state = .found(item)
                 self?.register([item])
             } catch {
-                state = .failed(error as? WorkshopError ?? .network("unexpected error"))
+                state = .failed(error as? WorkshopError ?? .network(String(localized: "unexpected error")))
             }
             guard let self, !Task.isCancelled else { return }
             self.lookup = state
@@ -578,7 +610,7 @@ enum WorkshopListState: Equatable {
                 self.listState = .loaded
             } catch {
                 guard let self, generation == self.searchGeneration, !Task.isCancelled else { return }
-                self.listState = .failed(error as? WorkshopError ?? .network("unexpected error"))
+                self.listState = .failed(error as? WorkshopError ?? .network(String(localized: "unexpected error")))
             }
         }
     }
@@ -912,13 +944,14 @@ extension WorkshopKit {
                 case 1: break
                 case 9: throw WorkshopError.itemNotFound
                 case 15: throw WorkshopError.itemUnavailable(banReason)
-                default: throw WorkshopError.network("Steam answered with code \(result)")
+                default: throw WorkshopError.network(String(localized: "Steam answered with code \(result)"))
                 }
                 if banned { throw WorkshopError.itemUnavailable(banReason) }
                 if visibility == 1 || visibility == 2 { throw WorkshopError.itemUnavailable("") }
                 if let app = consumerApp, String(app) != appID { throw WorkshopError.notWallpaperEngineItem }
+                let shownTitle = (title ?? "").isEmpty ? String(localized: "Workshop item \(id)") : title ?? ""
                 return WorkshopItem(
-                    id: id, title: (title ?? "").isEmpty ? "Workshop item \(id)" : title ?? "", summary: summary,
+                    id: id, title: shownTitle, summary: summary,
                     previewURL: previewURL.flatMap(URL.init(string:)), sizeBytes: size, tags: tags,
                     kind: Wire.kind(of: tags), creatorSteamID: creator,
                     updated: updated.map { Date(timeIntervalSince1970: TimeInterval($0)) },
@@ -1064,10 +1097,11 @@ extension WorkshopKit {
                 if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
                     let status = http.statusCode
                     if keyed && (status == 401 || status == 403) { throw WorkshopError.apiKeyRejected }
-                    throw status == 429 ? WorkshopError.rateLimited : WorkshopError.network("Steam answered HTTP \(status)")
+                    throw status == 429 ? WorkshopError.rateLimited
+                                        : WorkshopError.network(String(localized: "Steam answered HTTP \(status)"))
                 }
                 guard let envelope = try? JSONDecoder().decode(Wire.Envelope.self, from: data) else {
-                    throw WorkshopError.network("unexpected answer from Steam")
+                    throw WorkshopError.network(String(localized: "unexpected answer from Steam"))
                 }
                 return envelope.response
             } catch let error as URLError {
@@ -1079,10 +1113,11 @@ extension WorkshopKit {
         /// Fixed wording instead of `localizedDescription`, so a request URL (and with it the key) can never leak.
         private static func describe(_ code: URLError.Code) -> String {
             switch code {
-            case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed: return "no internet connection"
-            case .timedOut: return "the request timed out"
-            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed: return "Steam couldn’t be reached"
-            default: return "network error \(code.rawValue)"
+            case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
+                return String(localized: "no internet connection")
+            case .timedOut: return String(localized: "the request timed out")
+            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed: return String(localized: "Steam couldn’t be reached")
+            default: return String(localized: "network error \(String(code.rawValue))")   // as text: a code is never digit-grouped
             }
         }
     }
@@ -1167,7 +1202,7 @@ extension WorkshopKit {
                 let reason = String(line[line.index(after: open)..<close]).trimmingCharacters(in: .whitespaces)
                 switch reason.lowercased() {
                 case "failure", "access denied", "no subscription": return .notOwned
-                case "no connection": return .network("SteamCMD lost its connection to Steam")
+                case "no connection": return .network(String(localized: "SteamCMD lost its connection to Steam"))
                 case "timeout": return .timedOut
                 case "file not found": return .itemNotFound
                 default: return .steamcmdFailed(reason)
@@ -1435,7 +1470,7 @@ extension WorkshopKit {
     static func launchError(_ error: Error) -> WorkshopError {
         let nsError = error as NSError
         if nsError.domain == NSPOSIXErrorDomain && nsError.code == 86 { return .rosettaMissing }
-        return .steamcmdFailed("SteamCMD could not be started")
+        return .steamcmdFailed(String(localized: "SteamCMD could not be started"))
     }
 }
 

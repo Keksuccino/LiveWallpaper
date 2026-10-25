@@ -28,6 +28,9 @@ use crate::Error;
 #[path = "engine_scripts.rs"]
 mod scripts;
 
+#[path = "engine_models.rs"]
+mod models;
+
 type Mat4 = [f32; 16];
 
 const IDENTITY: Mat4 = [
@@ -131,6 +134,10 @@ enum Dyn {
     SpriteTranslation,
     /// Audio spectrum: right channel?, band count.
     Audio(bool, usize),
+    /// The 3D scene's camera and lights (see `engine_models.rs`).
+    View(models::ViewUniform),
+    /// An input of the particle shaders, set per particle draw.
+    Particle(particles::ShaderInput),
 }
 
 impl Dyn {
@@ -151,6 +158,9 @@ impl Dyn {
 }
 
 fn engine_uniform(name: &str) -> Option<Dyn> {
+    if let Some(view) = models::ViewUniform::from_name(name) {
+        return Some(Dyn::View(view));
+    }
     Some(match name {
         "g_ModelViewProjectionMatrix" | "g_EffectModelViewProjectionMatrix" => Dyn::Mvp,
         "g_ModelMatrix" | "g_EffectModelMatrix" | "g_AltModelMatrix" => Dyn::Model,
@@ -160,7 +170,7 @@ fn engine_uniform(name: &str) -> Option<Dyn> {
             Dyn::MvpInverse
         }
         "g_EffectTextureProjectionMatrixInverse" => Dyn::TexProjectionInverse,
-        "g_EffectTextureProjectionMatrix" | "g_NormalModelMatrix" => Dyn::Identity,
+        "g_EffectTextureProjectionMatrix" => Dyn::Identity,
         "g_Time" => Dyn::Time,
         "g_Frametime" => Dyn::FrameTime,
         "g_Daytime" | "g_DayTime" => Dyn::DayTime,
@@ -286,12 +296,43 @@ struct ParticleGpu {
     /// Scene layer index, so particles draw in the same order as the other objects.
     layer: usize,
     sim: particles::Simulation,
-    texture: Option<Rc<TexEntry>>,
-    blend: Blend,
+    /// Per file of the system's tree (indexed like `sim.nodes()`), one draw per renderer.
+    draws: Vec<Vec<ParticleDraw>>,
     /// The layer's transform, in design units.
     world: Mat4,
-    color: [f32; 3],
-    alpha: f32,
+    /// Field of view of the camera perspective systems are drawn through, in radians.
+    fov: f32,
+    /// This frame's vertices, kept so the next frame reuses the allocation.
+    vertices: Vec<f32>,
+}
+
+impl ParticleGpu {
+    /// Some material samples the screen (refraction).
+    fn reads_frame(&self) -> bool {
+        self.draws.iter().flatten().any(|d| d.item.reads_frame)
+    }
+}
+
+/// One renderer of a particle file: its material variant and the indices of its quads.
+struct ParticleDraw {
+    /// Index into the file's renderers.
+    renderer: usize,
+    layout: particles::Layout,
+    item: DrawItem,
+    sheet: Option<particles::SheetInfo>,
+    /// Two triangles per quad, for as many quads as the renderer can need.
+    indices: Retained<ProtocolObject<dyn MTLBuffer>>,
+}
+
+/// Where the particles of a frame are seen from.
+struct ParticleView {
+    view_projection: Mat4,
+    /// The pointer and the view's centre, in design units.
+    pointer: [f32; 2],
+    center: [f32; 2],
+    screen: [f32; 2],
+    /// The scene's camera is perspective: systems flagged perspective need no camera of their own.
+    perspective_scene: bool,
 }
 
 /// A puppet drawn as a skinned mesh.
@@ -337,21 +378,127 @@ struct DrawCtx {
     /// passes draw a buffer-filling quad, but pointer effects unproject the cursor through these.
     screen_mvp: Mat4,
     size: [f32; 2],
+    /// `g_NormalModelMatrix`: the identity for image layers.
+    normal_model: Mat4,
+    /// The scene's lights reach the draw (models); image layers keep to the ambient colours.
+    lit: bool,
 }
 
-/// How the scene is mapped onto the target.
+/// How the scene is placed on the target: Wallpaper Engine's alignment options.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
-pub enum FitMode {
-    /// Cover the target; the overflow is cropped.
+pub enum Alignment {
+    /// Covers the target; the overflow is cropped and `position` picks the part that shows.
+    Cover,
+    /// Shows the whole scene; `position` places it between the bars this leaves.
     Fill,
-    /// Show the whole scene; the rest stays empty.
-    Fit,
-    /// Stretch the scene onto the target, ignoring the aspect ratio.
+    /// One design pixel per target pixel, placed by `x` and `y`.
+    Center,
+    /// The scene is stretched onto the target, ignoring the aspect ratio.
     Stretch,
-    /// One scene pixel per target pixel.
-    Unscaled,
-    /// Show the whole scene; a blurred copy of it fills the rest.
-    MatchBlurred,
+    /// Like center, magnified by `zoom`; `x` and `y` can move the scene all the way off the target.
+    Free,
+}
+
+/// Where and how big the scene is on the target.
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
+pub struct Framing {
+    pub alignment: Alignment,
+    /// Cover and fill: the place along the axis that overflows or has bars, 0...1 (0 = left/top).
+    pub position: f32,
+    /// Center and free: horizontal and vertical placement, 0...1 (0.5 = centred).
+    pub x: f32,
+    pub y: f32,
+    /// Free: magnification, 0...2 (1 = one design pixel per target pixel).
+    pub zoom: f32,
+    /// Mirrors the picture left to right.
+    pub flip: bool,
+    /// Bars the alignment leaves are filled with a blurred copy of the picture.
+    pub blur_bars: bool,
+}
+
+impl Default for Framing {
+    fn default() -> Self {
+        Self {
+            alignment: Alignment::Cover,
+            position: 0.5,
+            x: 0.5,
+            y: 0.5,
+            zoom: 1.0,
+            flip: false,
+            blur_bars: false,
+        }
+    }
+}
+
+/// The part of a `design`-sized picture a `target`-sized view shows when placed with `framing`, in the picture's
+/// units (y down): left, right, top, bottom, with left and right swapped when the framing flips. For pictures the
+/// renderer does not draw itself (the service's videos), so they are placed exactly like scenes.
+#[uniffi::export]
+pub fn framing_view(framing: Framing, design_width: f32, design_height: f32, target_width: f32, target_height: f32) -> Vec<f32> {
+    let [l, r, t, b] = framed_view(&framing, [design_width, design_height], [target_width, target_height]);
+    if framing.flip {
+        vec![r, l, t, b]
+    } else {
+        vec![l, r, t, b]
+    }
+}
+
+/// The part of a `design`-sized scene a `target`-sized view shows, in design units (y down):
+/// left, right, top, bottom, before camera effects and mirroring. The placement rules and the
+/// free zoom curve follow Wallpaper Engine's 2D camera.
+fn framed_view(f: &Framing, design: [f32; 2], target: [f32; 2]) -> [f32; 4] {
+    let ([w, h], [tw, th]) = (design, target);
+    let (x0, y0, vw, vh) = match f.alignment {
+        Alignment::Cover | Alignment::Fill => {
+            let (sx, sy) = (tw / w, th / h);
+            let s = if f.alignment == Alignment::Cover { sx.max(sy) } else { sx.min(sy) };
+            let (vw, vh) = (tw / s, th / s);
+            // Only one axis differs from the design; on the other one the product is zero.
+            ((w - vw) * f.position, (h - vh) * f.position, vw, vh)
+        }
+        Alignment::Center => ((w - tw) * f.x, (h - th) * f.y, tw, th),
+        Alignment::Free => {
+            // At 0 or 1 the scene sits just beside the target; the view grows or shrinks around
+            // the same placement. The zoom is steep: 2 (k = -0.99) is a hundredfold.
+            let k = ((2.0 - f.zoom).powi(4) - 1.0).max(-0.99);
+            let x0 = w - f.x * (w + tw) - tw * k * f.x;
+            let y0 = h - f.y * (h + th) - th * k * f.y;
+            (x0, y0, tw * (1.0 + k), th * (1.0 + k))
+        }
+        Alignment::Stretch => (0.0, 0.0, w, h),
+    };
+    [x0, x0 + vw, y0, y0 + vh]
+}
+
+/// Wallpaper Engine's colour options and image filter, as its settings store them.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct ColorGrade {
+    /// "Show colour options": the four sliders below apply.
+    pub adjust: bool,
+    /// The sliders as fractions of their range, 0...1, 0.5 = unchanged.
+    pub brightness: f32,
+    pub contrast: f32,
+    pub saturation: f32,
+    pub hue: f32,
+    /// The image filter: a lookup table's name in `materials/lut` ("" = none), and how much of it
+    /// is mixed in, 0...1.
+    pub filter: String,
+    pub filter_strength: f32,
+}
+
+/// The colour grade the final pass applies; nothing while both parts are off.
+#[derive(Debug, Default)]
+struct Grade {
+    /// Value scale, contrast, saturation scale and hue shift (turns); `None` when off or neutral.
+    adjust: Option<[f32; 4]>,
+    /// The filter's lookup table, with its name and strength.
+    filter: Option<(String, Retained<Texture>, f32)>,
+}
+
+impl Grade {
+    fn active(&self) -> bool {
+        self.adjust.is_some() || self.filter.is_some()
+    }
 }
 
 pub struct Engine {
@@ -372,13 +519,15 @@ pub struct Engine {
     samples: usize,
     msaa: Option<Retained<Texture>>,
     white: Rc<TexEntry>,
+    /// An identity lookup table, bound while the grade has no filter (its shader always has one).
+    neutral_lut: Retained<Texture>,
     black: Rc<TexEntry>,
-    /// How the scene is mapped onto the target.
-    pub fit: FitMode,
-    /// Horizontal and vertical offset, in screen widths and heights.
-    pub pan: [f32; 2],
-    /// Magnification; 1 shows the scene at its fitted size.
-    pub zoom: f32,
+    /// How the scene is placed on the target.
+    pub framing: Framing,
+    /// Wallpaper Engine's colour options and image filter, applied by the final pass.
+    grade: Grade,
+    /// Off: the scene's camera parallax stays still (Wallpaper Engine's "mouse parallax" option).
+    pub parallax_enabled: bool,
     /// Text bitmaps, keyed by font, size and string.
     text: TextRenderer,
     /// Fonts by (name, point size).
@@ -394,6 +543,8 @@ pub struct Engine {
     particles: Vec<ParticleGpu>,
     /// Skinned meshes, one per visible puppet layer.
     puppets: Vec<PuppetGpu>,
+    /// Model layers, the camera and the lights.
+    models: models::Models,
     /// Time the puppet poses are sampled at; attached layers read it through `world`.
     pose_time: f32,
     /// Camera parallax this frame: how far a layer of depth 1 moves, in design units.
@@ -402,13 +553,24 @@ pub struct Engine {
     shake_offset: [f32; 2],
     /// The scene's SceneScript runtime; `None` when the scene has no scripts.
     script_host: Option<crate::script::Host>,
+    /// The user properties of type colour (scripts see them as vectors).
+    color_properties: Vec<String>,
+    /// The file that keeps the scripts' `localStorage` between runs.
+    script_storage: Option<std::path::PathBuf>,
     /// Latest audio spectrum, left and right, 0..1 per band.
     pub audio: [Vec<f32>; 2],
     pub sounds: crate::sound::Sounds,
 }
 
 impl Engine {
-    pub fn load(vfs: Vfs, props: HashMap<String, Value>) -> Result<Self, Error> {
+    /// `props` are the user property values to start with; `color_properties` names the colours;
+    /// `script_storage` is where scripts keep their `localStorage` (none: it lasts one run).
+    pub fn load(
+        vfs: Vfs,
+        props: HashMap<String, Value>,
+        color_properties: Vec<String>,
+        script_storage: Option<std::path::PathBuf>,
+    ) -> Result<Self, Error> {
         let gpu = Gpu::new()?;
         let mut warnings = Vec::new();
         let scene = Scene::load(&vfs, &mut warnings)?;
@@ -424,7 +586,12 @@ impl Engine {
             }))
         };
         let (white, black) = (solid([255; 4])?, solid([0, 0, 0, 255])?);
-        let sounds = crate::sound::Sounds::load(&vfs, &scene.sounds, &mut warnings);
+        // 2x2x2: every corner of the colour cube maps to itself.
+        let identity: Vec<u8> = (0..8u8)
+            .flat_map(|i| [(i & 1) * 255, ((i >> 1) & 1) * 255, ((i >> 2) & 1) * 255, 255])
+            .collect();
+        let neutral_lut = gpu.upload_volume(&identity, 2)?;
+        let sounds = crate::sound::Sounds::load(&vfs, &scene.sounds, &props, &mut warnings);
         let mut engine = Self {
             gpu,
             vfs,
@@ -442,10 +609,10 @@ impl Engine {
             msaa: None,
             white,
             black,
-            // Shows the whole scene; callers that never set a fit mode (the lock screen recorder) get this.
-            fit: FitMode::MatchBlurred,
-            pan: [0.0, 0.0],
-            zoom: 1.0,
+            framing: Framing::default(),
+            grade: Grade::default(),
+            parallax_enabled: true,
+            neutral_lut,
             text: TextRenderer::new(),
             fonts: HashMap::new(),
             text_scale: 0.0,
@@ -453,10 +620,13 @@ impl Engine {
             hide_scripted_text: false,
             particles: Vec::new(),
             puppets: Vec::new(),
+            models: models::Models::default(),
             pose_time: 0.0,
             parallax_shift: [0.0; 2],
             shake_offset: [0.0; 2],
             script_host: None,
+            color_properties,
+            script_storage,
             audio: [vec![0.0; 64], vec![0.0; 64]],
             sounds,
         };
@@ -465,9 +635,19 @@ impl Engine {
         Ok(engine)
     }
 
+    /// A user property changed: materials, layers, sounds and scripts follow it.
+    pub fn set_property(&mut self, name: String, value: Value) {
+        let _ = self.props.insert(name.clone(), value.clone());
+        self.rebuild();
+        self.sounds.apply_props(&self.props);
+        self.sync_script_layers();
+        self.notify_scripts(&serde_json::Map::from_iter([(name, value)]));
+    }
+
     /// Re-resolves materials after a property or antialiasing change. Textures, shader sources,
     /// programs and pipelines are cached, so only changed combos compile anything.
     pub fn rebuild(&mut self) {
+        self.pack_lights();
         self.composite_refs = self.find_composite_refs();
         let layers = (0..self.scene.layers.len()).map(|i| self.build_layer(i)).collect();
         self.layers = layers;
@@ -475,6 +655,7 @@ impl Engine {
         let mut old_systems = std::mem::take(&mut self.particles);
         let mut old_puppets = std::mem::take(&mut self.puppets);
         let mut systems = Vec::new();
+        let mut settings = None;
         for index in 0..self.scene.layers.len() {
             let Some(layer) = self.scene.layers[index].particles.clone() else {
                 continue;
@@ -483,10 +664,16 @@ impl Engine {
                 continue;
             }
             if let Some(i) = old_systems.iter().position(|p| p.layer == index) {
-                systems.push(old_systems.swap_remove(i));
+                // Properties may have changed its overrides, its materials' values or the
+                // antialiasing its pipelines were made for.
+                let mut kept = old_systems.swap_remove(i);
+                kept.sim.set_overrides(self.particle_overrides(&layer));
+                kept.draws = self.particle_draws(&kept.sim);
+                systems.push(kept);
                 continue;
             }
-            match self.particle_system(index, &layer) {
+            let settings = *settings.get_or_insert_with(|| self.particle_settings());
+            match self.particle_system(index, &layer, settings) {
                 Ok(system) => systems.push(system),
                 Err(e) => self.warnings.push(format!(
                     "layer {}: {e}; particles skipped",
@@ -524,6 +711,7 @@ impl Engine {
             }
         }
         self.puppets = puppets;
+        self.build_models();
         // Drop textures nothing draws any more (hidden by a property change).
         self.textures.retain(|_, t| Rc::strong_count(t) > 1);
         let mut seen = std::collections::HashSet::new();
@@ -632,6 +820,7 @@ impl Engine {
             self.samples,
             &[],
             false,
+            false,
         ) {
             Ok(item) => Some(item),
             Err(e) => {
@@ -647,7 +836,7 @@ impl Engine {
             // The colour blend mode applies when the finished layer meets the screen.
             let mut plain = material.clone();
             let _ = plain.combos.remove("BLENDMODE");
-            self.draw_item(&plain, Blend::Disabled, gpu::FBO_FORMAT, 1, &[], false)
+            self.draw_item(&plain, Blend::Disabled, gpu::FBO_FORMAT, 1, &[], false, false)
                 .ok()
         } else {
             None
@@ -661,12 +850,12 @@ impl Engine {
         {
             let wrap = Material {
                 shader: "genericimage2".into(),
-                blend: material.blend,
                 textures: vec![None],
                 combos: material.combos.clone(),
                 constants: HashMap::new(),
+                ..material.clone()
             };
-            self.draw_item(&wrap, wrap.blend, TARGET_FORMAT, self.samples, &[], false)
+            self.draw_item(&wrap, wrap.blend, TARGET_FORMAT, self.samples, &[], false, false)
                 .ok()
                 .or(base)
         } else {
@@ -687,6 +876,7 @@ impl Engine {
                     1,
                     &pass.binds,
                     true,
+                    false,
                 ) {
                     Ok(item) => passes.push(EffectPassGpu {
                         item,
@@ -741,6 +931,43 @@ impl Engine {
         }
     }
 
+    /// Wallpaper Engine's colour options and image filter for the final pass. A filter that
+    /// cannot be loaded is left out (with a warning); the colour options still apply.
+    pub fn set_grade(&mut self, g: &ColorGrade) {
+        // Wallpaper Engine's mapping of its 0...100 sliders (50 = unchanged): brightness scales
+        // the HSV value by its square, contrast and saturation by their square roots.
+        let (value, contrast, saturation) = (g.brightness * 2.0, g.contrast * 2.0, g.saturation * 2.0);
+        let hue = g.hue - 0.5;
+        let neutral = value == 1.0 && contrast == 1.0 && saturation == 1.0 && hue == 0.0;
+        self.grade.adjust =
+            (g.adjust && !neutral).then(|| [value * value, contrast.sqrt(), saturation.sqrt(), hue]);
+        if g.filter.is_empty() || g.filter_strength <= 0.0 {
+            self.grade.filter = None;
+            return;
+        }
+        if let Some((name, _, strength)) = &mut self.grade.filter {
+            if *name == g.filter {
+                *strength = g.filter_strength.min(1.0);
+                return;
+            }
+        }
+        self.grade.filter = match self.lookup_table(&g.filter) {
+            Ok(table) => Some((g.filter.clone(), table, g.filter_strength.min(1.0))),
+            Err(e) => {
+                self.warnings.push(format!("image filter {}: {e}", g.filter));
+                None
+            }
+        };
+    }
+
+    /// One of Wallpaper Engine's colour lookup tables (`materials/lut/<name>.tex`, a volume).
+    fn lookup_table(&self, name: &str) -> Result<Retained<Texture>, Error> {
+        let path = format!("materials/lut/{name}.tex");
+        let data = self.vfs.read(&path).ok_or(Error::Missing(path))?;
+        let (size, rgba) = crate::tex::lookup_table(&data)?;
+        self.gpu.upload_volume(&rgba, size)
+    }
+
     pub fn set_samples(&mut self, samples: usize) {
         let samples = match samples {
             0 | 1 => 1,
@@ -761,6 +988,7 @@ impl Engine {
             l.cached = None;
         }
         self.msaa = None;
+        self.trim_models();
     }
 
     /// Rasterises a text layer at the last known zoom and registers the bitmap as a texture.
@@ -839,6 +1067,9 @@ impl Engine {
             textures: vec![Some(key)],
             combos: BTreeMap::new(),
             constants: HashMap::new(),
+            cull: scene::Cull::None,
+            depth_test: false,
+            depth_write: false,
         };
         Some((material, bitmap.rect))
     }
@@ -978,7 +1209,7 @@ impl Engine {
         if verts.is_empty() || model.indices.is_empty() {
             return Ok(());
         }
-        let pipeline = self.gpu.particle_pipeline(blend, TARGET_FORMAT, samples)?;
+        let pipeline = self.gpu.puppet_pipeline(blend, TARGET_FORMAT, samples)?;
         enc.setRenderPipelineState(&pipeline);
         let uniform: Vec<u8> = ctx.mvp.iter().flat_map(|f| f.to_le_bytes()).collect();
         gpu::set_bytes(enc, true, &uniform, 0);
@@ -1001,7 +1232,7 @@ impl Engine {
             Some(t) => (&t.images[0], t.sampler),
             None => (&self.white.images[0], 0),
         };
-        // SAFETY: slot 0 exists in the particle shader; the index buffer and texture outlive the
+        // SAFETY: slot 0 exists in the mesh shader; the index buffer and texture outlive the
         // draw.
         unsafe {
             enc.setFragmentTexture_atIndex(Some(tex), 0);
@@ -1017,159 +1248,336 @@ impl Engine {
         Ok(())
     }
 
-    /// Loads a particle layer's system, its instance overrides and the texture it draws with.
-    fn particle_system(&mut self, index: usize, layer: &ParticleLayer) -> Result<ParticleGpu, Error> {
-        let json = self.vfs.json(&layer.system)?;
-        let system = particles::ParticleSystem::from_json(&json)?;
+    /// How the scene sets up particle files: whether they take their 2D defaults (the scene has
+    /// an orthographic projection), and the field of view perspective systems are seen through.
+    fn particle_settings(&self) -> (bool, f32) {
+        let Ok(scene) = self.vfs.json("scene.json") else {
+            return (true, 50f32.to_radians());
+        };
+        let general = &scene["general"];
+        let ortho = &general["orthogonalprojection"];
+        let two_d = ortho["auto"].as_bool() == Some(true)
+            || ortho["width"].as_f64().is_some_and(|w| w != 0.0)
+            || ortho["height"].as_f64().is_some_and(|h| h != 0.0);
+        let fov = general["perspectiveoverridefov"]
+            .as_f64()
+            .or_else(|| general["fov"].as_f64())
+            .unwrap_or(50.0) as f32;
+        (two_d, fov.to_radians())
+    }
+
+    /// The layer's instance overrides, with user properties resolved.
+    fn particle_overrides(&self, layer: &ParticleLayer) -> particles::InstanceOverride {
+        layer
+            .instance_override
+            .as_ref()
+            .and_then(|o| {
+                particles::InstanceOverride::from_json(&scene::resolve_user_values(o, &self.props))
+            })
+            .unwrap_or_default()
+    }
+
+    /// Loads a particle layer's system: its file, the child files it starts and the layer's
+    /// instance overrides, and the draws of every renderer.
+    fn particle_system(
+        &mut self,
+        index: usize,
+        layer: &ParticleLayer,
+        (two_d, fov): (bool, f32),
+    ) -> Result<ParticleGpu, Error> {
+        let root = particles::Definition::from_json(&self.vfs.json(&layer.system)?, two_d)?;
+        let mut problems = Vec::new();
+        let vfs = &self.vfs;
+        let tree = particles::Tree::new(root, &mut |name| {
+            match vfs
+                .json(name)
+                .and_then(|j| particles::Definition::from_json(&j, two_d))
+            {
+                Ok(def) => Some(def),
+                Err(e) => {
+                    problems.push(format!("child system {name}: {e}"));
+                    None
+                }
+            }
+        });
+        for node in &tree.nodes {
+            problems.extend(node.base.unknown.iter().map(|c| format!("{c} is not supported")));
+        }
+        let name = &self.scene.layers[index].name;
+        self.warnings
+            .extend(problems.into_iter().map(|p| format!("layer {name}: {p}")));
         // A fixed seed per layer keeps a frozen frame, and the golden harness, reproducible.
         let seed = 0x9E37_79B9_7F4A_7C15u64.wrapping_mul(index as u64 + 1);
-        let mut sim = particles::Simulation::new(&system, seed);
-        if let Some(overrides) = &layer.instance_override {
-            let overrides = scene::resolve_user_values(overrides, &self.props);
-            if let Some(o) = particles::InstanceOverride::from_json(&overrides) {
-                sim.apply_override(&o);
+        let sim = particles::Simulation::new(tree, self.particle_overrides(layer), seed);
+        let draws = self.particle_draws(&sim);
+        Ok(ParticleGpu {
+            layer: index,
+            sim,
+            draws,
+            world: self.world(index, 0),
+            fov,
+            vertices: Vec::new(),
+        })
+    }
+
+    /// A draw for every renderer of every file of the system; a renderer whose material fails
+    /// is skipped with a warning.
+    fn particle_draws(&mut self, sim: &particles::Simulation) -> Vec<Vec<ParticleDraw>> {
+        let mut all = Vec::new();
+        for node in sim.nodes() {
+            let def = &node.def;
+            let mut draws = Vec::new();
+            match Material::load(&self.vfs, &def.material) {
+                Ok(material) => {
+                    for (r, renderer) in def.renderers.iter().enumerate() {
+                        match self.particle_draw(&material, def, r) {
+                            Ok(draw) => draws.push(draw),
+                            Err(e) => self.warnings.push(format!(
+                                "particles {}: {} renderer skipped: {e}",
+                                def.material,
+                                renderer_name(&renderer.kind)
+                            )),
+                        }
+                    }
+                }
+                Err(e) => self
+                    .warnings
+                    .push(format!("particles {}: {e}", def.material)),
             }
+            all.push(draws);
         }
-        let material = Material::load(&self.vfs, &system.material)?;
+        all
+    }
+
+    /// The material variant one renderer draws with: the combos the engine sets for the
+    /// renderer kind and the texture, and the vertex layout the renderer fills.
+    fn particle_draw(
+        &mut self,
+        material: &Material,
+        def: &particles::Definition,
+        renderer: usize,
+    ) -> Result<ParticleDraw, Error> {
+        use particles::RendererKind;
+        let r = &def.renderers[renderer];
         let texture = material
             .textures
             .first()
             .and_then(|t| t.as_deref())
+            .filter(|t| !t.starts_with("_rt_"))
             .and_then(|t| self.texture(t));
-        let scene_layer = &self.scene.layers[index];
-        let mut color = [1.0f32; 3];
-        for (o, v) in color
-            .iter_mut()
-            .zip(floats(&scene_layer.color.get(&self.props)))
+        let sheet = texture.as_deref().and_then(sheet_info);
+        let layout = particles::Layout::for_renderer(def, r, sheet.is_some());
+        let mut m = material.clone();
+        let mut combo = |name: &str, value: i64| {
+            let _ = m.combos.insert(name.into(), value);
+        };
+        // A one-channel texture is uploaded as grey with full alpha; the shader's conversion for
+        // that format turns it into white with the channel as alpha. A two-channel texture is
+        // uploaded as grey and alpha already, which is what the shader would make of it, so it
+        // needs no combo.
+        if texture
+            .as_ref()
+            .is_some_and(|t| t.images[0].pixelFormat() == MTLPixelFormat::R8Unorm)
         {
-            *o = v * scene_layer.brightness;
+            combo("TEX0FORMAT", 9);
         }
-        Ok(ParticleGpu {
-            layer: index,
-            sim,
-            texture,
-            blend: material.blend,
-            world: self.world(index, 0),
-            color,
-            alpha: floats(&scene_layer.alpha.get(&self.props))
-                .first()
-                .copied()
-                .unwrap_or(1.0),
+        if layout == particles::Layout::SpriteThick {
+            combo("THICKFORMAT", 1);
+            if let (Some(_), Some(t)) = (sheet, texture.as_ref()) {
+                combo("SPRITESHEET", 1);
+                let blend = def.flags & 0x2 == 0;
+                combo("SPRITESHEETBLEND", i64::from(blend));
+                combo("SPRITESHEETBLENDNPOT", i64::from(t.res[2] < t.res[0]));
+            }
+        }
+        match r.kind {
+            RendererKind::Sprite => {}
+            RendererKind::SpriteTrail { .. } => combo("TRAILRENDERER", 1),
+            RendererKind::Rope { .. } => {
+                combo("THICKFORMAT", 1);
+                combo("ORIENTATION", i64::from(r.orientation));
+            }
+            RendererKind::RopeTrail {
+                fade_alpha,
+                fade_size,
+                ..
+            } => {
+                combo("TRAILRENDERER", 1);
+                combo("ORIENTATION", i64::from(r.orientation));
+                combo("TRAILSCROLLALPHA", i64::from(def.trail_scrolling));
+                combo("TRAILFADEALPHA", i64::from(fade_alpha));
+                combo("TRAILFADESIZE", i64::from(fade_size));
+            }
+        }
+        if matches!(r.kind, RendererKind::Rope { .. } | RendererKind::RopeTrail { .. }) {
+            m.shader = ROPE_SHADER.into();
+            self.load_rope_shader()?;
+        }
+        let item = self.build_item(
+            &m,
+            m.blend,
+            TARGET_FORMAT,
+            self.samples,
+            &[],
+            false,
+            false,
+            Some(layout.vertex()),
+        )?;
+        let indices = particles::quad_indices(layout.max_quads(r, def.max_count).max(1));
+        let ptr = NonNull::new(indices.as_ptr() as *mut c_void)
+            .ok_or_else(|| Error::Format("particle index buffer".into()))?;
+        // SAFETY: the buffer copies `indices.len()` u32 values immediately.
+        let indices = unsafe {
+            self.gpu.device.newBufferWithBytes_length_options(
+                ptr,
+                indices.len() * 4,
+                MTLResourceOptions::StorageModeShared,
+            )
+        }
+        .ok_or_else(|| Error::Metal("particle index buffer".into()))?;
+        Ok(ParticleDraw {
+            renderer,
+            layout,
+            item,
+            sheet,
+            indices,
         })
     }
 
-    /// Draws one particle layer: simulate to `input.time`, build six vertices per particle and
-    /// issue a single triangle list draw.
+    /// Puts a fixed copy of the rope shader into the source cache before anything compiles it.
+    /// Its vertex stage (the one used without a geometry stage) widens the strip by
+    /// `right * uvs.x * 2.0 - 1.0`, which subtracts 1 from every coordinate instead of centring
+    /// the width on the line, and its size fade writes `.w` of a float, which does not compile.
+    /// Only particle ropes use this shader.
+    fn load_rope_shader(&mut self) -> Result<(), Error> {
+        if self.sources.contains_key(ROPE_SHADER) {
+            return Ok(());
+        }
+        let mut source = shader::Source::load(&self.vfs, ROPE_SHADER)?;
+        source.vert = source
+            .vert
+            .replace("right * uvs.x * 2.0 - 1.0", "right * (uvs.x * 2.0 - 1.0)")
+            .replace("sizeStart.w *=", "sizeStart *=")
+            .replace("sizeEnd.w *=", "sizeEnd *=");
+        let _ = self.sources.insert(ROPE_SHADER.into(), Rc::new(source));
+        Ok(())
+    }
+
+    /// Draws one particle layer: advances its simulation to `input.time`, builds every
+    /// instance's vertices into one buffer and draws each renderer of each instance.
     fn draw_particles(
         &mut self,
         enc: &gpu::Encoder,
         index: usize,
-        view_projection: &Mat4,
+        view: &ParticleView,
         input: FrameInput,
-        pointer: [f32; 2],
+        named: &HashMap<String, Retained<Texture>>,
     ) -> Result<(), Error> {
-        let (blend, texture, verts) = {
-            let Some(p) = self.particles.get_mut(index) else {
-                return Ok(());
-            };
-            // `pointer` is in design units (y down); control points live in the system's own
-            // space (y up), which `world` maps to design units with the y flip.
-            let inv = invert_affine_2d(&p.world);
-            let lx = inv[0] * pointer[0] + inv[4] * pointer[1] + inv[12];
-            let ly = inv[1] * pointer[0] + inv[5] * pointer[1] + inv[13];
-            p.sim.set_pointer(lx, -ly);
-            p.sim.seek_to(input.time);
-            let world = p.world;
-            let (cr, cg, cb) = (p.color[0], p.color[1], p.color[2]);
-            let ca = p.alpha;
-            // A sprite sheet's frames: each particle shows one, picked by the animation mode.
-            let sheet = p.texture.as_ref().filter(|t| !t.frames.is_empty());
-            let system = p.sim.system();
-            let mode = system.animation_mode.as_deref().unwrap_or("");
-            let speed = system.sequence_multiplier;
-            let mut verts = Vec::with_capacity(p.sim.alive_count() * 6 * 8);
-            for q in p.sim.alive_particles() {
-                let half = (q.size * 0.5).max(0.0);
-                let alpha = q.alpha * ca;
-                if half <= 0.0 || alpha <= 0.0 {
-                    continue;
+        let height = self.scene.height;
+        // Particle systems work y up from the scene's bottom-left, like the files.
+        let to_design = mul(&translate(0.0, height, 0.0), &scale(1.0, -1.0, 1.0));
+        let (vertices, batches) = {
+            let p = &mut self.particles[index];
+            let placement = mul(&to_design, &mul(&p.world, &scale(1.0, -1.0, 1.0)));
+            p.sim.set_placement(particles::Affine::from_mat4(&placement));
+            p.sim.set_pointer(particles::Vec3::new(
+                view.pointer[0],
+                height - view.pointer[1],
+                0.0,
+            ));
+            p.sim.set_audio(&self.audio[0], &self.audio[1]);
+            p.sim.set_canvas(self.scene.width, height);
+            p.sim.set_time_of_day(day_time());
+            p.sim.advance_to(input.time);
+            let mut vertices = std::mem::take(&mut p.vertices);
+            vertices.clear();
+            let mut batches = Vec::new();
+            let nodes = p.sim.nodes();
+            let draws = &p.draws;
+            p.sim.visit(&mut |inst| {
+                if inst.alive == 0 {
+                    return;
                 }
-                // Simulation space is y up; the render space is y down, so the centre and the
-                // rotation are mirrored while the sprite itself stays upright.
-                let (s, c) = (-q.rotation.z).sin_cos();
-                let (x, y) = (q.position.x, -q.position.y);
-                let corners = [
-                    (-half, -half, 0.0f32, 0.0f32),
-                    (half, -half, 1.0, 0.0),
-                    (-half, half, 0.0, 1.0),
-                    (half, -half, 1.0, 0.0),
-                    (half, half, 1.0, 1.0),
-                    (-half, half, 0.0, 1.0),
-                ];
-                let frame = sheet.map(|t| {
-                    let n = t.frames.len();
-                    let i = match mode {
-                        "randomframe" => (q.seed % n as u64) as usize,
-                        // shortcut: plays the sheet once per lifetime times the multiplier; check
-                        // against a scene that uses "sequence" when one turns up.
-                        "sequence" => {
-                            let life = (q.age / q.lifetime.max(1e-3)) * speed.max(0.0);
-                            ((life * n as f32) as usize) % n
-                        }
-                        _ => 0,
-                    };
-                    (t.frames[i], t.res)
-                });
-                for (dx, dy, u, v) in corners {
-                    let (u, v) = match frame {
-                        Some((f, res)) => (
-                            (f.x + u * f.width_x + v * f.height_x) / res[0].max(1.0),
-                            (f.y + u * f.width_y + v * f.height_y) / res[1].max(1.0),
-                        ),
-                        None => (u, v),
-                    };
-                    let lx = x + dx * c - dy * s;
-                    let ly = y + dx * s + dy * c;
-                    let wx = world[0] * lx + world[4] * ly + world[12];
-                    let wy = world[1] * lx + world[5] * ly + world[13];
-                    for f in [wx, wy, u, v, q.color.x * cr, q.color.y * cg, q.color.z * cb, alpha] {
-                        verts.extend_from_slice(&f.to_le_bytes());
+                let def = &nodes[inst.node].def;
+                for (d, draw) in draws[inst.node].iter().enumerate() {
+                    let renderer = &def.renderers[draw.renderer];
+                    let built = particles::build(nodes, inst, renderer, draw.layout, &mut vertices);
+                    if built.quads > 0 {
+                        let var0 = particles::render_var0(def, renderer, inst);
+                        batches.push((inst.node, d, built, inst.model(nodes), var0));
                     }
                 }
+            });
+            (vertices, batches)
+        };
+        if !batches.is_empty() {
+            let ptr = NonNull::new(vertices.as_ptr() as *mut c_void)
+                .ok_or_else(|| Error::Format("particle vertex buffer".into()))?;
+            // SAFETY: the buffer copies the vertices immediately and outlives the draws.
+            let buffer = unsafe {
+                self.gpu.device.newBufferWithBytes_length_options(
+                    ptr,
+                    vertices.len() * 4,
+                    MTLResourceOptions::StorageModeShared,
+                )
             }
-            (p.blend, p.texture.clone(), verts)
-        };
-        if verts.is_empty() {
-            return Ok(());
+            .ok_or_else(|| Error::Metal("particle vertex buffer".into()))?;
+            let p = &self.particles[index];
+            let nodes = p.sim.nodes();
+            for (node, d, built, model, var0) in batches {
+                let draw = &p.draws[node][d];
+                let def = &nodes[node].def;
+                let renderer = &def.renderers[draw.renderer];
+                let mut model_mat = model.to_mat4();
+                if def.perspective() && !view.perspective_scene {
+                    model_mat = mul(&perspective(self.scene.width, height, p.fov), &model_mat);
+                }
+                let model_design = mul(&to_design, &model_mat);
+                let mvp = mul(&view.view_projection, &model_design);
+                let ctx = DrawCtx {
+                    mvp,
+                    model: model_design,
+                    view_projection: view.view_projection,
+                    target: view.screen,
+                    color: [1.0; 3],
+                    alpha: 1.0,
+                    buffer_scale: [1.0, 1.0],
+                    screen_mvp: mvp,
+                    size: [1.0, 1.0],
+                    normal_model: IDENTITY,
+                    lit: false,
+                };
+                let values = particles::ShaderValues {
+                    orientation: particles::orientation(&model, renderer),
+                    view_up: particles::Vec3::Y,
+                    view_right: particles::Vec3::X,
+                    // The camera of a 2D scene, above the view's centre.
+                    eye: particles::Vec3::new(view.center[0], view.center[1], 2000.0),
+                    render_var0: var0,
+                    render_var1: draw
+                        .sheet
+                        .map_or([0.0; 4], |s| [s.frame[0], s.frame[1], s.count, s.aspect]),
+                };
+                self.bind(enc, &draw.item, &ctx, input, None, named, None, Some(&values));
+                // SAFETY: the vertex range and the index buffer hold `quads` quads; both outlive
+                // the draw.
+                unsafe {
+                    enc.setVertexBuffer_offset_atIndex(
+                        Some(&buffer),
+                        built.start * 4,
+                        shader::VERTEX_BUFFER_SLOT as usize,
+                    );
+                    enc.drawIndexedPrimitives_indexCount_indexType_indexBuffer_indexBufferOffset(
+                        MTLPrimitiveType::Triangle,
+                        built.quads * 6,
+                        MTLIndexType::UInt32,
+                        &draw.indices,
+                        0,
+                    );
+                }
+            }
         }
-        let pipeline = self.gpu.particle_pipeline(blend, TARGET_FORMAT, self.samples)?;
-        enc.setRenderPipelineState(&pipeline);
-        let uniform: Vec<u8> = view_projection
-            .iter()
-            .flat_map(|f| f.to_le_bytes())
-            .collect();
-        gpu::set_bytes(enc, true, &uniform, 0);
-        gpu::set_buffer_or_bytes(
-            &self.gpu,
-            enc,
-            true,
-            &verts,
-            shader::VERTEX_BUFFER_SLOT as usize,
-        );
-        let (tex, sampler) = match &texture {
-            Some(t) => (&t.images[0], t.sampler),
-            None => (&self.white.images[0], 0),
-        };
-        // SAFETY: slot 0 exists in the particle shader; resources outlive the frame.
-        unsafe {
-            enc.setFragmentTexture_atIndex(Some(tex), 0);
-            enc.setFragmentSamplerState_atIndex(Some(&self.gpu.samplers[sampler]), 0);
-            enc.drawPrimitives_vertexStart_vertexCount(
-                MTLPrimitiveType::Triangle,
-                0,
-                verts.len() / 32,
-            );
-        }
+        self.particles[index].vertices = vertices;
         Ok(())
     }
 
@@ -1269,6 +1677,8 @@ impl Engine {
         Ok((program, source))
     }
 
+    /// `mesh`: the item draws a model mesh in a model pass (see `engine_models.rs`).
+    #[allow(clippy::too_many_arguments)]
     fn draw_item(
         &mut self,
         material: &Material,
@@ -1277,6 +1687,24 @@ impl Engine {
         samples: usize,
         binds: &[(String, usize)],
         effect: bool,
+        mesh: bool,
+    ) -> Result<DrawItem, Error> {
+        self.build_item(material, blend, format, samples, binds, effect, mesh, None)
+    }
+
+    /// `draw_item`, or with `layout` a particle draw: its pipeline reads that vertex layout and
+    /// the particle shaders' own inputs become dynamic uniforms.
+    #[allow(clippy::too_many_arguments)]
+    fn build_item(
+        &mut self,
+        material: &Material,
+        blend: Blend,
+        format: MTLPixelFormat,
+        samples: usize,
+        binds: &[(String, usize)],
+        effect: bool,
+        mesh: bool,
+        layout: Option<&'static particles::VertexLayout>,
     ) -> Result<DrawItem, Error> {
         // Texture sources per g_TextureN index.
         let mut sources: BTreeMap<usize, TexSource> = BTreeMap::new();
@@ -1306,6 +1734,9 @@ impl Engine {
             }
         };
         let mut combos = material.combos.clone();
+        if mesh {
+            combos.extend(self.light_combos().map(|(k, v)| (k.to_string(), v)));
+        }
         for (index, meta) in &source.texture_meta {
             if let Some(combo) = meta["combo"].as_str() {
                 if sources.contains_key(index) {
@@ -1353,12 +1784,21 @@ impl Engine {
         let pkey = (
             Rc::as_ptr(&program) as usize,
             blend,
-            samples * 1000 + format.0,
+            samples * 1000 + format.0 + usize::from(mesh) * 1_000_000,
         );
-        let pipeline = match self.pipelines.get(&pkey) {
-            Some(p) => p.clone(),
-            None => {
-                let p = self.gpu.pipeline(&program, blend, format, samples)?;
+        let pipeline = match (layout, self.pipelines.get(&pkey)) {
+            (Some(layout), _) => {
+                self.gpu
+                    .particle_program_pipeline(&program, blend, format, samples, layout)?
+            }
+            (None, Some(p)) => p.clone(),
+            (None, None) => {
+                let p = if mesh {
+                    let inputs = models::mesh_inputs(&program);
+                    self.gpu.mesh_pipeline(&program, blend, format, samples, &inputs)?
+                } else {
+                    self.gpu.pipeline(&program, blend, format, samples)?
+                };
                 let _ = self.pipelines.insert(pkey, p.clone());
                 p
             }
@@ -1368,7 +1808,10 @@ impl Engine {
         let mut stage_bytes = |code: &shader::StageCode, vertex: bool| -> Vec<u8> {
             let mut bytes = vec![0u8; code.ubo_size as usize];
             for u in &code.uniforms {
-                if let Some(d) = engine_uniform(&u.name) {
+                let particle = layout
+                    .and_then(|_| particles::ShaderInput::from_name(&u.name))
+                    .map(Dyn::Particle);
+                if let Some(d) = engine_uniform(&u.name).or(particle) {
                     dynamic.push((vertex, u.clone(), d));
                     continue;
                 }
@@ -1380,6 +1823,7 @@ impl Engine {
                         .iter()
                         .find(|(c, _)| c.eq_ignore_ascii_case(k))
                         .map(|(_, v)| v.get(&self.props))
+                        .filter(|v| !v.is_null())
                 });
                 let value = constant
                     .or_else(|| meta.map(|m| m["default"].clone()))
@@ -1447,7 +1891,7 @@ impl Engine {
         };
         let all = now.is_some();
         self.shake_offset = match self.scene.shake.now(&self.props) {
-            Some(shake) => camera_shake(shake, input.time, [self.scene.width, self.scene.height]),
+            Some(shake) => camera_shake(shake, input.time, self.scene.height),
             None => [0.0; 2],
         };
         for i in 0..self.layers.len().min(self.scene.layers.len()) {
@@ -1469,19 +1913,21 @@ impl Engine {
 
     /// Camera parallax with the user's properties applied; `None` while it is off.
     pub fn parallax_now(&self) -> Option<scene::ParallaxNow> {
-        self.scene.parallax.now(&self.props)
+        self.scene.parallax.now(&self.props).filter(|_| self.parallax_enabled)
     }
 
     /// How far, in design units, a layer may move with the pointer: the band the parallax zoom
-    /// hides at each edge. Fill zooms in to hide it; the modes that show the whole scene do not
-    /// (a zoom would cut it), so a layer moved that far can show the clear colour at an edge.
+    /// hides at each edge. The alignments that fill the target zoom in to hide it; the others do
+    /// not (a zoom would cut what they show), so a layer moved that far can show the clear colour
+    /// at an edge.
     fn parallax_margin(&self) -> [f32; 2] {
         let hidden = (1.0 - 1.0 / PARALLAX_ZOOM) / 2.0;
         [self.scene.width * hidden, self.scene.height * hidden]
     }
 
     fn parallax_zoom(&self) -> f32 {
-        if self.parallax_now().is_some() && self.fit == FitMode::Fill {
+        let fills = matches!(self.framing.alignment, Alignment::Cover | Alignment::Stretch);
+        if fills && self.parallax_now().is_some() {
             PARALLAX_ZOOM
         } else {
             1.0
@@ -1501,8 +1947,12 @@ impl Engine {
         false
     }
 
-    /// Layer world matrix including parents and camera parallax, in design pixels (y down).
+    /// Layer world matrix including parents and camera parallax, in design pixels (y down). In a
+    /// perspective scene, the layer's 3D placement instead.
     fn world(&self, index: usize, depth: u32) -> Mat4 {
+        if self.perspective() {
+            return self.perspective_world(index);
+        }
         let layer = &self.scene.layers[index];
         let o = floats(&layer.origin.get(&self.props));
         let s = floats(&layer.scale.get(&self.props));
@@ -1571,44 +2021,35 @@ impl Engine {
         true
     }
 
-    /// The part of the design that is on screen, in design units: left, right, top, bottom.
-    /// The fit mode decides how much of the design is visible, zoom narrows it further and pan
-    /// moves it.
+    /// The part of the design that is on screen, in design units: left, right, top, bottom. The
+    /// framing decides it; the parallax zoom and the camera shake act on top. A flipped picture
+    /// has its left and right swapped, which mirrors everything drawn through this view.
     fn view_rect(&self, tw: f32, th: f32) -> (f32, f32, f32, f32) {
-        let (w, h) = (self.scene.width, self.scene.height);
-        let (vw, vh) = match self.fit {
-            // Cover the target: the smaller axis of the design fits exactly.
-            FitMode::Fill => {
-                let s = (tw / w).max(th / h);
-                (tw / s, th / s)
-            }
-            // Show all of it: the larger axis of the design fits exactly.
-            FitMode::Fit | FitMode::MatchBlurred => {
-                let s = (tw / w).min(th / h);
-                (tw / s, th / s)
-            }
-            // The design is mapped onto the target as it is.
-            FitMode::Stretch => (w, h),
-            // One design pixel per target pixel.
-            FitMode::Unscaled => (tw, th),
-        };
-        let z = self.zoom.max(0.05) * self.parallax_zoom();
-        let (vw, vh) = (vw / z, vh / z);
-        let cx = w / 2.0 - self.pan[0] * vw + self.shake_offset[0];
-        let cy = h / 2.0 - self.pan[1] * vh + self.shake_offset[1];
-        (cx - vw / 2.0, cx + vw / 2.0, cy - vh / 2.0, cy + vh / 2.0)
+        // A perspective camera fills the target whatever the alignment (see `camera.rs`); the
+        // design is the target itself, mirroring and shake act on the camera.
+        if self.perspective() {
+            return (0.0, tw, 0.0, th);
+        }
+        let [mut l, mut r, mut t, mut b] =
+            framed_view(&self.framing, [self.scene.width, self.scene.height], [tw, th]);
+        let z = self.parallax_zoom();
+        if z != 1.0 {
+            let (cx, cy) = ((l + r) / 2.0, (t + b) / 2.0);
+            let (hw, hh) = ((r - l) / (2.0 * z), (b - t) / (2.0 * z));
+            (l, r, t, b) = (cx - hw, cx + hw, cy - hh, cy + hh);
+        }
+        let [sx, sy] = self.shake_offset;
+        let (l, r) = if self.framing.flip { (r + sx, l + sx) } else { (l + sx, r + sx) };
+        (l, r, t + sy, b + sy)
     }
 
     /// The rectangle the design itself covers on the target, in target pixels: x, y, width,
-    /// height. Used by the blurred-fit mode, where the rest of the target is filled with a
-    /// blurred copy of the same picture.
+    /// height. Where it leaves bars, `blur_bars` fills them with a blurred copy of the picture.
     fn content_rect(&self, tw: f32, th: f32) -> (f32, f32, f32, f32) {
-        let (w, h) = (self.scene.width, self.scene.height);
-        let s = (tw / w).min(th / h) * self.zoom.max(0.05) * self.parallax_zoom();
-        let (cw, ch) = (w * s, h * s);
-        let x = tw / 2.0 + self.pan[0] * tw - cw / 2.0;
-        let y = th / 2.0 + self.pan[1] * th - ch / 2.0;
-        (x, y, cw, ch)
+        let (l, r, t, b) = self.view_rect(tw, th);
+        let (xa, xb) = ((0.0 - l) / (r - l) * tw, (self.scene.width - l) / (r - l) * tw);
+        let (ya, yb) = ((0.0 - t) / (b - t) * th, (self.scene.height - t) / (b - t) * th);
+        (xa.min(xb), ya.min(yb), (xb - xa).abs(), (yb - ya).abs())
     }
 
     /// Renders one frame into `target` (a drawable or offscreen texture) on `cb`.
@@ -1619,6 +2060,10 @@ impl Engine {
         input: FrameInput,
     ) -> Result<(), Error> {
         let (tw, th) = (target.width() as f32, target.height() as f32);
+        if self.perspective() {
+            // A perspective scene has no design size of its own: its 2D parts span the target.
+            (self.scene.width, self.scene.height) = (tw, th);
+        }
         self.run_scripts(input, [tw, th]);
         self.follow_motion(input);
         if self.samples > 1
@@ -1639,46 +2084,88 @@ impl Engine {
         // The visible part of the design, in design units. Files are y-down from the design's
         // top-left, which is also Metal's texture orientation.
         let (l, r, t, b) = self.view_rect(tw, th);
-        let view_projection = ortho(l, r, b, t);
-        // Screen pixels per design pixel.
-        let fit = tw / (r - l).max(0.001);
+        let ortho_projection = ortho(l, r, b, t);
+        self.update_view(input.time, [tw, th], [l, r, t, b]);
+        let perspective = self.perspective();
+        // Layers placed in 3D are seen through the camera.
+        let view_projection = if perspective { self.models.view.view_projection } else { ortho_projection };
+        // Screen pixels per design pixel (a flipped view has r < l).
+        let fit = tw / (r - l).abs().max(0.001);
 
         let mut c = [0.0f32; 3];
         for (o, v) in c.iter_mut().zip(floats(&self.scene.clear_color.get(&self.props))) {
             *o = v;
         }
-        // The blurred-fit mode draws the scene into a texture first: the empty part of the
-        // target is then filled with a blurred copy of the same picture.
-        let blurred = self.fit == FitMode::MatchBlurred && leaves_gaps(self.content_rect(tw, th), tw, th);
+        // Blurred bars need the scene in a texture first: the empty part of the target is then
+        // filled with a blurred copy of the same picture.
+        let blurred = self.framing.blur_bars && leaves_gaps(self.content_rect(tw, th), tw, th);
         let bloom = self.scene.bloom.enabled.truthy(&self.props);
-        let scene_tex = if blurred || bloom {
+        // The colour grade is applied while the finished scene is copied onto the target.
+        let scene_tex = if blurred || bloom || self.grade.active() {
             Some(self.pool.take(&self.gpu, target.width(), target.height())?)
         } else {
             None
         };
         let scene_target: &Texture = scene_tex.as_ref().map_or(target, |t| &**t);
-        let mut main = Some(gpu::begin(
-            cb,
-            scene_target,
-            msaa.as_deref(),
-            Some([c[0] as f64, c[1] as f64, c[2] as f64, 1.0]),
-        )?);
-        let screen = [tw, th];
-        // Screen copy for `_rt_FullFrameBuffer` readers, refreshed before each such draw.
-        let mut frame_copy: HashMap<String, Retained<Texture>> = HashMap::new();
-        // Effect outputs other layers sample, by `_rt_imageLayerComposite_<id>_a` name. Those
-        // layers run their chain first, off screen; hidden ones never reach the screen.
-        let mut composites: HashMap<String, Retained<Texture>> = HashMap::new();
         let order: Vec<(usize, Option<String>)> = self
             .composite_refs
             .iter()
             .map(|(i, name)| (*i, Some(name.clone())))
             .chain((0..self.layers.len()).map(|i| (i, None)))
             .collect();
+        // The clear colour goes to the frame's first pass: the 2D pass, or a model pass when a
+        // model draws first (no empty pass then).
+        let mut clear = Some([c[0] as f64, c[1] as f64, c[2] as f64, 1.0]);
+        let models_first = self.composite_refs.is_empty()
+            && order
+                .iter()
+                .find(|(i, _)| self.model_at(*i).is_some() || self.layer_draws(*i))
+                .is_some_and(|(i, _)| self.model_at(*i).is_some());
+        let mut main = if models_first {
+            None
+        } else {
+            Some(gpu::begin(cb, scene_target, msaa.as_deref(), clear.take())?)
+        };
+        // The open model pass, while consecutive model layers draw.
+        let mut model_pass: Option<Retained<gpu::Encoder>> = None;
+        let mut depth_cleared = false;
+        let screen = [tw, th];
+        // Screen copy for `_rt_FullFrameBuffer` readers, refreshed before each such draw.
+        let mut frame_copy: HashMap<String, Retained<Texture>> = HashMap::new();
+        // Effect outputs other layers sample, by `_rt_imageLayerComposite_<id>_a` name. Those
+        // layers run their chain first, off screen; hidden ones never reach the screen.
+        let mut composites: HashMap<String, Retained<Texture>> = HashMap::new();
 
         for (li, composite) in order {
             if composite.is_none() && !self.layers[li].shown {
                 continue;
+            }
+            if composite.is_none() {
+                // A run of model layers draws as a whole when the order reaches its first layer;
+                // its other layers have drawn then.
+                if let Some(run) = self.run_at(li) {
+                    if model_pass.is_none() {
+                        if let Some(enc) = main.take() {
+                            enc.endEncoding();
+                        }
+                        let first = !depth_cleared;
+                        model_pass = Some(self.begin_model_pass(cb, scene_target, msaa.as_deref(), clear.take(), first)?);
+                        depth_cleared = true;
+                    }
+                    if let Some(enc) = &model_pass {
+                        self.draw_run(enc, run, input, screen, &frame_copy);
+                    }
+                    continue;
+                }
+                if self.model_at(li).is_some() {
+                    continue;
+                }
+                if self.layer_draws(li) {
+                    if let Some(enc) = model_pass.take() {
+                        enc.endEncoding();
+                        main = Some(gpu::begin(cb, scene_target, msaa.as_deref(), None)?);
+                    }
+                }
             }
             // Particle layers have no image draw of their own; draw their systems in layer order.
             for pi in 0..self.particles.len() {
@@ -1688,15 +2175,37 @@ impl Engine {
                 if self.particles[pi].layer != li {
                     continue;
                 }
+                if self.particles[pi].reads_frame() {
+                    main = Some(self.copy_frame(
+                        cb,
+                        main.take(),
+                        scene_target,
+                        msaa.as_deref(),
+                        &mut frame_copy,
+                    )?);
+                }
                 let enc = main
                     .as_ref()
                     .ok_or_else(|| Error::Metal("main pass".into()))?;
-                let vp = view_projection;
-                let pointer = [
-                    l + input.pointer[0] * (r - l),
-                    t + input.pointer[1] * (b - t),
-                ];
-                self.draw_particles(enc, pi, &vp, input, pointer)?;
+                let view = ParticleView {
+                    // A perspective scene's camera, with the layer's depth (see `particle_view_projection`).
+                    view_projection: if perspective {
+                        self.particle_view_projection(&self.particles[pi].world)
+                    } else {
+                        view_projection
+                    },
+                    pointer: [
+                        l + input.pointer[0] * (r - l),
+                        t + input.pointer[1] * (b - t),
+                    ],
+                    center: [(l + r) / 2.0, (t + b) / 2.0],
+                    screen,
+                    perspective_scene: perspective,
+                };
+                self.draw_particles(enc, pi, &view, input, &frame_copy)?;
+                if let Some(t) = frame_copy.remove("_rt_FullFrameBuffer") {
+                    self.pool.give(t);
+                }
             }
             let Some(Placed {
                 world,
@@ -1707,6 +2216,13 @@ impl Engine {
             }) = self.layers[li].placed
             else {
                 continue;
+            };
+            // A fullscreen layer of a perspective scene covers the target, at the target's size.
+            let fullscreen = perspective && self.scene.layers[li].fullscreen;
+            let (world, size, view_projection) = if fullscreen {
+                (translate(tw / 2.0, th / 2.0, 0.0), screen, ortho_projection)
+            } else {
+                (world, size, view_projection)
             };
             if self.layers[li].base.is_none() && self.layers[li].image.is_none() {
                 continue;
@@ -1734,19 +2250,24 @@ impl Engine {
             {
                 self.text_dirty = true;
             }
+            // Exactly the full-target quad, which the draw then gives in clip space.
+            let mvp = if fullscreen { FBO_MVP } else { mul(&view_projection, &model) };
             let ctx = DrawCtx {
-                mvp: mul(&view_projection, &model),
+                mvp,
                 model,
                 view_projection,
                 target: screen,
                 color,
                 alpha,
                 buffer_scale: [1.0, 1.0],
-                screen_mvp: mul(&view_projection, &model),
+                screen_mvp: mvp,
                 size,
+                normal_model: IDENTITY,
+                lit: false,
             };
-            // Nothing of the layer reaches the target: its effects and draw would be wasted.
-            if !is_puppet && off_target(&ctx.mvp) {
+            // Nothing of the layer reaches the target: its effects and draw would be wasted. The
+            // test assumes an orthographic view.
+            if !is_puppet && !perspective && off_target(&ctx.mvp) {
                 continue;
             }
             let uv = image.as_ref().map_or([1.0, 1.0], |t| {
@@ -1860,7 +2381,7 @@ impl Engine {
             let mut prev = self.pool.take(&self.gpu, fw, fh)?;
             // Effects only need to run where the layer can show, plus a margin for effects that
             // sample a little way off; a cached layer keeps all of it, the view may change later.
-            let clip = if is_puppet || self.layers[li].still {
+            let clip = if is_puppet || self.layers[li].still || perspective {
                 [0.0, 0.0, 1.0, 1.0]
             } else {
                 visible_uv(&ctx.mvp, 1.25)
@@ -1997,8 +2518,15 @@ impl Engine {
             self.pool.give(prev);
             main = Some(enc);
         }
+        if let Some(enc) = model_pass {
+            enc.endEncoding();
+        }
         if let Some(enc) = main {
             enc.endEncoding();
+        }
+        // Nothing drew: the target still gets the clear colour.
+        if let Some(c) = clear {
+            gpu::begin(cb, scene_target, msaa.as_deref(), Some(c))?.endEncoding();
         }
         for (_, t) in composites {
             self.pool.give(t);
@@ -2014,7 +2542,7 @@ impl Engine {
         }
         if let Some(scene_tex) = scene_tex.clone().filter(|_| !blurred) {
             let enc = gpu::begin(cb, target, None, None)?;
-            self.composite_rect(&enc, &scene_tex, 0, Blend::Disabled, 1, FBO_MVP, [0.0, 0.0, 1.0, 1.0], [1.0; 3], 1.0)?;
+            self.present_rect(&enc, &scene_tex, Blend::Disabled, FBO_MVP, [0.0, 0.0, 1.0, 1.0])?;
             enc.endEncoding();
             self.pool.give(scene_tex);
         } else if let Some(scene_tex) = scene_tex {
@@ -2025,20 +2553,11 @@ impl Engine {
             let enc = gpu::begin(cb, target, None, Some([0.0, 0.0, 0.0, 1.0]))?;
             // The blurred copy covers the whole target.
             let crop = cover_crop(cw / ch, tw / th);
-            self.composite_rect(&enc, &bg, 0, Blend::Normal, 1, FBO_MVP, crop, [1.0; 3], 1.0)?;
+            self.present_rect(&enc, &bg, Blend::Normal, FBO_MVP, crop)?;
             // The picture itself keeps its place.
             let mvp = sub_rect_mvp(x, y, cw, ch, tw, th);
-            self.composite_rect(
-                &enc,
-                &scene_tex,
-                0,
-                Blend::Normal,
-                1,
-                mvp,
-                [x / tw, y / th, (x + cw) / tw, (y + ch) / th],
-                [1.0; 3],
-                1.0,
-            )?;
+            let rect = [x / tw, y / th, (x + cw) / tw, (y + ch) / th];
+            self.present_rect(&enc, &scene_tex, Blend::Normal, mvp, rect)?;
             enc.endEncoding();
             self.pool.give(bg);
             self.pool.give(scene_tex);
@@ -2090,6 +2609,7 @@ impl Engine {
             .iter()
             .flat_map(|l| l.base.iter().chain(&l.base_fx))
             .any(|i| i.reads_frame)
+            || self.particles.iter().any(ParticleGpu::reads_frame)
     }
 
     fn composite(
@@ -2148,6 +2668,51 @@ impl Engine {
         unsafe {
             enc.setFragmentTexture_atIndex(Some(tex), 0);
             enc.setFragmentSamplerState_atIndex(Some(&self.gpu.samplers[sampler]), 0);
+            enc.drawPrimitives_vertexStart_vertexCount(MTLPrimitiveType::TriangleStrip, 0, 4);
+        }
+        Ok(())
+    }
+
+    /// Draws a part of the finished scene onto the target (one sample per pixel), through the
+    /// colour grade when it is on.
+    fn present_rect(
+        &mut self,
+        enc: &gpu::Encoder,
+        tex: &Texture,
+        blend: Blend,
+        mvp: Mat4,
+        rect: [f32; 4],
+    ) -> Result<(), Error> {
+        if !self.grade.active() {
+            return self.composite_rect(enc, tex, 0, blend, 1, mvp, rect, [1.0; 3], 1.0);
+        }
+        let pipeline = self.gpu.grade(blend, TARGET_FORMAT)?;
+        enc.setRenderPipelineState(&pipeline);
+        // Matches `G` in the grade shader: mvp, colour, params, grade.
+        let mut u = [0f32; 28];
+        u[..16].copy_from_slice(&mvp);
+        u[16..20].copy_from_slice(&[1.0; 4]);
+        if let Some(params) = self.grade.adjust {
+            u[20..24].copy_from_slice(&params);
+            u[24] = 1.0;
+        }
+        let lut = match &self.grade.filter {
+            Some((_, table, strength)) => {
+                u[25] = *strength;
+                table
+            }
+            None => &self.neutral_lut,
+        };
+        let bytes: Vec<u8> = u.iter().flat_map(|f| f.to_le_bytes()).collect();
+        gpu::set_bytes(enc, true, &bytes, 0);
+        gpu::set_bytes(enc, false, &bytes, 0);
+        gpu::set_bytes(enc, true, &quad_rect(rect), shader::VERTEX_BUFFER_SLOT as usize);
+        // SAFETY: slots 0 and 1 exist in the grade shader; the textures outlive the encoder's use.
+        unsafe {
+            enc.setFragmentTexture_atIndex(Some(tex), 0);
+            enc.setFragmentSamplerState_atIndex(Some(&self.gpu.samplers[0]), 0);
+            enc.setFragmentTexture_atIndex(Some(lut), 1);
+            enc.setFragmentSamplerState_atIndex(Some(&self.gpu.samplers[0]), 1);
             enc.drawPrimitives_vertexStart_vertexCount(MTLPrimitiveType::TriangleStrip, 0, 4);
         }
         Ok(())
@@ -2281,6 +2846,30 @@ impl Engine {
         named: &HashMap<String, Retained<Texture>>,
         tex0: Option<&Texture>,
     ) {
+        let full_target = self.bind(enc, item, ctx, input, prev, named, tex0, None);
+        let verts = if full_target { clip_quad(uv) } else { quad(uv) };
+        gpu::set_bytes(enc, true, &verts, shader::VERTEX_BUFFER_SLOT as usize);
+        // SAFETY: a 4-vertex strip from the bytes set above.
+        unsafe {
+            enc.drawPrimitives_vertexStart_vertexCount(MTLPrimitiveType::TriangleStrip, 0, 4)
+        };
+    }
+
+    /// Sets a draw item's pipeline, textures and uniforms; `particle` holds the particle
+    /// shaders' own inputs for a particle draw. Returns whether the draw covers the whole target,
+    /// whose quad is then given in clip space.
+    #[allow(clippy::too_many_arguments)]
+    fn bind(
+        &self,
+        enc: &gpu::Encoder,
+        item: &DrawItem,
+        ctx: &DrawCtx,
+        input: FrameInput,
+        prev: Option<&Retained<Texture>>,
+        named: &HashMap<String, Retained<Texture>>,
+        tex0: Option<&Texture>,
+        particle: Option<&particles::ShaderValues>,
+    ) -> bool {
         enc.setRenderPipelineState(&item.pipeline);
         // Resolve textures first: their sizes feed the resolution uniforms.
         let mut bound: Vec<(u8, usize, &Texture, usize, [f32; 4])> = Vec::new();
@@ -2342,9 +2931,13 @@ impl Engine {
         };
         for (vertex, u, d) in &item.dynamic {
             let v: Vec<f32> = match d {
+                Dyn::View(which) => {
+                    write_uniform(if *vertex { &mut vs } else { &mut fs }, u, self.view_uniform(*which, ctx));
+                    continue;
+                }
                 Dyn::Mvp => mvp.to_vec(),
                 Dyn::Model => ctx.model.to_vec(),
-                Dyn::ModelInverse => invert_affine_2d(&ctx.model).to_vec(),
+                Dyn::ModelInverse => models::inverse(&ctx.model).to_vec(),
                 Dyn::ViewProjection => ctx.view_projection.to_vec(),
                 Dyn::MvpInverse => mvp_inv.to_vec(),
                 Dyn::TexProjectionInverse => tex_proj_inv.to_vec(),
@@ -2385,13 +2978,15 @@ impl Engine {
                     None => vec![0.0, 0.0],
                 },
                 Dyn::Audio(right, n) => bands(&self.audio[*right as usize], *n),
+                Dyn::Particle(p) => match particle {
+                    Some(values) => values.get(*p).to_vec(),
+                    None => continue,
+                },
             };
             write_uniform(if *vertex { &mut vs } else { &mut fs }, u, &v);
         }
         gpu::set_buffer_or_bytes(&self.gpu, enc, true, &vs, 0);
         gpu::set_buffer_or_bytes(&self.gpu, enc, false, &fs, 0);
-        let verts = if full_target { clip_quad(uv) } else { quad(uv) };
-        gpu::set_bytes(enc, true, &verts, shader::VERTEX_BUFFER_SLOT as usize);
         for (slot, _, tex, sampler, _) in bound {
             let slot = slot as usize;
             // SAFETY: slots come from the program's own binding map; resources outlive the frame.
@@ -2405,10 +3000,7 @@ impl Engine {
                 );
             }
         }
-        // SAFETY: a 4-vertex strip from the bytes set above.
-        unsafe {
-            enc.drawPrimitives_vertexStart_vertexCount(MTLPrimitiveType::TriangleStrip, 0, 4)
-        };
+        full_target
     }
 
     /// Whether frames differ over time. Static scenes draw once and then idle.
@@ -2431,6 +3023,7 @@ impl Engine {
             || self.puppets.iter().any(|p| !p.animations.is_empty())
             || self.scripts_animated()
             || self.parallax_now().is_some()
+            || self.models_animated()
             || items
                 .into_iter()
                 .any(|i| i.dynamic.iter().any(|(_, _, d)| moving(d)))
@@ -2500,6 +3093,42 @@ fn off_target(mvp: &Mat4) -> bool {
     let corners = [[-0.5f32, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]]
         .map(|[x, y]| [mvp[0] * x + mvp[4] * y + mvp[12], mvp[1] * x + mvp[5] * y + mvp[13]]);
     (0..2).any(|a| corners.iter().all(|c| c[a] > 1.0) || corners.iter().all(|c| c[a] < -1.0))
+}
+
+/// The rope shader; particle ropes draw with it whatever shader their material names.
+const ROPE_SHADER: &str = "genericropeparticle";
+
+/// A sprite sheet as the particle shaders read it: frame 0's size in texture coordinates, the
+/// frame count and a frame's height over its width.
+fn sheet_info(t: &TexEntry) -> Option<particles::SheetInfo> {
+    let f = t.frames.first()?;
+    let w = f.width_x.hypot(f.width_y);
+    let h = f.height_x.hypot(f.height_y);
+    Some(particles::SheetInfo {
+        frame: [w / t.res[0].max(1.0), h / t.res[1].max(1.0)],
+        count: t.frames.len() as f32,
+        aspect: if w > 0.0 { h / w } else { 1.0 },
+    })
+}
+
+fn renderer_name(kind: &particles::RendererKind) -> &'static str {
+    match kind {
+        particles::RendererKind::Sprite => "sprite",
+        particles::RendererKind::SpriteTrail { .. } => "spritetrail",
+        particles::RendererKind::Rope { .. } => "rope",
+        particles::RendererKind::RopeTrail { .. } => "ropetrail",
+    }
+}
+
+/// The camera perspective particle systems are seen through, in scene space (y up): looking
+/// down -z at the scene's centre from where the z = 0 plane fills the view exactly as the
+/// orthographic view does, so depth alone moves and scales a particle.
+fn perspective(width: f32, height: f32, fov: f32) -> Mat4 {
+    let d = height / (2.0 * (fov * 0.5).tan());
+    let (cx, cy) = (width * 0.5, height * 0.5);
+    [
+        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, -cx / d, -cy / d, 1.0, -1.0 / d, 0.0, 0.0, 0.0, 1.0,
+    ]
 }
 
 /// Centred unit quad as a triangle strip, y down; texcoord (0, 0) is the image's top-left.
@@ -2584,18 +3213,14 @@ fn camera_shift(p: &scene::ParallaxNow, pointer: [f32; 2], reference: f32) -> [f
     [0, 1].map(|i| -(pointer[i] - 0.5) * k * reference)
 }
 
-/// The camera's offset at `time` for a scene's shake settings (amplitude, roughness, speed): slow
-/// smooth noise, two incommensurate sines per axis, with roughness adding a faster octave.
-// shortcut: magnitude (amplitude x 1% of the scene) and the noise shape are a guess, not measured
-// against Wallpaper Engine; tune against a scene that enables the shake.
-fn camera_shake([amplitude, roughness, speed]: [f32; 3], time: f32, size: [f32; 2]) -> [f32; 2] {
-    let t = time * speed;
-    let axis = |phase: f32, extent: f32| {
-        let smooth = (t * 0.9 + phase).sin() + 0.6 * (t * 1.7 + phase * 2.3).sin();
-        let rough = roughness.clamp(0.0, 4.0) * 0.25 * (t * 4.1 + phase * 3.1).sin();
-        (smooth + rough) / 1.6 * amplitude * 0.01 * extent
-    };
-    [axis(0.0, size[0]), axis(1.7, size[0])]
+/// The 2D camera's offset at `time` for a scene's shake settings (amplitude, roughness, speed), in
+/// design units: Wallpaper Engine's shake loop (`camera::shake`) in the image plane, a hundredth of
+/// the scene's height per unit of amplitude.
+fn camera_shake([amplitude, roughness, speed]: [f32; 3], time: f32, height: f32) -> [f32; 2] {
+    // `camera::shake` scales the loop by a tenth of its amplitude.
+    let v = crate::camera::shake([10.0, roughness, speed], time);
+    let k = amplitude * 0.01 * height;
+    [v[0] * k, v[1] * k]
 }
 
 /// One layer's own parallax offset: its depth times the camera shift, kept inside the margin.
@@ -2764,13 +3389,48 @@ mod tests {
     }
 
     #[test]
+    fn framing_follows_the_alignments() {
+        let design = [1920.0, 1080.0];
+        let framing = |alignment, position, x, y, zoom| Framing {
+            alignment,
+            position,
+            x,
+            y,
+            zoom,
+            ..Framing::default()
+        };
+        let close = |a: [f32; 4], b: [f32; 4]| a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-2);
+        // Cover on a 16:10 target: the sides overflow and the position picks the part shown.
+        let cover = |p| framed_view(&framing(Alignment::Cover, p, 0.5, 0.5, 1.0), design, [1728.0, 1080.0]);
+        assert!(close(cover(0.0), [0.0, 1728.0, 0.0, 1080.0]), "{:?}", cover(0.0));
+        assert!(close(cover(1.0), [192.0, 1920.0, 0.0, 1080.0]), "{:?}", cover(1.0));
+        // Fill shows everything; the bars go above and below.
+        let fill = framed_view(&framing(Alignment::Fill, 0.5, 0.5, 0.5, 1.0), design, [1728.0, 1080.0]);
+        assert!(close(fill, [0.0, 1920.0, -60.0, 1140.0]), "{fill:?}");
+        // Center is one design pixel per target pixel, placed by x and y.
+        let center = framed_view(&framing(Alignment::Center, 0.5, 0.0, 1.0, 1.0), design, [960.0, 540.0]);
+        assert!(close(center, [0.0, 960.0, 540.0, 1080.0]), "{center:?}");
+        // Free at zoom 1 and centred is the same as center; at x 0 the scene is left of the view.
+        let free = |x, zoom| framed_view(&framing(Alignment::Free, 0.5, x, 0.5, zoom), design, [960.0, 540.0]);
+        assert!(close(free(0.5, 1.0), [480.0, 1440.0, 270.0, 810.0]), "{:?}", free(0.5, 1.0));
+        assert!(free(0.0, 1.0)[0] >= 1920.0);
+        // Zoom 2 magnifies a hundredfold around the same placement; zoom 0 shows 16 times more.
+        let near = free(0.5, 2.0);
+        assert!(((near[1] - near[0]) - 9.6).abs() < 1e-2 && ((near[0] + near[1]) / 2.0 - 960.0).abs() < 1e-2);
+        let far = free(0.5, 0.0);
+        assert!(((far[1] - far[0]) - 960.0 * 16.0).abs() < 1e-2);
+        let stretch = framed_view(&framing(Alignment::Stretch, 0.5, 0.5, 0.5, 1.0), design, [500.0, 900.0]);
+        assert!(close(stretch, [0.0, 1920.0, 0.0, 1080.0]));
+    }
+
+    #[test]
     fn camera_shake_is_bounded_and_zero_without_amplitude() {
-        let size = [1920.0, 1080.0];
-        assert_eq!(camera_shake([0.0, 1.0, 3.0], 2.0, size), [0.0, 0.0]);
+        assert_eq!(camera_shake([0.0, 1.0, 3.0], 2.0, 1080.0), [0.0, 0.0]);
         let mut moved = false;
         for i in 0..200 {
-            let o = camera_shake([0.5, 1.0, 3.0], i as f32 * 0.1, size);
-            assert!(o[0].abs() <= 0.5 * 0.01 * 1920.0 * 1.2 && o[1].abs() <= 0.5 * 0.01 * 1920.0 * 1.2, "{o:?}");
+            let o = camera_shake([0.5, 1.0, 3.0], i as f32 * 0.1, 1080.0);
+            // A unit loop scaled to 0.5% of the height.
+            assert!(o[0].abs() <= 5.4 + 1e-3 && o[1].abs() <= 5.4 + 1e-3, "{o:?}");
             moved |= o[0] != 0.0;
         }
         assert!(moved);
@@ -2783,7 +3443,7 @@ mod tests {
             "cameraparallaxamount": {"user": "amt", "value": 0.2},
             "camerashake": {"user": "s", "value": false},
         });
-        let bound = |k: &str, d: Value| scene::Bound::parse_for_test(json.get(k), d);
+        let bound = |k: &str, d: Value| scene::Bound::parse(json.get(k), d);
         let parallax = scene::Parallax {
             enabled: bound("cameraparallax", Value::Bool(false)),
             amount: bound("cameraparallaxamount", Value::from(0.5)),

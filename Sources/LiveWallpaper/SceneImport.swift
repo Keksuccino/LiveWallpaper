@@ -18,6 +18,7 @@ struct SceneImportInput {
 
 enum SceneImporter {
     private static let sizeCap: Int64 = 3_000_000_000
+    /// Stored in English like SceneAnalyzer's notes and translated when shown (SceneInfo.localizedNotes).
     private static let unreadableNote = "This scene’s files couldn’t be read, so only its preview is shown."
     private static let previewTypes = ["jpg": "jpg", "jpeg": "jpg", "png": "png", "gif": "gif"]
 
@@ -50,19 +51,21 @@ enum SceneImporter {
         let content = input.contentFolder
         let project = WorkshopKit.Import.parseProject((try? Data(contentsOf: content.appendingPathComponent("project.json"))) ?? Data())
         guard let source = chooseSource(in: content, project: project) else {
-            throw WorkshopError.importFailed("This wallpaper has no scene file.")
+            throw WorkshopError.importFailed(String(localized: "This wallpaper has no scene file."))
         }
         let bytes: Int64
         switch source {
         case .package(let url): bytes = Int64(SteamKit.fileSize(url))
         case .loose: bytes = WorkshopKit.Locate.folderBytes(content)
         }
-        guard bytes <= sizeCap else { throw WorkshopError.importFailed("This wallpaper is larger than 3 GB.") }
+        guard bytes <= sizeCap else {
+            throw WorkshopError.importFailed(String(localized: "This wallpaper is larger than 3 GB."))
+        }
         let previewExt = input.previewSource.flatMap { previewTypes[$0.pathExtension.lowercased()] }
         let preview = previewExt == nil ? nil : input.previewSource
         let readable = analyze(source)
         if readable == nil, preview == nil {
-            throw WorkshopError.importFailed("The scene’s files couldn’t be read and it has no preview image.")
+            throw WorkshopError.importFailed(String(localized: "The scene’s files couldn’t be read and it has no preview image."))
         }
 
         let partial = AppPaths.libraryDirectory.appendingPathComponent(input.workshopID + ".partial", isDirectory: true)
@@ -85,7 +88,9 @@ enum SceneImporter {
                (try? manager.copyItem(at: preview, to: partial.appendingPathComponent("preview." + previewExt))) != nil {
                 previewName = "preview." + previewExt
             }
-            if readable == nil, previewName == nil { throw WorkshopError.importFailed("The preview image couldn’t be copied.") }
+            if readable == nil, previewName == nil {
+                throw WorkshopError.importFailed(String(localized: "The preview image couldn’t be copied."))
+            }
             try? manager.removeItem(at: folder)
             try manager.moveItem(at: partial, to: folder)
             return VideoItem(
@@ -147,5 +152,13 @@ enum SceneImporter {
         let base = folder.resolvingSymlinksInPath().path + "/"
         let path = file.resolvingSymlinksInPath().path
         return path.hasPrefix(base) ? String(path.dropFirst(base.count)) : file.lastPathComponent
+    }
+}
+
+extension SceneInfo {
+    /// The notes in the app's language. The library stores them in English, as SceneAnalyzer and SceneImporter write
+    /// them, and every one of those sentences is a manual key of the String Catalog (Resources/Localizable.xcstrings).
+    var localizedNotes: [String] {
+        notes.map { Bundle.main.localizedString(forKey: $0, value: nil, table: nil) }
     }
 }

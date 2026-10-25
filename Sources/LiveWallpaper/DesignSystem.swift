@@ -119,8 +119,8 @@ struct GlassPanel<Content: View>: View {
 
 /// The big page title and a quiet subtitle, used to open every page. Typography-led: no icons, no colour.
 struct LWPageHeader<Trailing: View>: View {
-    let title: String
-    var subtitle: String = ""
+    let title: LocalizedStringKey
+    var subtitle: LocalizedStringKey? = nil
     @ViewBuilder let trailing: () -> Trailing
 
     var body: some View {
@@ -129,7 +129,7 @@ struct LWPageHeader<Trailing: View>: View {
                 Text(title)
                     .font(.system(size: 30, weight: .bold))
                     .kerning(-0.4)
-                if !subtitle.isEmpty {
+                if let subtitle {
                     Text(subtitle)
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -144,7 +144,7 @@ struct LWPageHeader<Trailing: View>: View {
 
 extension LWPageHeader where Trailing == EmptyView {
     /// Header without trailing actions.
-    init(title: String, subtitle: String = "") {
+    init(title: LocalizedStringKey, subtitle: LocalizedStringKey? = nil) {
         self.init(title: title, subtitle: subtitle, trailing: { EmptyView() })
     }
 }
@@ -152,17 +152,18 @@ extension LWPageHeader where Trailing == EmptyView {
 // MARK: - Inspector pieces
 
 struct InspectorSection<Content: View>: View {
-    let title: String
-    var subtitle: String? = nil
+    let title: LocalizedStringKey
+    var subtitle: LocalizedStringKey? = nil
     @ViewBuilder var content: Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(title.uppercased())
+                Text(title)
                     .font(.caption2.weight(.bold))
                     .tracking(0.8)
                     .foregroundStyle(.tertiary)
+                    .textCase(.uppercase)
                 if let subtitle {
                     Text(subtitle).font(.caption).foregroundStyle(.tertiary)
                 }
@@ -275,7 +276,7 @@ struct ProgressRing: View {
                 .rotationEffect(.degrees(-90))
                 .animation(.easeOut(duration: 0.25), value: progress)
             if size >= 26 {
-                Text("\(Int((min(max(progress, 0), 1) * 100).rounded()))")
+                Text(Int((min(max(progress, 0), 1) * 100).rounded()), format: .number)
                     .font(.system(size: 9, weight: .bold))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
@@ -323,7 +324,7 @@ struct LWProgressBar: View {
 
 /// Glass capsule search field with icon, clear button and an escape-to-clear shortcut.
 struct LWSearchField: View {
-    let prompt: String
+    let prompt: LocalizedStringKey
     @Binding var text: String
 
     var body: some View {
@@ -481,11 +482,11 @@ struct ItemThumbnail: View {
 /// are the same rounded rectangle, so the border always contains everything inside it.
 struct LWEmptyState: View {
     let icon: String
-    let title: String
-    let message: String
-    var actionTitle: String? = nil
+    let title: LocalizedStringKey
+    let message: LocalizedStringKey
+    var actionTitle: LocalizedStringKey? = nil
     var action: (() -> Void)? = nil
-    var secondaryTitle: String? = nil
+    var secondaryTitle: LocalizedStringKey? = nil
     var secondaryAction: (() -> Void)? = nil
     var targeted = false
 
@@ -542,17 +543,57 @@ struct LWEmptyState: View {
 // MARK: - Settings rows
 
 struct LWSettingRow<Content: View>: View {
-    let title: String
-    var help: String? = nil
+    let title: LocalizedStringKey
+    var help: LocalizedStringKey? = nil
     @ViewBuilder var content: Content
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            Text(title).font(.callout)
+            Text(title).font(.callout).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
             content
         }
-        .help(help ?? "")
+        .help(help.map { Text($0) } ?? Text(verbatim: ""))
+    }
+}
+
+/// An on/off setting: the label leading (wrapping in a narrow column), a small switch trailing.
+struct LWSwitchRow<Label: View>: View {
+    @Binding var isOn: Bool
+    /// The label's words for VoiceOver: the switch itself shows no label.
+    let accessibilityLabel: Text
+    @ViewBuilder let label: () -> Label
+
+    var body: some View {
+        HStack {
+            label().fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Toggle(isOn: $isOn) { EmptyView() }
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .accessibilityLabel(accessibilityLabel)
+        }
+    }
+}
+
+extension LWSwitchRow where Label == Text {
+    /// A row labelled `title`.
+    init(_ title: LocalizedStringKey, isOn: Binding<Bool>) {
+        self.init(isOn: isOn, accessibilityLabel: Text(title)) { Text(title) }
+    }
+}
+
+extension View {
+    /// A control beside a label in a narrow column (the inspector): its natural width, but never more than
+    /// `maxWidth`, truncating longer content (a long choice, a long translation) so the column never grows. The label
+    /// beside it wraps instead.
+    func columnControl(maxWidth: CGFloat = LWTheme.inspectorWidth / 2) -> some View {
+        ViewThatFits(in: .horizontal) {
+            fixedSize()
+            self
+        }
+        .frame(maxWidth: maxWidth, alignment: .trailing)
     }
 }
 

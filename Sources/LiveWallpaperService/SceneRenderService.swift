@@ -18,11 +18,12 @@ final class RendererBox: @unchecked Sendable {
     private let power = PowerSource()
     private var audio: SystemAudioTap?
     private var pointerMonitor: Any?
-    private var muted = true
     private var generation = 0
     private var state = LibraryState()
     // What the renderer has been given so far; nil = nothing yet, so everything is pushed.
-    private var appliedScene: SceneOptions?
+    private var appliedOptions: WallpaperOptions?
+    private var appliedVolume: Double?
+    private var appliedSilent: Bool?
     private var appliedFPS: Int?
     private var appliedScale: Double?
     private var appliedPaused: Bool?
@@ -54,10 +55,13 @@ final class RendererBox: @unchecked Sendable {
         let mine = generation
         // Loading a scene takes a moment, so it happens off the main actor.
         let path = item.url.path
+        // Scripts keep their localStorage in the wallpaper's own library folder, which goes with the wallpaper.
+        let storage = AppPaths.isInsideLibrary(item.url)
+            ? item.url.deletingLastPathComponent().appendingPathComponent("scenescript-storage.json").path : nil
         Task.detached(priority: .userInitiated) { [weak self] in
             let box: Result<RendererBox, Swift.Error>
             do {
-                box = .success(RendererBox(try Renderer(pkgPath: path)))
+                box = .success(RendererBox(try Renderer(pkgPath: path, storagePath: storage)))
             } catch {
                 box = .failure(error)
             }
@@ -72,7 +76,7 @@ final class RendererBox: @unchecked Sendable {
         switch result {
         case .failure(let error):
             super.stop()
-            onFailure?(item, "Couldn’t play “\(item.name)”. \(error.localizedDescription)")
+            onFailure?(item, String(localized: "Couldn’t play “\(item.name)”. \(error.localizedDescription)"))
         case .success(let box):
             let renderer = box.renderer
             self.renderer = renderer
@@ -81,7 +85,6 @@ final class RendererBox: @unchecked Sendable {
             }
             windows.open()
             attachDisplay()
-            renderer.setMuted(muted: muted)
             startPointer()
             push(item)
             onReady?(item)
@@ -117,7 +120,9 @@ final class RendererBox: @unchecked Sendable {
         renderer?.stop()
         renderer = nil
         setAudioCapture(false)
-        appliedScene = nil
+        appliedOptions = nil
+        appliedVolume = nil
+        appliedSilent = nil
         appliedFPS = nil
         appliedScale = nil
         appliedPaused = nil
@@ -182,11 +187,6 @@ final class RendererBox: @unchecked Sendable {
         if let item, renderer != nil { push(item) }
     }
 
-    override func setMuted(_ muted: Bool) {
-        self.muted = muted
-        renderer?.setMuted(muted: muted)
-    }
-
     /// The lock screen covers the desktop: nothing is drawn and nothing is heard.
     override func setScreenLocked(_ locked: Bool) {
         renderer?.setVisible(visible: !locked)
@@ -199,30 +199,43 @@ final class RendererBox: @unchecked Sendable {
     private func push(_ item: VideoItem) {
         guard let renderer else { return }
         let config = state.config(for: displayID)
-        let new = config.sceneOptions(for: item.id)
-        let old = appliedScene
+        let new = config.options(for: item.id)
+        let old = appliedOptions
         let rules = config.power
         let saving = power.isSaving
-        var fps = new.fps ?? config.sceneFPS
+        var fps = new.fps
         var scale = new.renderScale
-        if let cap = rules.frameRateCap { fps = min(fps, max(cap, 1)) }
         if saving && rules.batteryMode == .reducedQuality {
             fps = min(fps, rules.batteryFPS)
             scale = min(scale, rules.batteryRenderScale)
         }
         let pause = paused || (saving && rules.batteryMode == .pause)
 
-        if new.fitMode != old?.fitMode {
-            renderer.setFitMode(mode: new.fitMode.renderer)
+        if new.framing != old?.framing {
+            renderer.setFraming(framing: new.framing)
         }
-        if new.panX != old?.panX || new.panY != old?.panY || new.zoom != old?.zoom {
-            renderer.setPanZoom(of: new)
+        if new.colorGrade != old?.colorGrade {
+            renderer.setColorGrade(grade: new.colorGrade)
+        }
+        if new.rate != old?.rate {
+            renderer.setRate(rate: Float(new.rate))
+        }
+        if new.mouseParallax != old?.mouseParallax {
+            renderer.setParallaxEnabled(enabled: new.mouseParallax)
+        }
+        if new.antialiasing != old?.antialiasing {
+            renderer.applyAntialiasing(samples: new.antialiasing ? 4 : 1)
         }
         if scale != appliedScale {
             renderer.setRenderScale(scale: Float(scale))
         }
-        if new.volume != old?.volume {
-            renderer.setVolume(volume: Float(new.volume))
+        let volume = new.volume * state.masterVolume
+        if volume != appliedVolume {
+            renderer.setVolume(volume: Float(volume))
+        }
+        let silent = state.muted || new.muted
+        if silent != appliedSilent {
+            renderer.setMuted(muted: silent)
         }
         if new.audioResponse != old?.audioResponse {
             renderer.setAudioResponse(enabled: new.audioResponse)
@@ -237,7 +250,9 @@ final class RendererBox: @unchecked Sendable {
             if pause { renderer.pause() } else { renderer.play() }
         }
         setAudioCapture(new.audioResponse && !pause)
-        appliedScene = new
+        appliedOptions = new
+        appliedVolume = volume
+        appliedSilent = silent
         appliedFPS = fps
         appliedScale = scale
         appliedPaused = pause
@@ -298,21 +313,29 @@ final class RendererBox: @unchecked Sendable {
     }
 }
 
-extension Renderer {
-    /// The sliders are 0...1 with 0.5 in the middle; the renderer wants the offset.
-    func setPanZoom(of options: SceneOptions) {
-        setPanZoom(panX: Float(options.panX - 0.5), panY: Float(options.panY - 0.5), zoom: Float(options.zoom))
+extension WallpaperOptions {
+    /// Where and how big the renderer draws the scene.
+    var framing: Framing {
+        Framing(alignment: alignment.renderer, position: Float(position), x: Float(alignX), y: Float(alignY),
+                zoom: Float(zoom), flip: flip, blurBars: blurBars && alignment.canLeaveBars)
+    }
+
+    /// The renderer's colour options and image filter.
+    var colorGrade: ColorGrade {
+        ColorGrade(adjust: colorAdjust, brightness: Float(brightness), contrast: Float(contrast),
+                   saturation: Float(saturation), hue: Float(hue), filter: filter ?? "",
+                   filterStrength: Float(filterStrength))
     }
 }
 
-extension SceneFitMode {
-    var renderer: FitMode {
+extension WallpaperAlignment {
+    var renderer: Alignment {
         switch self {
+        case .cover: return .cover
         case .fill: return .fill
-        case .fit: return .fit
+        case .center: return .center
         case .stretch: return .stretch
-        case .none: return .unscaled
-        case .matchBlurred: return .matchBlurred
+        case .free: return .free
         }
     }
 }

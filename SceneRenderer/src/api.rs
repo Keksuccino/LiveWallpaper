@@ -16,7 +16,7 @@ use objc2_metal::*;
 use objc2_quartz_core::{CAMetalDrawable, CAMetalLayer};
 use serde_json::Value;
 
-use crate::engine::{Engine, FitMode, FrameInput};
+use crate::engine::{ColorGrade, Engine, FrameInput, Framing};
 use crate::gpu::TARGET_FORMAT;
 use crate::scene::project_properties;
 use crate::vfs::Vfs;
@@ -30,6 +30,27 @@ pub struct SceneProperty {
     pub label: String,
     /// Current value as JSON.
     pub value_json: String,
+}
+
+/// One of Wallpaper Engine's colour lookup tables, for pictures the renderer does not draw (the service's videos).
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct LookupTable {
+    /// Edge length of the colour cube.
+    pub size: u32,
+    /// RGBA8 texels, slices stacked top to bottom: x = red, y = green, slice = blue.
+    pub rgba: Vec<u8>,
+}
+
+/// The lookup table `name` from the shared assets folder `assets` (`materials/lut/<name>.tex`).
+#[uniffi::export]
+pub fn lookup_table(assets: String, name: String) -> Result<LookupTable, Error> {
+    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        return Err(Error::Format(format!("lookup table name {name}")));
+    }
+    let path = Path::new(&assets).join("materials/lut").join(format!("{name}.tex"));
+    let data = std::fs::read(&path).map_err(|e| Error::Io(format!("{}: {e}", path.display())))?;
+    let (size, rgba) = crate::tex::lookup_table(&data)?;
+    Ok(LookupTable { size: size as u32, rgba })
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -59,8 +80,10 @@ enum Command {
     Visible(bool),
     Attach(String, usize, u32, u32),
     Detach(String),
-    Fit(FitMode),
-    PanZoom(f32, f32, f32),
+    Framing(Framing),
+    Grade(ColorGrade),
+    Rate(f32),
+    Parallax(bool),
     RenderScale(f32),
     AudioResponse(bool),
     Sound(bool, f32),
@@ -105,9 +128,10 @@ impl std::fmt::Debug for Command {
 impl Renderer {
     /// Opens `scene.pkg` (or an unpacked scene folder). Shared assets are looked up in the
     /// library's sibling `WallpaperEngineAssets` folder. Fails if the scene cannot be drawn at all;
-    /// partial support is reported by `load_errors`.
+    /// partial support is reported by `load_errors`. `storage_path`, when given, is the file in
+    /// which the scene's scripts keep their `localStorage` from one run to the next.
     #[uniffi::constructor]
-    pub fn new(pkg_path: String) -> Result<Arc<Self>, Error> {
+    pub fn new(pkg_path: String, storage_path: Option<String>) -> Result<Arc<Self>, Error> {
         let path = PathBuf::from(&pkg_path);
         let folder = if path.is_dir() {
             path.clone()
@@ -129,6 +153,8 @@ impl Renderer {
             .iter()
             .map(|p| (p.name.clone(), p.value.clone()))
             .collect();
+        let colors: Vec<String> =
+            props.iter().filter(|p| p.kind == "color").map(|p| p.name.clone()).collect();
         let properties = props
             .into_iter()
             .map(|p| SceneProperty {
@@ -148,8 +174,9 @@ impl Renderer {
         let _ = std::thread::Builder::new()
             .name("scene-renderer".into())
             .spawn(move || {
-                let engine =
-                    Vfs::open(&path, assets.as_deref()).and_then(|vfs| Engine::load(vfs, values));
+                let storage = storage_path.map(PathBuf::from);
+                let engine = Vfs::open(&path, assets.as_deref())
+                    .and_then(|vfs| Engine::load(vfs, values, colors, storage));
                 match engine {
                     Ok(engine) => {
                         let _ = ready_tx.send(Ok(engine.warnings.clone()));
@@ -191,20 +218,30 @@ impl Renderer {
         self.send(Command::Detach(display_id));
     }
 
-    /// How the scene is mapped onto the target: fill, fit, stretch, unscaled or blurred fit.
-    pub fn set_fit_mode(&self, mode: FitMode) {
-        self.send(Command::Fit(mode));
+    /// Where and how big the scene is on the target (Wallpaper Engine's alignment and flip).
+    pub fn set_framing(&self, framing: Framing) {
+        self.send(Command::Framing(framing));
+    }
+
+    /// Wallpaper Engine's colour options and image filter.
+    pub fn set_color_grade(&self, grade: ColorGrade) {
+        self.send(Command::Grade(grade));
+    }
+
+    /// Playback speed of the scene's clock: 1 as authored, 0.1...2. Sounds keep their pitch.
+    pub fn set_rate(&self, rate: f32) {
+        self.send(Command::Rate(rate));
+    }
+
+    /// Whether the scene's camera parallax follows the pointer (when the scene has one).
+    pub fn set_parallax_enabled(&self, enabled: bool) {
+        self.send(Command::Parallax(enabled));
     }
 
     /// Hides text layers that scripts compute (clocks and the like). The lock screen loop uses
     /// this: a frame recorded once cannot follow the time.
     pub fn set_hide_scripted_text(&self, hide: bool) {
         self.send(Command::HideScriptedText(hide));
-    }
-
-    /// Moves the picture on screen (in screen widths and heights) and magnifies it.
-    pub fn set_pan_zoom(&self, pan_x: f32, pan_y: f32, zoom: f32) {
-        self.send(Command::PanZoom(pan_x, pan_y, zoom));
     }
 
     /// Fraction of the target's pixels the scene is drawn in; the layer scales it up.
@@ -354,6 +391,8 @@ struct Loop {
     parallax: [f32; 2],
     /// Scene clock while playing.
     time: f32,
+    /// How fast the scene clock runs.
+    rate: f32,
     last: Instant,
     /// A static scene only draws when something changed.
     dirty: bool,
@@ -385,6 +424,7 @@ fn run(engine: Engine, rx: Receiver<Command>, counters: Arc<Counters>, pointer: 
         pointer,
         parallax: [0.5, 0.5],
         time: 0.0,
+        rate: 1.0,
         last: Instant::now(),
         dirty: true,
         animated,
@@ -399,15 +439,25 @@ fn run(engine: Engine, rx: Receiver<Command>, counters: Arc<Counters>, pointer: 
         // While the button is held, scripts may be dragging something: keep drawing.
         let held = s.pointer.lock().is_ok_and(|p| p.down);
         let drawing = s.playing && s.visible && !s.targets.is_empty() && (s.animated || s.dirty || held);
-        let cmd = if drawing {
-            rx.recv_timeout(next.saturating_duration_since(Instant::now()))
-        } else {
-            rx.recv().map_err(|_| RecvTimeoutError::Disconnected)
+        // Sound objects move on (the next file, the end of a pause) on their own clock, also while
+        // a still scene draws nothing.
+        let deadline = match (drawing, s.engine.sounds.next_wake()) {
+            (true, Some(wake)) => Some(next.min(wake)),
+            (true, None) => Some(next),
+            (false, wake) => wake,
+        };
+        let cmd = match deadline {
+            Some(at) => rx.recv_timeout(at.saturating_duration_since(Instant::now())),
+            None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
         };
         match cmd {
             Ok(c) => s.handle(c),
             Err(RecvTimeoutError::Disconnected) => return,
             Err(RecvTimeoutError::Timeout) => {
+                s.engine.sounds.tick();
+                if !drawing || Instant::now() < next {
+                    continue;
+                }
                 let period = if s.fps > 0.0 {
                     Duration::from_secs_f32(1.0 / s.fps)
                 } else {
@@ -440,9 +490,7 @@ impl Loop {
                 self.engine.trim();
             }
             Command::Property(name, value) => {
-                let _ = self.engine.props.insert(name, value);
-                self.engine.rebuild();
-                self.engine.sync_script_layers();
+                self.engine.set_property(name, value);
                 self.animated = self.engine.is_animated();
             }
             Command::Antialiasing(n) => self.engine.set_samples(n as usize),
@@ -489,16 +537,13 @@ impl Loop {
             Command::Detach(id) => {
                 self.targets.retain(|(name, _)| name != &id);
             }
-            Command::Fit(mode) => {
-                self.engine.fit = mode;
-            }
+            Command::Framing(framing) => self.engine.framing = framing,
+            Command::Grade(grade) => self.engine.set_grade(&grade),
+            Command::Rate(rate) => self.rate = rate.clamp(0.1, 2.0),
+            Command::Parallax(enabled) => self.engine.parallax_enabled = enabled,
             Command::HideScriptedText(hide) => {
                 self.engine.hide_scripted_text = hide;
                 self.engine.rebuild();
-            }
-            Command::PanZoom(x, y, zoom) => {
-                self.engine.pan = [x, y];
-                self.engine.zoom = zoom.max(0.05);
             }
             Command::AudioResponse(enabled) => {
                 self.audio_response = enabled;
@@ -556,7 +601,9 @@ impl Loop {
             dt = period;
         }
         self.last = now;
-        self.time += dt;
+        // The scene runs at its playback rate; the pointer's easing below keeps real time.
+        let scene_dt = dt * self.rate;
+        self.time += scene_dt;
         if self.targets.is_empty() {
             return;
         }
@@ -569,7 +616,7 @@ impl Loop {
         }
         let input = FrameInput {
             time: self.time,
-            frame_time: dt,
+            frame_time: scene_dt,
             pointer: pointer.pos,
             pointer_down: pointer.down,
             parallax: self.parallax,

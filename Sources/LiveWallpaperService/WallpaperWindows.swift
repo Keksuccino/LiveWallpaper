@@ -1,24 +1,73 @@
 import AppKit
 import AVFoundation
+import Core
 
-/// Layer-backed view whose backing layer is the AVPlayerLayer itself.
+/// The video on its display: the picture placed by the wallpaper's alignment and, behind it while the alignment
+/// leaves bars, a blurred copy that covers the display. The copy is drawn at an eighth of the size and scaled up, so
+/// its blur costs little; both layers show the same player, which decodes once.
 private final class PlayerView: NSView {
+    private static let backdropScale: CGFloat = 8
+    private let picture = AVPlayerLayer()
+    private let backdrop = AVPlayerLayer()
+    /// The wallpaper's options and the video's pixel size; nil until both are known (the picture then covers).
+    var look: (options: WallpaperOptions, videoSize: CGSize)? { didSet { needsLayout = true } }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        wantsLayer = true  // after super.init, so makeBackingLayer() is what creates the layer
+        wantsLayer = true
+        layerUsesCoreImageFilters = true
+        layer?.backgroundColor = NSColor.black.cgColor
+        picture.videoGravity = .resizeAspectFill
+        backdrop.videoGravity = .resizeAspectFill
+        backdrop.contentsScale = 1
+        backdrop.filters = [CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: 5]) as Any]
+        backdrop.isHidden = true
+        layer?.addSublayer(backdrop)
+        layer?.addSublayer(picture)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override func makeBackingLayer() -> CALayer {
-        let layer = AVPlayerLayer()
-        layer.videoGravity = .resizeAspectFill
-        return layer
+    var player: AVPlayer? {
+        didSet {
+            picture.player = player
+            backdrop.player = backdrop.isHidden ? nil : player
+        }
     }
 
-    var player: AVPlayer? {
-        get { (layer as? AVPlayerLayer)?.player }
-        set { (layer as? AVPlayerLayer)?.player = newValue }
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        let scale = window?.backingScaleFactor ?? 2
+        let target = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+        guard let look, let placement = VideoPlacement(look.options, content: look.videoSize, target: target) else {
+            picture.videoGravity = .resizeAspectFill
+            picture.setAffineTransform(.identity)
+            picture.frame = bounds
+            showBackdrop(false, flipped: false)
+            return
+        }
+        // The placement counts from the top-left in pixels; the layer counts from the bottom-left in points.
+        let frame = placement.frame
+        picture.videoGravity = .resize
+        picture.setAffineTransform(.identity)
+        picture.bounds = CGRect(origin: .zero, size: CGSize(width: frame.width / scale, height: frame.height / scale))
+        picture.position = CGPoint(x: frame.midX / scale, y: bounds.height - frame.midY / scale)
+        picture.setAffineTransform(CGAffineTransform(scaleX: placement.flipped ? -1 : 1, y: 1))
+        showBackdrop(placement.blurredBars, flipped: placement.flipped)
+    }
+
+    private func showBackdrop(_ show: Bool, flipped: Bool) {
+        backdrop.isHidden = !show
+        backdrop.player = show ? player : nil
+        guard show else { return }
+        let k = Self.backdropScale
+        backdrop.setAffineTransform(.identity)
+        backdrop.bounds = CGRect(x: 0, y: 0, width: bounds.width / k, height: bounds.height / k)
+        backdrop.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        backdrop.setAffineTransform(CGAffineTransform(scaleX: flipped ? -k : k, y: k))
     }
 }
 
@@ -56,7 +105,18 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
     private var looper: AVPlayerLooper?  // looping silently stops if this is released
     private var statusObservations: [NSKeyValueObservation] = []
     private var itemObservation: NSKeyValueObservation?  // the current item, until its tracks are known
-    private var muted = true
+    /// The wallpaper's options, the master volume and the app's mute (LibraryState.masterVolume, .muted).
+    private var options = WallpaperOptions.standard
+    private var masterVolume = 1.0
+    private var appMuted = false
+    /// Silent: the wallpaper or the whole app is muted.
+    private var muted: Bool { appMuted || options.muted }
+    /// The video's pixel size, once its track has been read.
+    private var videoSize: CGSize?
+    private let grader = VideoGrader()
+    /// Grades the frames while the colour options or the image filter change the picture; built once per video.
+    private var composition: AVVideoComposition?
+    private var compositionTask: Task<Void, Never>?
     private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     private var wakeTask: Task<Void, Never>?
     private var releaseTask: Task<Void, Never>?
@@ -78,6 +138,11 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
         currentURL = url
         failureReported = false
         resumeTime = nil  // a new video starts from its beginning
+        videoSize = nil
+        composition = nil
+        compositionTask?.cancel()
+        compositionTask = nil
+        loadVideoSize(of: url)
         if observers.isEmpty { installObservers() }
         if !windows.isOpen {
             windows.open()
@@ -88,6 +153,9 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
     }
 
     func hide() {
+        compositionTask?.cancel()
+        compositionTask = nil
+        composition = nil
         wakeTask?.cancel()
         wakeTask = nil
         releaseTask?.cancel()
@@ -111,11 +179,22 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
         applyPlayback()
     }
 
-    /// Mutes the player and, while muted, disables the audio tracks so the audio decoder idles.
-    func setMuted(_ muted: Bool) {
-        self.muted = muted
-        player?.isMuted = muted
-        syncAudioTracks()
+    /// The wallpaper's options (Wallpaper Engine's: volume, mute, playback rate, alignment, flip, colour options,
+    /// image filter), the master volume and the app's mute. While silent the audio tracks are disabled, so the audio
+    /// decoder idles.
+    func apply(_ options: WallpaperOptions, masterVolume: Double, appMuted: Bool) {
+        let old = (options: self.options, volume: self.masterVolume, muted: muted)
+        self.options = options
+        self.masterVolume = masterVolume
+        self.appMuted = appMuted
+        if old.options.volume != options.volume || old.volume != masterVolume || old.muted != muted {
+            player?.volume = Float(options.volume * masterVolume)
+            player?.isMuted = muted
+            syncAudioTracks()
+        }
+        if old.options.rate != options.rate { applyRate() }
+        windows.view?.look = videoSize.map { (options, $0) }
+        applyGrade()
     }
 
     func setScreenLocked(_ locked: Bool) {
@@ -137,6 +216,64 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
 
     private func attachPlayer() {
         windows.view?.player = player
+        windows.view?.look = videoSize.map { (options, $0) }
+    }
+
+    /// Reads the size the video is shown at (its track's size, turned by its transform) for the alignment.
+    private func loadVideoSize(of url: URL) {
+        Task { @MainActor [weak self] in
+            let asset = AVURLAsset(url: url)
+            guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+                  let (size, transform) = try? await track.load(.naturalSize, .preferredTransform)
+            else { return }
+            let turned = size.applying(transform)
+            guard let self, self.currentURL == url else { return }
+            self.videoSize = CGSize(width: abs(turned.width), height: abs(turned.height))
+            self.windows.view?.look = self.videoSize.map { (self.options, $0) }
+        }
+    }
+
+    /// The playback rate applies to the next `play()` and, while playing, at once.
+    private func applyRate() {
+        guard let player else { return }
+        player.defaultRate = Float(options.rate)
+        if player.rate != 0 { player.rate = Float(options.rate) }
+    }
+
+    /// Frames go through the grader only while it changes them; the composition is built the first time.
+    private func applyGrade() {
+        guard grader.update(options) else {
+            setComposition(nil)
+            return
+        }
+        if let composition {
+            setComposition(composition)
+            return
+        }
+        guard compositionTask == nil, let url = currentURL else { return }
+        let grader = grader
+        compositionTask = Task { @MainActor [weak self] in
+            let built = try? await AVVideoComposition(applyingFiltersTo: AVURLAsset(url: url)) { request in
+                let graded = grader.apply(request.sourceImage).cropped(to: request.sourceImage.extent)
+                return AVCIImageFilteringResult(resultImage: graded, ciContext: VideoGrader.context)
+            }
+            guard let self, !Task.isCancelled, self.currentURL == url else { return }
+            self.compositionTask = nil
+            // Without a composition the frames stay as they are; the next change of the options tries again.
+            guard let built else {
+                NSLog("LiveWallpaper: colour options unavailable for this video")
+                return
+            }
+            self.composition = built
+            self.applyGrade()
+        }
+    }
+
+    /// Every item the looper plays gets `composition` (nil: frames as they are).
+    private func setComposition(_ composition: AVVideoComposition?) {
+        for item in looper?.loopingPlayerItems ?? [] where item.videoComposition !== composition {
+            item.videoComposition = composition
+        }
     }
 
     // MARK: Player
@@ -144,6 +281,8 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
     private func startPlayer(for url: URL) {
         let queue = AVQueuePlayer()
         queue.isMuted = muted
+        queue.volume = Float(options.volume * masterVolume)
+        queue.defaultRate = Float(options.rate)
         queue.preventsDisplaySleepDuringVideoPlayback = false
         queue.allowsExternalPlayback = false
         let item = AVPlayerItem(url: url)
@@ -167,6 +306,7 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
             resumeTime = nil
         }
         attachPlayer()
+        applyGrade()
         applyPlayback()
         if occluded { scheduleRelease() }
     }
@@ -181,7 +321,8 @@ private func observeStatus(of item: AVPlayerItem, changed: @escaping @Sendable (
             }
             return
         }
-        for track in item.tracks where track.assetTrack?.mediaType == .audio { track.isEnabled = !muted }
+        let silent = muted || options.volume * masterVolume == 0
+        for track in item.tracks where track.assetTrack?.mediaType == .audio { track.isEnabled = !silent }
     }
 
     private func tearDownPlayer() {

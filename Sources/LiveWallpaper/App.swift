@@ -78,10 +78,10 @@ enum SidebarSelection: Hashable, CaseIterable {
 
     var title: String {
         switch self {
-        case .home: return "Home"
-        case .playlists: return "Playlists"
-        case .workshop: return "Workshop"
-        case .downloads: return "Downloads"
+        case .home: return String(localized: "Home")
+        case .playlists: return String(localized: "Playlists")
+        case .workshop: return String(localized: "Workshop")
+        case .downloads: return String(localized: "Downloads")
         }
     }
 
@@ -147,7 +147,7 @@ struct RootView: View {
                              size: 16, lineWidth: 2)
                     .opacity(workshop.overallDownloadProgress == nil ? 0.4 : 1)
             } else if let count, count > 0 {
-                Text("\(count)")
+                Text(count, format: .number)
                     .font(.caption2.weight(.semibold).monospacedDigit())
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 7)
@@ -183,7 +183,7 @@ struct RootView: View {
                             ProgressRing(progress: workshop.overallDownloadProgress ?? 0,
                                          size: 16, lineWidth: 2)
                                 .opacity(workshop.overallDownloadProgress == nil ? 0.4 : 1)
-                            Text("\(workshop.activeDownloadCount)")
+                            Text(workshop.activeDownloadCount, format: .number)
                                 .font(.caption.weight(.semibold).monospacedDigit())
                         }
                         .padding(.horizontal, 8)
@@ -230,11 +230,10 @@ struct RootView: View {
     /// One banner at a time, in priority order.
     private var banner: Banner? {
         if model.legacyAppRunning {
-            return Banner(text: "An older copy of Live Wallpaper is still running. Quit it so the two don’t fight over your wallpaper.")
+            return Banner(text: String(localized: "An older copy of Live Wallpaper is still running. Quit it so the two don’t fight over your wallpaper."))
         }
         if model.importedFromPhase1 > 0 {
-            let count = model.importedFromPhase1
-            return Banner(text: "Imported \(count) \(count == 1 ? "video" : "videos") from the previous version.",
+            return Banner(text: String(localized: "Imported \(model.importedFromPhase1) videos from the previous version."),
                           warning: false, dismiss: { model.dismissImportNotice() })
         }
         return nil
@@ -337,19 +336,19 @@ private struct SidebarFooter: View {
         let restart = Image(systemName: "arrow.clockwise")
         switch model.client.problem {
         case .missing:
-            return Warning(title: "Wallpaper service missing",
+            return Warning(title: String(localized: "Wallpaper service missing"),
                            message: Text("This copy of Live Wallpaper is incomplete, so your live wallpapers can’t be shown. Reinstall Live Wallpaper to fix it."))
         case .didNotStart:
-            return Warning(title: "Wallpaper service didn’t start",
+            return Warning(title: String(localized: "Wallpaper service didn’t start"),
                            message: Text("Your live wallpapers can’t be shown right now. Press \(restart) below to try again. If that doesn’t help, reinstall Live Wallpaper."))
         case .noAnswer:
-            return Warning(title: "Wallpaper service not responding",
+            return Warning(title: String(localized: "Wallpaper service not responding"),
                            message: Text("Your live wallpapers may have stopped, and changes you make here can’t reach them. Press \(restart) below to fix it."))
         case nil:
             break
         }
         guard model.client.state == .connected, let message = model.statusMessage, !message.isEmpty else { return nil }
-        return Warning(title: "Wallpaper service problem", message: Text(message),
+        return Warning(title: String(localized: "Wallpaper service problem"), message: Text(message),
                        dismiss: model.localMessage == nil ? nil : { model.clearStatus() })
     }
 

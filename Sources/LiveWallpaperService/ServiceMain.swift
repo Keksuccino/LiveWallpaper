@@ -97,11 +97,11 @@ enum ServiceEntry {
         var error: String?
         switch command {
         case .commit(let state):
-            if !orchestrator.commit(state) { error = "Couldn’t save your library." }
+            if !orchestrator.commit(state) { error = String(localized: "Couldn’t save your library.") }
         case .pause: orchestrator.setPaused(true)
         case .resume: orchestrator.setPaused(false)
         case .next: orchestrator.next()
-        case .setMuted(let display, let muted): orchestrator.setMuted(muted, display: display)
+        case .setMuted(let muted): orchestrator.setMuted(muted)
         case .status: break
         case .quit:
             // After the reply has gone out.
@@ -132,16 +132,17 @@ enum ServiceEntry {
         statusLine.isEnabled = false
         messageItem.isEnabled = false
         messageItem.isHidden = true
-        configure(pauseItem, title: "Pause Wallpapers", action: #selector(togglePause))
-        configure(nextItem, title: "Next Wallpaper", action: #selector(nextWallpaper))
+        configure(pauseItem, title: String(localized: "Pause Wallpapers"), action: #selector(togglePause))
+        configure(nextItem, title: String(localized: "Next Wallpaper"), action: #selector(nextWallpaper))
         nextItem.keyEquivalent = String(Character(UnicodeScalar(NSRightArrowFunctionKey)!))
-        configure(muteItem, title: "Mute Sound", action: #selector(toggleMute))
-        let settings = NSMenuItem(title: "Open Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        configure(muteItem, title: String(localized: "Mute Sound"), action: #selector(toggleMute))
+        let settings = NSMenuItem(title: String(localized: "Open Settings…"), action: #selector(openSettings),
+                                  keyEquivalent: ",")
         settings.target = self
-        let quit = NSMenuItem(title: "Quit Live Wallpaper", action: #selector(quitLiveWallpaper), keyEquivalent: "q")
+        let quit = NSMenuItem(title: String(localized: "Quit Live Wallpaper"), action: #selector(quitLiveWallpaper),
+                              keyEquivalent: "q")
         quit.target = self
-        quit.toolTip = "Closes Live Wallpaper. Your live wallpapers stop, and each display keeps a still picture of its "
-            + "wallpaper."
+        quit.toolTip = String(localized: "Closes Live Wallpaper. Your live wallpapers stop, and each display keeps a still picture of its wallpaper.")
         [statusLine, messageItem, .separator(), settings, .separator(),
          pauseItem, nextItem, muteItem, .separator(), quit].forEach(menu.addItem)
         item.menu = menu
@@ -156,7 +157,7 @@ enum ServiceEntry {
     private func refreshMenu() {
         let live = orchestrator.isLive
         let symbol = live ? (orchestrator.isPaused ? "pause.rectangle.fill" : "play.rectangle.fill") : "play.rectangle"
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Live Wallpaper")
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: String(localized: "Live Wallpaper"))
         image?.isTemplate = true
         statusItem?.button?.image = image
 
@@ -171,23 +172,24 @@ enum ServiceEntry {
                 string: "⚠ " + shown, attributes: [.foregroundColor: NSColor.systemOrange])
         }
 
-        pauseItem.title = orchestrator.isPaused ? "Resume Wallpapers" : "Pause Wallpapers"
+        pauseItem.title = orchestrator.isPaused ? String(localized: "Resume Wallpapers")
+                                                : String(localized: "Pause Wallpapers")
         pauseItem.isEnabled = live || orchestrator.isPaused
         nextItem.isEnabled = orchestrator.canRotate
         muteItem.state = orchestrator.muted ? .on : .off
-        muteItem.isEnabled = live
     }
 
     private var statusText: String {
         let shown = orchestrator.shownItems
-        guard let first = shown.first else { return "No live wallpaper" }
-        let text = shown.count == 1 ? "Showing “\(first.name)”" : "Showing \(shown.count) wallpapers"
-        return orchestrator.isPaused ? "Paused · \(text)" : text
+        guard let first = shown.first else { return String(localized: "No live wallpaper") }
+        let text = shown.count == 1 ? String(localized: "Showing “\(first.name)”")
+                                    : String(localized: "Showing \(shown.count) wallpapers")
+        return orchestrator.isPaused ? String(localized: "Paused · \(text)") : text
     }
 
     @objc private func togglePause() { orchestrator.setPaused(!orchestrator.isPaused) }
     @objc private func nextWallpaper() { orchestrator.next() }
-    @objc private func toggleMute() { orchestrator.setMuted(!orchestrator.muted, display: nil) }
+    @objc private func toggleMute() { orchestrator.setMuted(!orchestrator.muted) }
     /// Quits the whole app: Settings first, so it does not start the service again, then the service.
     @objc private func quitLiveWallpaper() {
         for app in NSRunningApplication.runningApplications(withBundleIdentifier: AppIdentity.settingsBundleID) {

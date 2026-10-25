@@ -100,7 +100,7 @@ struct HomeView: View {
         model.selectedDisplayID.flatMap { model.shownItem(on: $0)?.id }
     }
 
-    private var removalHelp: String {
+    private var removalHelp: LocalizedStringKey {
         selectedIDs.count > 1 ? "Remove \(selectedIDs.count) wallpapers (⌘⌫)" : "Remove selected wallpaper (⌘⌫)"
     }
 
@@ -201,21 +201,21 @@ struct HomeView: View {
         }
     }
 
-    private var subtitle: String {
+    private var subtitle: LocalizedStringKey {
         if selectionMode {
             return selectedIDs.isEmpty ? "Select wallpapers to remove." : "\(selectedIDs.count) selected"
         }
         if !searchText.isEmpty {
-            return "\(items.count) \(items.count == 1 ? "result" : "results") for “\(searchText)”"
+            return "\(items.count) results for “\(searchText)”"
         }
-        return "\(items.count) \(items.count == 1 ? "wallpaper" : "wallpapers")"
+        return "\(items.count) wallpapers"
     }
 
     private var libraryHeader: some View {
         HStack(alignment: .firstTextBaseline) {
             Text("Your library")
                 .font(.title3.weight(.semibold))
-            Text("\(items.count)")
+            Text(items.count, format: .number)
                 .font(.callout.monospacedDigit())
                 .foregroundStyle(.tertiary)
             Spacer()
@@ -307,8 +307,8 @@ struct HomeView: View {
 
     // MARK: Removing and adding
 
-    private var skippedTitle: String {
-        skippedCount == 1 ? "Skipped 1 file that isn’t a wallpaper." : "Skipped \(skippedCount) files that aren’t wallpapers."
+    private var skippedTitle: LocalizedStringKey {
+        "Skipped \(skippedCount) files that aren’t wallpapers."
     }
 
     /// Brings dropped or chosen files in: videos by reference, scene packages and folders through the
@@ -351,7 +351,7 @@ struct HomeView: View {
         Binding(get: { !pendingRemoval.isEmpty }, set: { if !$0 { pendingRemoval = [] } })
     }
 
-    private var removalTitle: String {
+    private var removalTitle: LocalizedStringKey {
         let names = model.videos.filter { pendingRemoval.contains($0.id) }.map(\.name)
         return names.count == 1 ? "Remove “\(names[0])” and delete its downloaded files?"
                                 : "Remove \(names.count) wallpapers and delete the downloaded files of Workshop items?"
@@ -477,7 +477,7 @@ private struct LibraryCard: View {
             withAnimation(LWMotion.hover) { hovering = inside }
         }
         .contextMenu { CardMenu(actions: actions) }
-        .help(broken ? "This file was moved, deleted, or can’t be played." : item.name)
+        .help(broken ? String(localized: "This file was moved, deleted, or can’t be played.") : item.name)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(item.name), \(cardMeta)")
         .accessibilityAddTraits(state.current || state.selected ? .isSelected : [])
@@ -500,9 +500,9 @@ private struct LibraryCard: View {
     }
 
     private var cardMeta: String {
-        if broken { return "Missing or unreadable" }
-        if item.isWorkshop { return "Workshop" }
-        return item.isScene ? "Scene" : "Video"
+        if broken { return String(localized: "Missing or unreadable") }
+        if item.isWorkshop { return String(localized: "Workshop") }
+        return item.isScene ? String(localized: "Scene") : String(localized: "Video")
     }
 }
 
@@ -597,7 +597,7 @@ struct DisplayInspectorView: View {
                         .foregroundStyle(.orange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if item.isScene { SceneSettingsCard(model: model, display: screen.id, item: item) }
+                WallpaperSettingsCard(model: model, display: screen.id, item: item)
                 DisplaySettingsCard(model: model, display: screen.id)
             } else {
                 VStack(spacing: 10) {
@@ -620,7 +620,7 @@ struct DisplayInspectorView: View {
                 .frame(width: 76, height: 43)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.name).font(.callout.weight(.semibold)).lineLimit(2).truncationMode(.middle)
-                Text("\(item.isScene ? "Scene" : "Video") · \(screen.name)")
+                Text(item.isScene ? "Scene · \(screen.name)" : "Video · \(screen.name)")
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
         }
@@ -635,9 +635,9 @@ struct SceneSupportBadge: View {
 
     private var title: String {
         switch info.support {
-        case .full: return "Scene"
-        case .partial: return "Partial"
-        case .previewOnly: return "Preview"
+        case .full: return String(localized: "Scene")
+        case .partial: return String(localized: "Partial")
+        case .previewOnly: return String(localized: "Preview")
         }
     }
 
@@ -645,48 +645,28 @@ struct SceneSupportBadge: View {
 
     var body: some View {
         LWChip(text: title, tint: tint, icon: "sparkles")
-            .help(info.notes.joined(separator: "\n"))
+            .help(info.localizedNotes.joined(separator: "\n"))
     }
 }
 
 // MARK: - Display settings
 
-/// Sound, rotation and scene settings of one display.
+/// Rotation and scene settings of one display.
 @MainActor
 struct DisplaySettingsCard: View {
     @ObservedObject var model: SettingsModel
     let display: String
 
-    private var config: DisplayConfig { model.config(for: display) }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            InspectorSection(title: "Sound") {
-                Toggle("Mute sound", isOn: Binding(get: { config.muted }, set: { model.setMuted($0, on: display) }))
-                    .help("Wallpapers on this display stay silent.")
-            }
-
-            Divider()
-
             InspectorSection(title: "Rotation", subtitle: "Runs on a playlist you curate in Playlists.") {
                 RotationBlock(model: model, display: display)
             }
 
             Divider()
 
-            InspectorSection(title: "Scenes") {
-                VStack(alignment: .leading, spacing: 14) {
-                    LWSettingRow(title: "Frame rate", help: "Smoothness of scene wallpapers on this display. "
-                                 + "Higher looks smoother but keeps the GPU busier.") {
-                        Picker("Scene frame rate", selection: Binding(
-                            get: { config.sceneFPS },
-                            set: { fps in model.updateDisplay(display) { $0.sceneFPS = fps } })) {
-                            ForEach([20, 24, 30, 45, 60], id: \.self) { Text("\($0) fps").tag($0) }
-                        }
-                        .labelsHidden().fixedSize()
-                    }
-                    ScenePowerRows(model: model, display: display)
-                }
+            InspectorSection(title: "Energy") {
+                ScenePowerRows(model: model, display: display)
             }
         }
     }
@@ -713,13 +693,9 @@ struct RotationBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                Text("Rotate wallpaper")
-                Spacer()
-                Toggle("Rotate wallpaper", isOn: rotateBinding).labelsHidden().toggleStyle(.switch)
-            }
-            .disabled(!canRotate)
-            .help("Automatically switch this display between the wallpapers of your playlist, in playlist order.")
+            LWSwitchRow("Rotate wallpaper", isOn: rotateBinding)
+                .disabled(!canRotate)
+                .help("Automatically switch this display between the wallpapers of your playlist, in playlist order.")
             if config.rotateEnabled && canRotate { intervalRow }
             if let helper {
                 Text(helper.text)
@@ -734,7 +710,7 @@ struct RotationBlock: View {
     private var intervalRow: some View {
         HStack(spacing: 8) {
             Text("Every").font(.callout)
-            TextField("", text: $intervalText)
+            TextField(text: $intervalText) { EmptyView() }
                 .textFieldStyle(.roundedBorder)
                 .multilineTextAlignment(.trailing)
                 .frame(width: 56)
@@ -743,13 +719,15 @@ struct RotationBlock: View {
                 .onChange(of: intervalFocused) { _, focused in if !focused { commitInterval() } }
                 .accessibilityLabel("Interval value")
             Picker("Interval unit", selection: unitBinding) {
-                ForEach(IntervalUnit.allCases) { Text($0.label.lowercased()).tag($0) }
+                Text("seconds").tag(IntervalUnit.seconds)
+                Text("minutes").tag(IntervalUnit.minutes)
+                Text("hours").tag(IntervalUnit.hours)
             }
             .labelsHidden().pickerStyle(.menu).frame(width: 104)
         }
     }
 
-    private var helper: (text: String, warning: Bool)? {
+    private var helper: (text: LocalizedStringKey, warning: Bool)? {
         guard canRotate else {
             if !hasPlaylist {
                 return ("Rotation cycles a playlist you choose. Set one up in Playlists.", false)
@@ -880,7 +858,7 @@ private struct MediaStage: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(item.map { "Preview of \($0.name)" } ?? "No wallpaper selected")
+        .accessibilityLabel(item.map { Text("Preview of \($0.name)") } ?? Text("No wallpaper selected"))
     }
 
     @ViewBuilder private var content: some View {
@@ -923,7 +901,7 @@ fileprivate struct SceneNotes: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            ForEach(Array(info.notes.enumerated()), id: \.offset) { entry in
+            ForEach(Array(info.localizedNotes.enumerated()), id: \.offset) { entry in
                 Text("• " + entry.element).font(.callout).foregroundStyle(.secondary)
             }
             if !SceneImporter.hasSharedAssets {

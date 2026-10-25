@@ -1,0 +1,456 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "NSAudioCaptureUsageDescription" : {
+      "comment" : "macOS permission prompt for recording system audio, which scenes use to react to music.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper uses system audio so scene wallpapers can react to the music you play."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper verwendet das Systemaudio, damit Szenen-Hintergrundbilder auf die Musik reagieren können, die du abspielst."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaperはシステムオーディオを使用して、シーン壁紙を再生中の音楽に反応させます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper는 씬 배경화면이 사용자가 재생하는 음악에 반응할 수 있도록 시스템 오디오를 사용합니다."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper 使用系统音频，让场景墙纸能够随你播放的音乐做出反应。"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper korzysta z dźwięku systemowego, aby sceny mogły reagować na odtwarzaną przez Ciebie muzykę."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper использует системный звук, чтобы обои-сцены могли реагировать на воспроизводимую вами музыку."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper використовує системний звук, щоб сцени могли реагувати на музику, яку ви відтворюєте."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper usa el audio del sistema para que los fondos de escena puedan reaccionar a la música que reproduces."
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper usa el audio del sistema para que los fondos de escena reaccionen a la música que reproduces."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Live Wallpaper usa o áudio do sistema para que os papéis de parede de cena possam reagir à música que você reproduz."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper, sahne duvar kâğıtlarının çaldığınız müziğe tepki verebilmesi için sistem sesini kullanır."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Το Live Wallpaper χρησιμοποιεί τον ήχο του συστήματος, ώστε οι ταπετσαρίες σκηνής να αντιδρούν στη μουσική που αναπαράγετε."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper utilise l’audio du système pour que les scènes puissent réagir à la musique que vous écoutez."
+          }
+        }
+      }
+    },
+    "NSDesktopFolderUsageDescription" : {
+      "comment" : "macOS permission prompt when a wallpaper video is in the Desktop folder.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper needs access to play the videos you chose."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper benötigt Zugriff, um die von dir ausgewählten Videos abzuspielen."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択したビデオを再生するために、Live Wallpaperにアクセスを許可する必要があります。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "선택한 비디오를 재생하려면 Live Wallpaper에 접근 권한이 필요합니다."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper 需要访问权限才能播放你选择的视频。"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper potrzebuje dostępu, aby odtwarzać wybrane przez Ciebie filmy."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper нужен доступ для воспроизведения выбранных вами видео."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Програмі Live Wallpaper потрібен доступ, щоб відтворювати вибрані вами відео."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper necesita acceso para reproducir los vídeos que has elegido."
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper necesita acceso para reproducir los videos que elegiste."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Live Wallpaper precisa de acesso para reproduzir os vídeos que você escolheu."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper’ın seçtiğiniz videoları oynatabilmesi için erişim izni gerekir."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Το Live Wallpaper χρειάζεται πρόσβαση για να αναπαράγει τα βίντεο που επιλέξατε."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper a besoin d’un accès pour lire les vidéos que vous avez choisies."
+          }
+        }
+      }
+    },
+    "NSDocumentsFolderUsageDescription" : {
+      "comment" : "macOS permission prompt when a wallpaper video is in the Documents folder.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper needs access to play the videos you chose."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper benötigt Zugriff, um die von dir ausgewählten Videos abzuspielen."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択したビデオを再生するために、Live Wallpaperにアクセスを許可する必要があります。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "선택한 비디오를 재생하려면 Live Wallpaper에 접근 권한이 필요합니다."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper 需要访问权限才能播放你选择的视频。"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper potrzebuje dostępu, aby odtwarzać wybrane przez Ciebie filmy."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper нужен доступ для воспроизведения выбранных вами видео."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Програмі Live Wallpaper потрібен доступ, щоб відтворювати вибрані вами відео."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper necesita acceso para reproducir los vídeos que has elegido."
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper necesita acceso para reproducir los videos que elegiste."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Live Wallpaper precisa de acesso para reproduzir os vídeos que você escolheu."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper’ın seçtiğiniz videoları oynatabilmesi için erişim izni gerekir."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Το Live Wallpaper χρειάζεται πρόσβαση για να αναπαράγει τα βίντεο που επιλέξατε."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper a besoin d’un accès pour lire les vidéos que vous avez choisies."
+          }
+        }
+      }
+    },
+    "NSDownloadsFolderUsageDescription" : {
+      "comment" : "macOS permission prompt when a wallpaper video is in the Downloads folder.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper needs access to play the videos you chose."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper benötigt Zugriff, um die von dir ausgewählten Videos abzuspielen."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択したビデオを再生するために、Live Wallpaperにアクセスを許可する必要があります。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "선택한 비디오를 재생하려면 Live Wallpaper에 접근 권한이 필요합니다."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper 需要访问权限才能播放你选择的视频。"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper potrzebuje dostępu, aby odtwarzać wybrane przez Ciebie filmy."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper нужен доступ для воспроизведения выбранных вами видео."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Програмі Live Wallpaper потрібен доступ, щоб відтворювати вибрані вами відео."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper necesita acceso para reproducir los vídeos que has elegido."
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper necesita acceso para reproducir los videos que elegiste."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Live Wallpaper precisa de acesso para reproduzir os vídeos que você escolheu."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper’ın seçtiğiniz videoları oynatabilmesi için erişim izni gerekir."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Το Live Wallpaper χρειάζεται πρόσβαση για να αναπαράγει τα βίντεο που επιλέξατε."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper a besoin d’un accès pour lire les vidéos que vous avez choisies."
+          }
+        }
+      }
+    },
+    "NSRemovableVolumesUsageDescription" : {
+      "comment" : "macOS permission prompt when a wallpaper video is on a removable drive.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper needs access to play the videos you chose."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper benötigt Zugriff, um die von dir ausgewählten Videos abzuspielen."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択したビデオを再生するために、Live Wallpaperにアクセスを許可する必要があります。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "선택한 비디오를 재생하려면 Live Wallpaper에 접근 권한이 필요합니다."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper 需要访问权限才能播放你选择的视频。"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper potrzebuje dostępu, aby odtwarzać wybrane przez Ciebie filmy."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper нужен доступ для воспроизведения выбранных вами видео."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Програмі Live Wallpaper потрібен доступ, щоб відтворювати вибрані вами відео."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper necesita acceso para reproducir los vídeos que has elegido."
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper necesita acceso para reproducir los videos que elegiste."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Live Wallpaper precisa de acesso para reproduzir os vídeos que você escolheu."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper’ın seçtiğiniz videoları oynatabilmesi için erişim izni gerekir."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Το Live Wallpaper χρειάζεται πρόσβαση για να αναπαράγει τα βίντεο που επιλέξατε."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Wallpaper a besoin d’un accès pour lire les vidéos que vous avez choisies."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

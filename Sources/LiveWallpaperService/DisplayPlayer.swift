@@ -6,7 +6,7 @@ import Core
 // Orchestrator owns one per connected display that has a wallpaper.
 
 @MainActor final class DisplayPlayer {
-    private static let nothingPlayable = "None of the wallpapers in your playlist can be played."
+    private static let nothingPlayable = String(localized: "None of the wallpapers in your playlist can be played.")
 
     /// The display's UUID (NSScreen.displayID).
     let displayID: String
@@ -36,8 +36,8 @@ import Core
         scene.onReady = { [weak self] _ in self?.video.stop() }
         for service in [video, scene] as [WallpaperService] {
             service.onFailure = { [weak self] item, message in self?.failed(item, message) }
-            service.setMuted(config.muted)
         }
+        video.update(state)
         scene.update(state)
         showWallpaper()
     }
@@ -53,10 +53,7 @@ import Core
         let oldConfig = config
         state = fresh  // first, so the reads below see the new values
         failedIDs.formIntersection(fresh.videos.map(\.id))
-        if config.muted != oldConfig.muted {
-            video.setMuted(config.muted)
-            scene.setMuted(config.muted)
-        }
+        video.update(fresh)
         scene.update(fresh)  // diffs itself; no restart
         if config.wallpaperID != oldConfig.wallpaperID {
             showWallpaper()
@@ -118,7 +115,7 @@ import Core
             advance(after: id, in: state)
         } else {
             clear()
-            error = "Couldn’t find “\(item.name)”. It may have been moved or deleted."
+            error = String(localized: "Couldn’t find “\(item.name)”. It may have been moved or deleted.")
         }
         scheduleRotation()
     }
@@ -169,6 +166,7 @@ import Core
             if scene.item?.id == item.id { scene.setPaused(paused) }
         } else {
             scene.stop()
+            video.update(state)
             video.start(item)
             video.setPaused(paused)
         }
@@ -192,7 +190,7 @@ import Core
         } else {
             clear()
         }
-        error = message ?? "Couldn’t show “\(item.name)”."
+        error = message ?? String(localized: "Couldn’t show “\(item.name)”.")
         if showDepth == 0 { onChange?() }  // inside show() the caller reports the change itself
     }
 

@@ -20,7 +20,6 @@ import Core
     func start(_ item: VideoItem) { self.item = item }
     func stop() { item = nil }
     func setPaused(_ paused: Bool) {}
-    func setMuted(_ muted: Bool) {}
     func setScreenLocked(_ locked: Bool) {}
     /// A new system wallpaper was set under the window (DisplayWindow.revealSystemWallpaper).
     func revealSystemWallpaper() {}
@@ -29,19 +28,33 @@ import Core
 /// Videos through an AVPlayer window.
 @MainActor final class VideoRenderService: WallpaperService {
     private let windows: WallpaperWindowManager
+    private var state = LibraryState()
 
     override init(displayID: String) {
         windows = WallpaperWindowManager(displayID: displayID)
         super.init(displayID: displayID)
         windows.onPlaybackFailure = { [weak self] url in
             guard let self, let item = self.item, item.url == url else { return }
-            self.onFailure?(item, "Couldn’t play “\(item.name)”.")
+            self.onFailure?(item, String(localized: "Couldn’t play “\(item.name)”."))
         }
+    }
+
+    /// The settings changed: the video follows its wallpaper options and the master volume.
+    func update(_ state: LibraryState) {
+        self.state = state
+        applyOptions()
     }
 
     override func start(_ item: VideoItem) {
         super.start(item)
         windows.show(url: item.url)
+        applyOptions()
+    }
+
+    private func applyOptions() {
+        guard let item else { return }
+        windows.apply(state.config(for: displayID).options(for: item.id), masterVolume: state.masterVolume,
+                      appMuted: state.muted)
     }
 
     override func stop() {
@@ -50,7 +63,6 @@ import Core
     }
 
     override func setPaused(_ paused: Bool) { windows.setPaused(paused) }
-    override func setMuted(_ muted: Bool) { windows.setMuted(muted) }
     override func setScreenLocked(_ locked: Bool) { windows.setScreenLocked(locked) }
     override func revealSystemWallpaper() { windows.revealSystemWallpaper() }
 }

@@ -126,6 +126,7 @@ globalThis.createScriptProperties = () => new ScriptProperties();
 
 const __layers = new Map();   // id -> Layer
 let __order = [];             // ids in draw order
+const __sounds = [];          // sound objects: layers for scripts, never drawn or sorted
 const __dirty = new Map();    // id -> {field: value}
 const __created = [];         // {id, path, workshop}
 const __moves = [];           // {id, index}
@@ -178,14 +179,23 @@ class Layer {
 		return index >= 0 && index < list.length ? new Effect(this, index, list[index]) : null;
 	}
 	getParent() { return this._s.parent === undefined || this._s.parent === null ? null : (__layers.get(this._s.parent) || null); }
-	// Playback is not driven from scripts yet; the stubs keep scripts that call them from throwing.
+	// Animation playback is not driven from scripts yet; the stubs keep scripts that call them from
+	// throwing.
 	getAnimation() { return __noopAnimation(); }
 	getTextureAnimation() { return __noopAnimation(); }
 	getVideoTexture() { return null; }
-	play() {}
-	pause() {}
-	stop() {}
-	isPlaying() { return true; }
+	// ISoundLayer: a sound object plays, pauses and stops; other layers ignore these.
+	play() { this.__sound('play', true); }
+	pause() { this.__sound('pause', false); }
+	stop() { this.__sound('stop', false); }
+	isPlaying() { return this._s.sound ? !!this._s.playing : true; }
+	get volume() { return __num(this._s.volume, 1); }
+	set volume(v) { this._s.volume = Math.min(Math.max(__num(v, 1), 0), 1); __mark(this, 'volume', this._s.volume); }
+	__sound(command, playing) {
+		if (!this._s.sound) return;
+		this._s.playing = playing;
+		__mark(this, 'sound', command);
+	}
 }
 
 // IEffect: one material effect on a layer. `visible` is applied by the renderer each frame.
@@ -194,6 +204,19 @@ class Effect {
 	get name() { return this._s.name || ''; }
 	get visible() { return this._s.visible !== false; }
 	set visible(v) { this._s.visible = !!v; __mark(this._layer, `effect:${this._index}:visible`, this._s.visible); }
+	getMaterialCount() { return (this._s.passes || []).length; }
+	// IMaterial: one pass's shader constants by name; each write goes to the renderer.
+	getMaterial(pass) {
+		const layer = this._layer, index = this._index;
+		const values = { ...((this._s.passes || [])[pass] || {}) };
+		return new Proxy(values, {
+			set(target, key, v) {
+				target[key] = v;
+				__mark(layer, `effects[${index}].passes[${pass}].constantshadervalues.${String(key)}`, v);
+				return true;
+			},
+		});
+	}
 }
 
 // ITextLayer and IImageLayer fields from the WE docs. Each write is sent to the renderer, which
@@ -226,13 +249,17 @@ const thisScene = {
 	getLayer(key) {
 		if (typeof key === 'number') return __layers.get(__order[key]) || null;
 		for (const id of __order) { const l = __layers.get(id); if (l && l.name === key) return l; }
-		return null;
+		return __sounds.find((l) => l.name === key) || null;
 	},
-	getLayerIndex(layer) { return layer ? __order.indexOf(layer.id) : -1; },
+	getLayerIndex(layer) {
+		const l = typeof layer === 'string' ? this.getLayer(layer) : layer;
+		return l ? __order.indexOf(l.id) : -1;
+	},
 	getLayerCount() { return __order.length; },
 	enumerateLayers() { return __order.map((id) => __layers.get(id)).filter(Boolean); },
 	createLayer(src) {
-		const path = typeof src === 'string' ? src : (src && (src.image || src.path)) || '';
+		// A path, an asset from engine.registerAsset, or a layer description ({image, origin, ...}).
+		const path = typeof src === 'string' ? src : (src && (src.image || src.particle || src.path)) || '';
 		const id = __nextId++;
 		const base = typeof src === 'object' && src ? src : {};
 		const s = {
@@ -270,6 +297,8 @@ for (const field of Object.keys(__sceneFields)) {
 }
 globalThis.thisScene = thisScene;
 globalThis.thisLayer = null;
+// The object a script belongs to: its effect for a script on an effect value, else its layer.
+globalThis.thisObject = null;
 
 // --- engine, input, audio -----------------------------------------------------------------
 
@@ -298,10 +327,28 @@ const engine = {
 	isPortrait() { return this.screenResolution.y > this.screenResolution.x; },
 	isLandscape() { return !this.isPortrait(); },
 	openUserShortcut() {},
-	setTimeout(fn, ms) { __timers.push({ at: engine.runtime + __num(ms, 0) / 1000, fn, every: 0 }); },
-	setInterval(fn, ms) { const every = Math.max(__num(ms, 0) / 1000, 0.001); __timers.push({ at: engine.runtime + every, fn, every }); },
+	// An image model, particle system or other file a script places with thisScene.createLayer.
+	registerAsset(path) { return { path: String(path) }; },
+	setTimeout(fn, ms) { return __addTimer(fn, __num(ms, 0) / 1000, 0); },
+	setInterval(fn, ms) { const every = Math.max(__num(ms, 0) / 1000, 0.001); return __addTimer(fn, every, every); },
+	clearTimeout(id) { __clearTimer(id); },
+	clearInterval(id) { __clearTimer(id); },
 };
 const __timers = [];
+let __nextTimer = 1;
+function __addTimer(fn, delay, every) {
+	const id = __nextTimer++;
+	__timers.push({ id, at: engine.runtime + delay, fn, every });
+	return id;
+}
+function __clearTimer(id) {
+	const i = __timers.findIndex((t) => t.id === id);
+	if (i >= 0) __timers.splice(i, 1);
+}
+globalThis.setTimeout = engine.setTimeout;
+globalThis.setInterval = engine.setInterval;
+globalThis.clearTimeout = engine.clearTimeout;
+globalThis.clearInterval = engine.clearInterval;
 globalThis.engine = engine;
 
 const input = {
@@ -313,12 +360,15 @@ globalThis.input = input;
 
 globalThis.shared = {};
 
+// Kept between runs: the host restores it with __lw_storage and receives it whenever it changed.
+// The location argument (global or per screen) is accepted; there is one store per scene.
 const __store = new Map();
+let __storeChanged = false;
 globalThis.localStorage = {
 	get(k) { return __store.has(k) ? __store.get(k) : undefined; },
-	set(k, v) { __store.set(k, v); },
-	delete(k) { __store.delete(k); },
-	clear() { __store.clear(); },
+	set(k, v) { __store.set(k, v); __storeChanged = true; },
+	delete(k) { __storeChanged = __store.delete(k) || __storeChanged; },
+	clear() { __storeChanged = __storeChanged || __store.size > 0; __store.clear(); },
 	LOCATION_GLOBAL: 0,
 	LOCATION_SCREEN: 1,
 };
@@ -379,27 +429,54 @@ let __currentWorkshop = '';
 // Replaces the layer table, e.g. after a property change rebuilt the scene.
 globalThis.__lw_layers = function (json) {
 	const list = JSON.parse(json);
-	__order = list.map((s) => s.id);
+	__order = list.filter((s) => !s.sound).map((s) => s.id);
 	for (const s of list) {
 		const l = __layers.get(s.id);
-		if (l) Object.assign(l._s, s); else __layers.set(s.id, new Layer(s));
+		if (l) Object.assign(l._s, s);
+		else {
+			const layer = new Layer(s);
+			__layers.set(s.id, layer);
+			if (s.sound) __sounds.push(layer);
+		}
 	}
+	return '';
+};
+
+// User properties: `all` replaces engine.userProperties; `changed` (all of them on the first
+// call) goes to every script's applyUserProperties. Colours arrive as vectors.
+globalThis.__lw_user_properties = function (json) {
+	const { values, colors } = JSON.parse(json);
+	const changed = {};
+	for (const [k, v] of Object.entries(values)) {
+		changed[k] = colors.includes(k) && typeof v === 'string' ? Vec3.fromString(v) : v;
+	}
+	Object.assign(engine.userProperties, changed);
+	for (const s of __scripts) __send(s, 'applyUserProperties', changed);
+	return __takeEvents({ values: {} });
+};
+
+globalThis.__lw_storage = function (json) {
+	for (const [k, v] of Object.entries(JSON.parse(json) || {})) __store.set(k, v);
 	return '';
 };
 
 // Called before a script module is evaluated: its layer and its stored properties.
 globalThis.__lw_begin = function (layerId, propsJson) {
 	globalThis.thisLayer = __layers.get(layerId) || null;
+	globalThis.thisObject = globalThis.thisLayer;
 	__overrides = JSON.parse(propsJson) || {};
 };
 
 globalThis.__lw_register = function (id, ns, layerId, field, valueJson) {
+	const layer = __layers.get(layerId) || null;
+	const effect = /^effects\[(\d+)\]/.exec(field);
 	const s = {
-		id, ns, field, layer: __layers.get(layerId) || null, failed: false,
+		id, ns, field, layer, failed: false,
+		object: effect && layer ? layer.getEffect(Number(effect[1])) : layer,
 		value: __toScript(field, JSON.parse(valueJson)),
 	};
 	__currentWorkshop = ns.__workshopId ? String(ns.__workshopId) : '';
-	globalThis.thisLayer = s.layer;
+	__enter(s);
 	if (typeof ns.init === 'function') {
 		try {
 			const r = ns.init(s.value);
@@ -422,6 +499,10 @@ function __takeEvents(out) {
 	for (const k of Object.keys(__sceneDirty)) delete __sceneDirty[k];
 	out.created = __created.splice(0);
 	out.moves = __moves.splice(0);
+	if (__storeChanged) {
+		out.storage = Object.fromEntries(__store);
+		__storeChanged = false;
+	}
 	return JSON.stringify(out);
 }
 
@@ -453,9 +534,15 @@ function __contains(layer, p) {
 let __wasDown = false;
 let __pressed = [];
 
+// Runs as script `s`: its thisLayer and thisObject.
+function __enter(s) {
+	globalThis.thisLayer = s.layer;
+	globalThis.thisObject = s.object;
+}
+
 function __send(s, name, event) {
 	if (s.failed || typeof s.ns[name] !== 'function') return;
-	globalThis.thisLayer = s.layer;
+	__enter(s);
 	try { s.ns[name](event); } catch (e) { __lw_log(`script ${s.field}: ${name}: ${e}`); }
 }
 
@@ -479,12 +566,19 @@ function __cursorEvents(down) {
 	__wasDown = down;
 }
 
+let __screen = null;
+
 globalThis.__lw_frame = function (json) {
 	const f = JSON.parse(json);
 	engine.frametime = f.dt;
 	engine.runtime = f.time;
 	engine.timeOfDay = f.tod;
 	engine.screenResolution = new Vec2(f.screen[0], f.screen[1]);
+	for (const l of __sounds) l._s.playing = f.playing.includes(l.id);
+	if (__screen && (__screen.x !== f.screen[0] || __screen.y !== f.screen[1])) {
+		for (const s of __scripts) __send(s, 'resizeScreen', engine.screenResolution);
+	}
+	__screen = engine.screenResolution;
 	engine.canvasSize = new Vec2(f.canvas[0], f.canvas[1]);
 	input.cursorScreenPosition = new Vec2(f.cursor[0], f.cursor[1]);
 	input.cursorWorldPosition = new Vec3(f.cursorWorld[0], f.cursorWorld[1], 0);
@@ -503,7 +597,7 @@ globalThis.__lw_frame = function (json) {
 	const values = {};
 	for (const s of __scripts) {
 		if (s.failed || typeof s.ns.update !== 'function') continue;
-		globalThis.thisLayer = s.layer;
+		__enter(s);
 		try {
 			const r = s.ns.update(s.value);
 			if (r !== undefined) {

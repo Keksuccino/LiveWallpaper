@@ -39,7 +39,7 @@ flowchart TB
         subgraph RUST["SceneRenderer (Rust) · same process"]
             direction LR
             FFI["SceneBridge<br/>generated UniFFI Swift"]
-            API["Renderer (Rust)<br/>attach_layer · detach_layer<br/>play · pause · stop · set_visible<br/>apply_property · set_fit_mode<br/>set_pan_zoom · set_render_scale<br/>set_fps_cap · set_muted · set_volume<br/>set_audio_response · set_audio_spectrum<br/>render_frame"]
+            API["Renderer (Rust)<br/>attach_layer · detach_layer<br/>play · pause · stop · set_visible<br/>apply_property · set_framing<br/>set_color_grade · set_rate · set_render_scale<br/>set_fps_cap · set_muted · set_volume<br/>set_audio_response · set_audio_spectrum<br/>render_frame"]
             THREAD["render thread<br/>Engine · QuickJS scripts<br/>AVAudioPlayer sounds"]
             WINDOW["DisplayWindow<br/>NSWindow + CAMetalLayer"]
         end
@@ -68,7 +68,7 @@ flowchart TB
 
     CLIENT -->|"Unix socket"| SOCK
     UI -.->|"reads on launch"| STATE
-    UI -.->|"property defaults"| PROJECT
+    UI -.->|"properties, translations"| PROJECT
     ORCH -->|"commit · setMuted"| STATE
     STATE -.->|"load"| ORCH
     THREAD -.->|"reads scene.pkg"| PROJECT
@@ -102,7 +102,7 @@ NSXPC was not used because launchd would not spawn the ad-hoc-signed nested serv
 
 There is one deliberate exception to “the service writes `state.json`”: when the Settings app upgrades a file of an older schema, `StateStore.loadOrMigrate` copies it to `state.v<schema>-backup.json` and performs the one-time rewrite before connecting to the service. Files before schema 3 hold one wallpaper with its settings for the whole desktop; the upgrade gives it to every display connected at that moment. After that, all commits go through the service.
 
-A display is named by its UUID (`DisplayIdentity`, from `CGDisplayCreateUUIDFromDisplayID`), which stays the same across restarts and reconnecting. A display without a wallpaper in `state.json` keeps whatever system wallpaper it has. Each display's `muted` is changed only through `.setMuted` (the menu bar item mutes every display), never by a commit.
+A display is named by its UUID (`DisplayIdentity`, from `CGDisplayCreateUUIDFromDisplayID`), which stays the same across restarts and reconnecting. A display without a wallpaper in `state.json` keeps whatever system wallpaper it has. `LibraryState.muted`, the whole app's mute (the menu bar's Mute Sound and Settings' Mute all wallpapers), is changed only through `.setMuted`, never by a commit.
 
 ## Service classes
 
@@ -149,38 +149,44 @@ The exported type is `Renderer` in `SceneRenderer/src/api.rs`. Every call is a m
 
 - `vfs`, `tex`, `scene`: the package, textures and `scene.json`.
 - `shader`: Wallpaper Engine shaders to MSL through naga.
-- `engine`: the frame graph (layers, effects, particles, puppets, text, bloom, fit modes).
+- `engine`: the frame graph (layers, effects, particles, puppets, text, bloom, framing, the colour grade); `engine_models` draws 3D models with `model` (meshes), `camera` (perspective, paths, shake) and `light`.
+- `particles`: Wallpaper Engine's particle systems on the CPU: `model` (definitions and their defaults), `overrides` (a scene's instance overrides), `sim` (emitters, initializers, children, control points, prewarm), `operators`, `noise` and `geometry` (the vertices the engine's own particle shaders read; `engine` draws them through those shaders).
 - `script` + `script_prelude.js`: SceneScript on QuickJS (`rquickjs`).
-- `sound`: sound objects through AVAudioPlayer.
+- `sound`: sound objects through AVAudioPlayer, in Wallpaper Engine's playback modes.
 
 `VideoRenderService` uses AVPlayer, not the renderer.
 
-## Scene options and state
+## Wallpaper options and state
 
 Each display's `DisplayConfig` stores:
 
-- `sceneOptions: [String: SceneOptions]` — per-scene fit, zoom, pan, render scale, FPS override, volume, audio response and property overrides, keyed by the Swift item UUID.
-- `sceneFPS` and `power: PowerOptions` — the display's scene frame rate, frame-rate cap, battery mode, battery render scale/FPS, `skipRepeatedFrames` and `renderOnlyOnChange`.
+- `wallpaperOptions: [String: WallpaperOptions]` (JSON key `sceneOptions`) — per wallpaper, keyed by the item's UUID: Wallpaper Engine's own options, which every wallpaper has (volume, playback rate, alignment with position/horizontal/vertical/zoom, flip, blurred bars, colour options, image filter, mouse parallax), and for scenes the frame rate, render scale, antialiasing, audio response and the scene's own property values.
+- `power: PowerOptions` — the display's battery mode, battery render scale/FPS, `skipRepeatedFrames` and `renderOnlyOnChange`.
+
+`LibraryState` also holds `masterVolume` (scales every wallpaper's volume) and `presets` (named sets of a wallpaper's options, per `VideoItem.presetKey`).
+
+The Settings app lists a wallpaper's options the way Wallpaper Engine does (`WallpaperSettingsCard`): Wallpaper Engine's built-in options (`WallpaperProperty.builtIn`, the same keys, orders, ranges and conditions; which ones a scene gets depends on `SceneFeatures`: sound, 2D, camera parallax) merged with the scene's own properties from project.json (`ProjectProperties`: bool, slider, colour, combo, text input, text labels, groups, per-wallpaper translations), sorted by order. Each property's `condition` (a JavaScript expression) is evaluated by `PropertyCondition`. Labels go through `PropertyText`: the wallpaper's own translation, the app's translation of Wallpaper Engine's `ui_…` keys, or a readable form of the key.
 
 `SceneRenderService.update` compares the new values with the last pushed values and calls only the changed renderer methods.
 
-| UI / model | Renderer call |
-|---|---|
-| Fit | `set_fit_mode` |
-| Zoom, pan | `set_pan_zoom` |
-| FPS, frame-rate cap, battery FPS | `set_fps_cap` (the smallest that applies) |
-| Render scale, battery render scale | `set_render_scale` |
-| Volume / mute | `set_volume` / `set_muted` |
-| Audio response | `set_audio_response`, plus `set_audio_spectrum` from `SystemAudioTap` |
-| Scene properties | `apply_property` (JSON value) |
-| Battery rule "Pause", app pause | `pause` / `play` |
-| Skip repeated frames, update only when changed | nothing: a scene in which nothing moves is never redrawn |
+| UI / model | Scene: renderer call | Video |
+|---|---|---|
+| Alignment, position, horizontal, vertical, zoom, flip, blurred bars | `set_framing` | `PlayerView` places its `AVPlayerLayer` by `framing_view` (the renderer's math); a small blurred copy fills the bars |
+| Colour options, image filter | `set_color_grade` (a final pass; lookup tables from `materials/lut`) | `VideoGrader`: a Core Image kernel with the same steps and `CIColorCube`, through an `AVVideoComposition` only while it changes the picture |
+| Playback rate | `set_rate` (the scene clock; sounds keep their pitch) | `AVPlayer.defaultRate` |
+| Mouse parallax | `set_parallax_enabled` | — |
+| Volume × master volume / mute | `set_volume` / `set_muted` | `AVPlayer.volume` / `isMuted` (audio tracks off while silent) |
+| Frame rate, battery FPS | `set_fps_cap` (the battery FPS when it is lower and applies) | — |
+| Render scale, battery render scale | `set_render_scale` | — |
+| Antialiasing | `apply_antialiasing` (4× multisampling) | — |
+| Audio response | `set_audio_response`, plus `set_audio_spectrum` from `SystemAudioTap` | — |
+| Scene properties | `apply_property` (JSON value); scripts hear of it through `applyUserProperties` | — |
+| Battery rule "Pause", app pause | `pause` / `play` | `pause` / `play` |
+| Skip repeated frames, update only when changed | nothing: a scene in which nothing moves is never redrawn | — |
 
-Settings reparses `Library/{id}/project.json` for the property editor (`SceneProperty.load`); it supports bool, slider, color, text and combo.
+The stills follow the same options: a scene's still is rendered with its framing, grade and properties; a video's frame is graded and placed like the player shows it.
 
-Known mismatches:
-
-- `antialiasing` is stored in `SceneOptions` but is not applied or exposed in the current Settings UI.
+Scene sound objects play through AVAudioPlayer in Wallpaper Engine's modes (loop, random with pauses, single) and can be played, paused and stopped by scripts. A scene's scripts keep their `localStorage` in `scenescript-storage.json` in the wallpaper's library folder.
 
 ## Build and packaging
 
@@ -198,11 +204,13 @@ CI uses `macos-26` runners (Xcode 26) for build and release.
 
 `build.sh` assembles the Settings app, nests the service under `Contents/Library/LoginItems/` and signs inner bundles before the outer app. The guards reject SwiftUI or the old in-repo scene engine in the service, the old scene engine in Settings, and any Homebrew load path; `scripts/verify-bundle.sh` also checks that the renderer is linked into the service.
 
+Text is translated through two String Catalogs with English as the source language: `Resources/Localizable.xcstrings` (the text of both apps) and `Resources/InfoPlist.xcstrings` (the permission prompts of the Info.plists). `build.sh` compiles both into each bundle's `Contents/Resources/<language>.lproj` with `xcrun xcstringstool compile`; both Info.plists list the languages in `CFBundleLocalizations`, and `scripts/verify-bundle.sh` checks that both bundles have the tables of every listed language. Code uses SwiftUI's `LocalizedStringKey` literals and `String(localized:)`, which look the text up in the running app's own bundle (Core's messages too). Keys that are looked up at runtime are marked `manual` in the catalog: Wallpaper Engine's `ui_…` property and filter names (`PropertyText.display`) and the scene notes, which the library stores in English (`SceneAnalyzer.notes`, `SceneImporter`) and `SceneInfo.localizedNotes` translates when they are shown. The other keys come from the compiler: build both products with `-Xswiftc -emit-localized-strings -Xswiftc -emit-localized-strings-path -Xswiftc <folder>`, then merge with `xcrun xcstringstool sync Resources/Localizable.xcstrings --stringsdata <folder>/*.stringsdata`.
+
 ## Limitations
 
-- Scene support is still partial: unsupported shaders, 3D models and lights, and video textures are reported as load warnings.
-- The Swift scene property editor covers bool, slider, color, text and combo.
-- Antialiasing is stored but not applied.
+- Scene support is still partial: unsupported shaders and video textures are reported as load warnings. 3D scenes draw their models, lights and camera paths, but not reflections, shadows, fog, HDR or animated (skinned) models.
+- Wallpaper Engine's media integration (the playing song's title and cover in scripts) is not available: macOS does not let other apps read what is playing.
+- Properties that pick a file (file, folder, scene texture, shortcut) are not shown.
 - Two displays that show the same wallpaper each run their own player or renderer.
 - Video playback uses AVPlayer windows, while scenes use the Rust renderer.
 - The app is ad-hoc signed and not notarized.

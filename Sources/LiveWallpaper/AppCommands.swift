@@ -8,8 +8,8 @@ enum VideoPicker {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = [.movie]
-        panel.message = "Choose videos to use as your wallpaper."
-        panel.prompt = "Add"
+        panel.message = String(localized: "Choose videos to use as your wallpaper.")
+        panel.prompt = String(localized: "Add")
         return panel.runModal() == .OK ? panel.urls : []
     }
 }
@@ -22,8 +22,8 @@ enum WallpaperPicker {
         panel.allowsMultipleSelection = true
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
-        panel.message = "Choose videos, Wallpaper Engine scene packages (.pkg) or scene folders."
-        panel.prompt = "Import"
+        panel.message = String(localized: "Choose videos, Wallpaper Engine scene packages (.pkg) or scene folders.")
+        panel.prompt = String(localized: "Import")
         return panel.runModal() == .OK ? panel.urls : []
     }
 }

@@ -99,6 +99,7 @@ enum SteamSetupError: Error, Equatable {
     case guardTimedOut                    // no code / approval within the window
     case unrecognizedPrompt(String)
     case loginFailed(String)              // any other FAILED line from steamcmd (scrubbed)
+    case signInProblem(String)            // our own explanation of why the sign-in did not work or does not last
     case processFailed(String)
     case timedOut
     case cancelled
@@ -108,43 +109,44 @@ enum SteamSetupError: Error, Equatable {
     /// Bold line.
     var title: String {
         switch self {
-        case .downloadFailed: return "Couldn’t download Steam’s command-line tool"
-        case .extractFailed, .toolsBroken: return "The Steam tool didn’t install correctly"
-        case .rosettaMissing: return "Rosetta is needed"
-        case .rosettaInstallFailed: return "Rosetta didn’t install"
-        case .firstRunFailed: return "Steam’s tool couldn’t finish its first start"
-        case .badPassword: return "Steam didn’t accept that password"
-        case .badCode: return "That Steam Guard code didn’t work"
-        case .rateLimited: return "Steam is asking you to wait"
-        case .guardTimedOut: return "Steam Guard timed out"
-        case .unrecognizedPrompt: return "Steam is waiting for something unexpected"
-        case .loginFailed: return "Steam sign-in failed"
-        case .processFailed: return "The Steam tool stopped unexpectedly"
-        case .timedOut: return "Steam took too long to answer"
-        case .cancelled: return "Cancelled"
-        case .diskSpace: return "Not enough free disk space"
-        case .assetsFailed: return "Couldn’t get Wallpaper Engine’s shared files"
+        case .downloadFailed: return String(localized: "Couldn’t download Steam’s command-line tool")
+        case .extractFailed, .toolsBroken: return String(localized: "The Steam tool didn’t install correctly")
+        case .rosettaMissing: return String(localized: "Rosetta is needed")
+        case .rosettaInstallFailed: return String(localized: "Rosetta didn’t install")
+        case .firstRunFailed: return String(localized: "Steam’s tool couldn’t finish its first start")
+        case .badPassword: return String(localized: "Steam didn’t accept that password")
+        case .badCode: return String(localized: "That Steam Guard code didn’t work")
+        case .rateLimited: return String(localized: "Steam is asking you to wait")
+        case .guardTimedOut: return String(localized: "Steam Guard timed out")
+        case .unrecognizedPrompt: return String(localized: "Steam is waiting for something unexpected")
+        case .loginFailed, .signInProblem: return String(localized: "Steam sign-in failed")
+        case .processFailed: return String(localized: "The Steam tool stopped unexpectedly")
+        case .timedOut: return String(localized: "Steam took too long to answer")
+        case .cancelled: return String(localized: "Cancelled")
+        case .diskSpace: return String(localized: "Not enough free disk space")
+        case .assetsFailed: return String(localized: "Couldn’t get Wallpaper Engine’s shared files")
         }
     }
 
     /// Secondary line.
     var message: String {
         switch self {
-        case .downloadFailed(let detail): return "Check your internet connection and try again. (\(detail))"
-        case .extractFailed(let detail), .toolsBroken(let detail): return "Remove it in Steam Settings and install it again. (\(detail))"
-        case .rosettaMissing: return "Steam’s tool is built for Intel Macs. Install Rosetta, then try again."
-        case .rosettaInstallFailed: return "Check your internet connection and try again. If this Mac has only standard accounts, ask an administrator to install Rosetta."
-        case .firstRunFailed(let detail): return "Try again. If it keeps failing, remove the tool and reinstall. (\(detail))"
-        case .badPassword: return "Check the password and try again. After several wrong tries Steam makes you wait."
-        case .badCode: return "Enter the newest code. Codes from the Steam Mobile app change every 30 seconds."
-        case .rateLimited: return "Too many sign-in attempts. Wait about 30 minutes before trying again."
-        case .guardTimedOut: return "No code or approval arrived in time. Start again."
-        case .unrecognizedPrompt: return "Steam sent a prompt this app doesn’t know. Details are below; you can also sign in using Terminal."
-        case .loginFailed(let line): return line.hasSuffix(".") ? line : "Steam said: \(line)"   // our own sentences end with a period
-        case .processFailed(let detail): return "Try again. (\(detail))"
-        case .timedOut: return "Check your connection and try again."
+        case .downloadFailed(let detail): return String(localized: "Check your internet connection and try again. (\(detail))")
+        case .extractFailed(let detail), .toolsBroken(let detail): return String(localized: "Remove it in Steam Settings and install it again. (\(detail))")
+        case .rosettaMissing: return String(localized: "Steam’s tool is built for Intel Macs. Install Rosetta, then try again.")
+        case .rosettaInstallFailed: return String(localized: "Check your internet connection and try again. If this Mac has only standard accounts, ask an administrator to install Rosetta.")
+        case .firstRunFailed(let detail): return String(localized: "Try again. If it keeps failing, remove the tool and reinstall. (\(detail))")
+        case .badPassword: return String(localized: "Check the password and try again. After several wrong tries Steam makes you wait.")
+        case .badCode: return String(localized: "Enter the newest code. Codes from the Steam Mobile app change every 30 seconds.")
+        case .rateLimited: return String(localized: "Too many sign-in attempts. Wait about 30 minutes before trying again.")
+        case .guardTimedOut: return String(localized: "No code or approval arrived in time. Start again.")
+        case .unrecognizedPrompt: return String(localized: "Steam sent a prompt this app doesn’t know. Details are below; you can also sign in using Terminal.")
+        case .loginFailed(let line): return String(localized: "Steam said: \(line)")
+        case .signInProblem(let reason): return reason
+        case .processFailed(let detail): return String(localized: "Try again. (\(detail))")
+        case .timedOut: return String(localized: "Check your connection and try again.")
         case .cancelled: return ""
-        case .diskSpace(let bytes): return "About \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)) of free space is needed."
+        case .diskSpace(let bytes): return String(localized: "About \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)) of free space is needed.")
         case .assetsFailed(let detail): return detail
         }
     }
@@ -289,7 +291,7 @@ struct SteamSignInMachine {
         phase = .working
         window = ""
         lastOutput = now
-        return [.sendCode] + show(.working("Checking the code…"))
+        return [.sendCode] + show(.working(String(localized: "Checking the code…")))
     }
 
     mutating func tick(now: Date) -> [Reaction] {
@@ -312,13 +314,18 @@ struct SteamSignInMachine {
         guard !isFinished else { return [] }
         phase = .ended
         let line = SteamPromptClassifier.cleanLines(transcript).last { !$0.isEmpty } ?? ""
-        return [line.isEmpty ? .fail(.processFailed("Steam’s tool stopped (exit code \(status)).")) : .fail(.loginFailed(line))]
+        guard !line.isEmpty else {
+            return [.fail(.processFailed(String(localized: "Steam’s tool stopped (exit code \(status)).")))]
+        }
+        return [.fail(.loginFailed(line))]
     }
 
     private mutating func advance(now: Date) -> [Reaction] {
         switch SteamPromptClassifier.classify(window) {
         case .none:
-            if case .unrecognizedPrompt = shown { return show(phase == .starting ? .starting : .working("Signing in…")) }
+            if case .unrecognizedPrompt = shown {
+                return show(phase == .starting ? .starting : .working(String(localized: "Signing in…")))
+            }
             return []
         case .rosettaMissing: return end(.rosetta)
         case .rateLimited: return end(.fail(.rateLimited))
@@ -332,7 +339,7 @@ struct SteamSignInMachine {
             passwordSent = true
             phase = .working
             window = ""
-            return [.sendPassword] + show(.working("Signing in…"))
+            return [.sendPassword] + show(.working(String(localized: "Signing in…")))
         case .guardCode(let found):
             if phase == .awaitingCode, kind == found { return [] }
             return wait(for: found, wrong: codesSent > 0, now: now)
@@ -485,21 +492,25 @@ enum SteamKit {
     static func install(archive: URL, into folder: URL) throws {
         let manager = FileManager.default
         guard let listing = SteamProcess.capture("/usr/bin/tar", ["-tzf", archive.path]), listing.status == 0 else {
-            throw SteamSetupError.extractFailed("the download isn’t a valid archive")
+            throw SteamSetupError.extractFailed(String(localized: "the download isn’t a valid archive"))
         }
         let entries = listing.output.split(separator: "\n").map(String.init)
         guard !entries.isEmpty, entries.allSatisfy(isSafeArchiveEntry) else {
-            throw SteamSetupError.extractFailed("the archive contains unsafe paths")
+            throw SteamSetupError.extractFailed(String(localized: "the archive contains unsafe paths"))
         }
         let partial = folder.deletingLastPathComponent().appendingPathComponent(folder.lastPathComponent + ".partial")
         try? manager.removeItem(at: partial)
         do {
             try AppPaths.ensureDirectory(partial)
             guard let result = SteamProcess.capture("/usr/bin/tar", ["-xzf", archive.path, "-C", partial.path]),
-                  result.status == 0 else { throw SteamSetupError.extractFailed("tar could not unpack it") }
-            guard linksStayInside(partial) else { throw SteamSetupError.extractFailed("the archive links outside itself") }
+                  result.status == 0 else { throw SteamSetupError.extractFailed(String(localized: "tar could not unpack it")) }
+            guard linksStayInside(partial) else {
+                throw SteamSetupError.extractFailed(String(localized: "the archive links outside itself"))
+            }
             let launcher = partial.appendingPathComponent("steamcmd.sh")
-            guard manager.fileExists(atPath: launcher.path) else { throw SteamSetupError.toolsBroken("steamcmd.sh is missing") }
+            guard manager.fileExists(atPath: launcher.path) else {
+                throw SteamSetupError.toolsBroken(String(localized: "steamcmd.sh is missing"))
+            }
             for file in [launcher, partial.appendingPathComponent("steamcmd")] where manager.fileExists(atPath: file.path) {
                 try manager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
             }
@@ -544,7 +555,7 @@ enum SteamKit {
     static func ownership(fromLicenses lines: [String]) -> SteamOwnershipState {
         if lines.contains(where: { $0.range(of: "\\b431960\\b", options: .regularExpression) != nil }) { return .owned }
         if lines.contains(where: { $0.contains("License packageID") }) { return .notOwned }
-        return .couldNotCheck("Steam didn’t list your games. You can still try a download.")
+        return .couldNotCheck(String(localized: "Steam didn’t list your games. You can still try a download."))
     }
 
     // MARK: Shared assets: Valve's key-value text (VDF)
@@ -915,14 +926,16 @@ final class SteamDownload: NSObject, URLSessionDownloadDelegate, @unchecked Send
             } catch {
                 throw installCancelled ? SteamSetupError.cancelled : SteamSetupError.downloadFailed(Self.describe(error))
             }
-            if SteamKit.fileSize(archive) < 100_000 { throw SteamSetupError.downloadFailed("the file is too small") }
+            if SteamKit.fileSize(archive) < 100_000 {
+                throw SteamSetupError.downloadFailed(String(localized: "the file is too small"))
+            }
             tools = .installing(.extracting)
             try await Task.detached { try SteamKit.install(archive: archive, into: folder) }.value
             try await firstRun(folder.appendingPathComponent("steamcmd.sh").path)
             tools = .installing(.checking)
             let state = await Task.detached { SteamKit.inspect(steamcmd: folder.appendingPathComponent("steamcmd.sh").path) }.value
             if case .ready(let info) = state, info.arch == .unknown, SteamKit.binary(in: folder) == nil {
-                throw SteamSetupError.toolsBroken("the program file is missing")
+                throw SteamSetupError.toolsBroken(String(localized: "the program file is missing"))
             }
             tools = state
             resolveAccount()
@@ -945,7 +958,7 @@ final class SteamDownload: NSObject, URLSessionDownloadDelegate, @unchecked Send
             let limits = WorkshopKit.Runner.Limits(idle: 120, selfUpdate: 600, grace: 5, hard: 900)
             let run = try await steamRun(path, ["+quit"], limits: limits) { [weak self] line in
                 guard let self, let fraction = SteamKit.updateFraction(line) else { return }
-                note = "Updating… \(Int(fraction * 100))%"
+                note = String(localized: "Updating… \(Int(fraction * 100))%")
                 self.tools = .installing(.firstRun(note: note))
             }
             if installCancelled || run.cancelled { throw SteamSetupError.cancelled }
@@ -965,9 +978,12 @@ final class SteamDownload: NSObject, URLSessionDownloadDelegate, @unchecked Send
     func signIn(username: String, password: String) {
         lastError = nil
         let name = username.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard readyTool != nil else { lastError = .processFailed("Install Steam’s tool first."); return }
+        guard readyTool != nil else {
+            lastError = .processFailed(String(localized: "Install Steam’s tool first."))
+            return
+        }
         guard WorkshopKit.Invocation.isValidUsername(name) else {
-            lastError = .loginFailed("Use the account name you sign in to Steam with, not your email address.")
+            lastError = .signInProblem(String(localized: "Use the account name you sign in to Steam with, not your email address."))
             return
         }
         guard acquireGate() else { return }
@@ -1021,7 +1037,8 @@ final class SteamDownload: NSObject, URLSessionDownloadDelegate, @unchecked Send
         } catch {
             session = nil
             let rosetta = (error as NSError).domain == NSPOSIXErrorDomain && (error as NSError).code == 86
-            finishSignIn(rosetta ? nil : .processFailed("Steam’s tool could not be started."), rosetta: rosetta)
+            let failure = SteamSetupError.processFailed(String(localized: "Steam’s tool could not be started."))
+            finishSignIn(rosetta ? nil : failure, rosetta: rosetta)
         }
     }
 
@@ -1142,7 +1159,7 @@ final class SteamDownload: NSObject, URLSessionDownloadDelegate, @unchecked Send
             self.account = .signedOut
             self.ownership = .unknown
             if shared {
-                self.lastError = .loginFailed("Steam’s tool keeps its login in Steam’s normal folder. To remove it completely, sign out in the Steam app.")
+                self.lastError = .signInProblem(String(localized: "Steam’s tool keeps its login in Steam’s normal folder. To remove it completely, sign out in the Steam app."))
             }
             SteamRunGate.release()
         }
@@ -1166,22 +1183,25 @@ final class SteamDownload: NSObject, URLSessionDownloadDelegate, @unchecked Send
 
     /// Runs a signed-in steamcmd command; returns a state to stop with when the login or the tool is the problem.
     private func runSignedIn(_ arguments: [String], onLine: (String) -> Void) async -> SteamOwnershipState? {
-        guard let tool = readyTool else { return .couldNotCheck("Steam’s tool isn’t installed.") }
+        guard let tool = readyTool else {
+            return .couldNotCheck(String(localized: "Steam’s tool isn’t installed."))
+        }
         do {
             let run = try await steamRun(tool.path, arguments, limits: .init(), onLine: onLine)
             switch run.decisive {
             case .failure(.needsLogin)?:
                 account = .signedOut
-                lastError = .loginFailed("Your saved Steam login has expired. Sign in again.")
+                lastError = .signInProblem(String(localized: "Your saved Steam login has expired. Sign in again."))
                 return .unknown
             case .failure(.rosettaMissing)?:
                 tools = .rosettaRequired
                 return .unknown
             default:
-                return run.timedOut ? .couldNotCheck("Steam took too long to answer. You can still try a download.") : nil
+                guard run.timedOut else { return nil }
+                return .couldNotCheck(String(localized: "Steam took too long to answer. You can still try a download."))
             }
         } catch {
-            return .couldNotCheck("Steam’s tool could not be started. You can still try a download.")
+            return .couldNotCheck(String(localized: "Steam’s tool could not be started. You can still try a download."))
         }
     }
 
@@ -1193,15 +1213,15 @@ final class SteamDownload: NSObject, URLSessionDownloadDelegate, @unchecked Send
     func prepareSharedAssets() {
         lastError = nil
         guard case .signedIn(let name) = account else {
-            assets = .failed(.assetsFailed("Sign in to Steam first (step 2 of the wizard)."))
+            assets = .failed(.assetsFailed(String(localized: "Sign in to Steam first (step 2 of the wizard).")))
             return
         }
         guard readyTool != nil else {
-            assets = .failed(.assetsFailed("Install Steam’s command-line tool first (step 1 of the wizard)."))
+            assets = .failed(.assetsFailed(String(localized: "Install Steam’s command-line tool first (step 1 of the wizard).")))
             return
         }
         guard acquireGate() else {
-            assets = .failed(.assetsFailed("A Steam download is running. Wait for it to finish, then try again."))
+            assets = .failed(.assetsFailed(String(localized: "A Steam download is running. Wait for it to finish, then try again.")))
             return
         }
         assets = .discovering
@@ -1212,13 +1232,13 @@ final class SteamDownload: NSObject, URLSessionDownloadDelegate, @unchecked Send
             let stop = await self.runSignedIn(["+@NoPromptForPassword", "1", "+login", name, "+app_info_update", "1",
                                                "+app_info_print", WorkshopKit.appID, "+quit"]) { text += $0 + "\n" }
             if stop != nil {
-                self.assets = .failed(.assetsFailed("Steam didn’t answer. Try again."))
+                self.assets = .failed(.assetsFailed(String(localized: "Steam didn’t answer. Try again.")))
             } else if let app = SteamKit.parseAppInfo(text, appID: WorkshopKit.appID),
                       let depot = SteamKit.sharedAssetsDepot(in: app) {
                 self.pendingDepot = depot
                 self.assets = .needsConfirmation(downloadBytes: depot.bytes, depotName: depot.name)
             } else {
-                self.assets = .unavailable("Live Wallpaper couldn’t find Wallpaper Engine’s shared files on Steam. Scenes that need them will show their preview only.")
+                self.assets = .unavailable(String(localized: "Live Wallpaper couldn’t find Wallpaper Engine’s shared files on Steam. Scenes that need them will show their preview only."))
             }
             SteamRunGate.release()
         }
@@ -1228,15 +1248,15 @@ final class SteamDownload: NSObject, URLSessionDownloadDelegate, @unchecked Send
         lastError = nil
         guard case .needsConfirmation = assets, let depot = pendingDepot else { return }
         guard case .signedIn(let name) = account else {
-            assets = .failed(.assetsFailed("Sign in to Steam first (step 2 of the wizard)."))
+            assets = .failed(.assetsFailed(String(localized: "Sign in to Steam first (step 2 of the wizard).")))
             return
         }
         guard readyTool != nil else {
-            assets = .failed(.assetsFailed("Install Steam’s command-line tool first (step 1 of the wizard)."))
+            assets = .failed(.assetsFailed(String(localized: "Install Steam’s command-line tool first (step 1 of the wizard).")))
             return
         }
         guard acquireGate() else {
-            assets = .failed(.assetsFailed("A Steam download is running. Wait for it to finish, then try again."))
+            assets = .failed(.assetsFailed(String(localized: "A Steam download is running. Wait for it to finish, then try again.")))
             return
         }
         let staging = AppPaths.steamStagingDirectory.appendingPathComponent("assets-\(Int(Date().timeIntervalSince1970))", isDirectory: true)
@@ -1258,7 +1278,9 @@ final class SteamDownload: NSObject, URLSessionDownloadDelegate, @unchecked Send
 
     private func fetchDepot(_ depot: SteamKit.Depot, user: String, staging: URL,
                             limits: WorkshopKit.Runner.Limits) async -> SteamAssetsState {
-        guard let tool = readyTool else { return .failed(.assetsFailed("Steam’s tool isn’t installed.")) }
+        guard let tool = readyTool else {
+            return .failed(.assetsFailed(String(localized: "Steam’s tool isn’t installed.")))
+        }
         // Reality check (was UNVERIFIED in the spec): download_depot ignores force_install_dir and unpacks
         // under SteamCMD's own root — staging/steamapps stays empty. Both locations are honored here.
         let toolRoot = URL(fileURLWithPath: (tool.path as NSString).deletingLastPathComponent)
@@ -1286,11 +1308,12 @@ final class SteamDownload: NSObject, URLSessionDownloadDelegate, @unchecked Send
             })
             if case .failure(.needsLogin)? = run.decisive {
                 account = .signedOut
-                return .failed(.assetsFailed("Your saved Steam login has expired. Sign in again."))
+                return .failed(.assetsFailed(String(localized: "Your saved Steam login has expired. Sign in again.")))
             }
             guard !run.timedOut, !run.cancelled,
                   let folder = candidates.lazy.compactMap({ SteamKit.assetsFolder(in: $0) }).first else {
-                return .failed(.assetsFailed(run.timedOut ? "Steam took too long to answer." : "Steam finished without the expected files. \(run.detail)"))
+                return .failed(.assetsFailed(run.timedOut ? String(localized: "Steam took too long to answer.")
+                                                          : String(localized: "Steam finished without the expected files. \(run.detail)")))
             }
             return claimSharedAssets(ready: folder, depotFolder: folder.deletingLastPathComponent(), steamapps: steamapps, depotID: depot.id)
         } catch {
@@ -1331,7 +1354,7 @@ final class SteamDownload: NSObject, URLSessionDownloadDelegate, @unchecked Send
 
     private func acquireGate() -> Bool {
         if WorkshopModel.shared.isBusyWithSteam || !SteamRunGate.acquire() {
-            lastError = .processFailed("A download is running. Wait for it to finish, then try again.")
+            lastError = .processFailed(String(localized: "A download is running. Wait for it to finish, then try again."))
             return false
         }
         return true
@@ -1347,7 +1370,7 @@ final class SteamDownload: NSObject, URLSessionDownloadDelegate, @unchecked Send
             return try await runner.run(arguments: arguments, onEvent: { _ in }, onTick: onTick, onLine: onLine)
         } catch {
             if case .rosettaMissing = WorkshopKit.launchError(error) { throw SteamSetupError.rosettaMissing }
-            throw SteamSetupError.processFailed("Steam’s tool could not be started.")
+            throw SteamSetupError.processFailed(String(localized: "Steam’s tool could not be started."))
         }
     }
 
@@ -1355,10 +1378,11 @@ final class SteamDownload: NSObject, URLSessionDownloadDelegate, @unchecked Send
     private static func describe(_ error: Error) -> String {
         if let error = error as? URLError {
             switch error.code {
-            case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed: return "no internet connection"
-            case .timedOut: return "the request timed out"
-            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed: return "Valve’s server couldn’t be reached"
-            default: return "network error \(error.code.rawValue)"
+            case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
+                return String(localized: "no internet connection")
+            case .timedOut: return String(localized: "the request timed out")
+            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed: return String(localized: "Valve’s server couldn’t be reached")
+            default: return String(localized: "network error \(String(error.code.rawValue))")   // as text: a code is never digit-grouped
             }
         }
         return error.localizedDescription

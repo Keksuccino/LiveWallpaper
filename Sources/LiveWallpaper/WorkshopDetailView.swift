@@ -136,7 +136,7 @@ struct WorkshopDetailView: View {
                 }
                 chips
                 tags
-                Text(item.summary.isEmpty ? "No description." : item.summary)
+                Text(item.summary.isEmpty ? String(localized: "No description.") : item.summary)
                     .font(.callout)
                     .foregroundStyle(item.summary.isEmpty ? .secondary : .primary)
                     .textSelection(.enabled)
@@ -194,15 +194,17 @@ struct WorkshopDetailView: View {
 
     private var chips: some View {
         WrappingRows {
-            if item.kind != .unknown {
-                WorkshopChip(text: item.kind.rawValue.capitalized, tint: item.isImportable ? Color.accentColor : Color.orange)
+            if let kind = item.kind.label {
+                WorkshopChip(text: kind, tint: item.isImportable ? Color.accentColor : Color.orange)
             }
             if let resolution = item.resolutionTag { WorkshopChip(text: resolution) }
             if let rating = item.ratingTag { WorkshopChip(text: rating) }
             if item.sizeBytes > 0 {
                 WorkshopChip(text: ByteCountFormatter.string(fromByteCount: item.sizeBytes, countStyle: .file))
             }
-            if let subscriptions = item.subscriptions { WorkshopChip(text: "\(subscriptions.formatted()) subscribers") }
+            if let subscriptions = item.subscriptions {
+                WorkshopChip(text: String(localized: "\(subscriptions) subscribers"))
+            }
         }
     }
 

@@ -23,8 +23,10 @@ private func copyToPasteboard(_ text: String) {
 private func cardInfoLine(_ item: WorkshopItem) -> String {
     var parts: [String] = []
     if item.sizeBytes > 0 { parts.append(ByteCountFormatter.string(fromByteCount: item.sizeBytes, countStyle: .file)) }
-    if let updated = item.updated { parts.append("updated " + updated.formatted(date: .abbreviated, time: .omitted)) }
-    if let author = item.author { parts.append("by " + author) }
+    if let updated = item.updated {
+        parts.append(String(localized: "updated \(updated.formatted(date: .abbreviated, time: .omitted))"))
+    }
+    if let author = item.author { parts.append(String(localized: "by \(author)")) }
     return parts.joined(separator: " · ")
 }
 
@@ -50,7 +52,7 @@ private struct FixButton: View {
 
     var body: some View { Button(title, action: run) }
 
-    private var title: String {
+    private var title: LocalizedStringKey {
         switch fix {
         case .openSteamSetup: return "Open Steam Settings"
         case .copyLoginCommand: return "Copy login command"
@@ -143,14 +145,14 @@ private struct ChipRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            if item.kind != .unknown {
-                WorkshopChip(text: item.kind.rawValue.capitalized,
-                             tint: item.isImportable ? Color.accentColor : Color.orange)
+            if let kind = item.kind.label {
+                WorkshopChip(text: kind, tint: item.isImportable ? Color.accentColor : Color.orange)
             }
             if let resolution = item.resolutionTag { WorkshopChip(text: resolution) }
             if let rating = item.ratingTag { WorkshopChip(text: rating) }
             if isHighResolution(item) {
-                WorkshopChip(text: "High resolution", tint: .orange).help("Large videos use more memory and battery")
+                WorkshopChip(text: String(localized: "High resolution"), tint: .orange)
+                    .help("Large videos use more memory and battery")
             }
         }
     }
@@ -190,7 +192,7 @@ struct WorkshopCardActions: View {
     let showInLibrary: () -> Void
 
     /// Why Download is disabled until the Steam setup is complete.
-    static let setupFirst = "Finish the Steam setup in Settings first"
+    static let setupFirst = String(localized: "Finish the Steam setup in Settings first")
 
     var body: some View {
         switch action {
@@ -207,13 +209,16 @@ struct WorkshopCardActions: View {
         }
     }
 
+    private var downloadTitle: String {
+        guard item.sizeBytes > 0 else { return String(localized: "Download") }
+        let size = ByteCountFormatter.string(fromByteCount: item.sizeBytes, countStyle: .file)
+        return String(localized: "Download · \(size)")
+    }
+
     @ViewBuilder private var downloadButton: some View {
-        let size = item.sizeBytes > 0
-            ? " · " + ByteCountFormatter.string(fromByteCount: item.sizeBytes, countStyle: .file)
-            : ""
         if compact {
             Button { workshop.download(item) } label: {
-                Label("Download" + size, systemImage: "arrow.down.circle")
+                Label(downloadTitle, systemImage: "arrow.down.circle")
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -221,7 +226,7 @@ struct WorkshopCardActions: View {
             .help(ready ? "" : WorkshopCardActions.setupFirst)
         } else {
             Button { workshop.download(item) } label: {
-                Label("Download" + size, systemImage: "arrow.down.circle")
+                Label(downloadTitle, systemImage: "arrow.down.circle")
             }
             .buttonStyle(.borderedProminent)
             .disabled(!ready)
@@ -252,7 +257,8 @@ struct WorkshopCardActions: View {
     }
 
     /// `fraction` shows a bar, `spinner` an indeterminate spinner; cancelling is offered unless `cancellable` is off.
-    private func progress(_ label: String, fraction: Double? = nil, spinner: Bool = false, cancellable: Bool = true) -> some View {
+    private func progress(_ label: LocalizedStringKey, fraction: Double? = nil, spinner: Bool = false,
+                          cancellable: Bool = true) -> some View {
         HStack(spacing: 8) {
             if let fraction {
                 LWProgressBar(progress: fraction, height: 4)
@@ -592,7 +598,7 @@ struct WorkshopView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("Browse").font(.title3.weight(.semibold))
-                Text("\(workshop.results.count)")
+                Text(workshop.results.count, format: .number)
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.tertiary)
                 Spacer()
@@ -607,12 +613,12 @@ struct WorkshopView: View {
     private var topicRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                LWTopicChip(title: "All",
+                LWTopicChip(title: String(localized: "All"),
                             selected: workshop.searchText.isEmpty) {
                     workshop.searchText = ""
                 }
                 ForEach(WorkshopTopic.allCases) { topic in
-                    LWTopicChip(title: topic.rawValue,
+                    LWTopicChip(title: topic.label,
                                 selected: workshop.searchText.caseInsensitiveCompare(topic.rawValue) == .orderedSame) {
                         toggleTopic(topic)
                     }
@@ -797,7 +803,7 @@ struct SteamSetupView: View {
     private var toolPathBlock: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("SteamCMD location").font(.subheadline.weight(.semibold))
-            Text(workshop.setup.steamcmdPath ?? "Not found")
+            Text(workshop.setup.steamcmdPath ?? String(localized: "Not found"))
                 .font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
             HStack {
                 Button("Choose…") { chooseSteamcmd() }
@@ -822,10 +828,10 @@ struct SteamSetupView: View {
 
     private var loginText: String {
         switch workshop.setup.login {
-        case .unknown: return "Not checked yet"
-        case .checking: return "Checking…"
-        case .loggedIn: return "Signed in as \(workshop.steamUsername)"
-        case .needsLogin: return "Sign in with the steps above."
+        case .unknown: return String(localized: "Not checked yet")
+        case .checking: return String(localized: "Checking…")
+        case .loggedIn: return String(localized: "Signed in as \(workshop.steamUsername)")
+        case .needsLogin: return String(localized: "Sign in with the steps above.")
         case .failed(let error): return error.title
         }
     }
@@ -835,8 +841,8 @@ struct SteamSetupView: View {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
-        panel.message = "Choose the steamcmd program."
-        panel.prompt = "Choose"
+        panel.message = String(localized: "Choose the steamcmd program.")
+        panel.prompt = String(localized: "Choose")
         if panel.runModal() == .OK, let url = panel.url {
             workshop.steamcmdPathOverride = url.path
             refreshTools()

@@ -78,44 +78,61 @@ vec4 pow(vec4 a, float b) { return pow(a, vec4(b)); }
 
 /// Our own version of the engine's `LightingV1` shader chunk.
 ///
-/// A scene shader asks for the chunk with `#require LightingV1`; the engine has it as a binary
-/// blob, we do not, so we write our own. The interface (the function name, its eight parameters
-/// and the light uniforms) is the one the engine's own asset shaders use, so every shader that
-/// asks for the chunk compiles.
+/// A scene shader asks for the chunk with `#require LightingV1`; the engine adds its own, we write
+/// ours. The interface (the function name, its eight parameters, the light arrays and the combos
+/// that size them) is the one the engine's asset shaders and its light uniforms use, so every
+/// shader that asks for the chunk compiles; `light.rs` says how the arrays are packed.
 ///
-/// The chunk only adds the direct light of the scene's point lights. The ambient term belongs to
-/// the shader: it multiplies `v_LightAmbientColor` with the albedo itself and adds it with
-/// `CombineLighting`, so a scene without lights is lit by the ambient alone.
+/// Every shader that asks for the chunk includes `common_pbr_2.h` first, so the chunk shades with
+/// that file's `ComputePBRLightShadow` (point, spot and tube lights, with a radius falloff raised to
+/// the light's exponent) and `ComputePBRLightShadowInfinite` (directional lights). Shadows and
+/// light cookies are not drawn: the shadow factor is 1. The ambient term belongs to the shader: it
+/// multiplies `v_LightAmbientColor` with the albedo itself, so a scene without lights is lit by the
+/// ambient alone and the chunk adds nothing.
 const LIGHTING_V1: &str = "\
 #if LIGHTS_POINT
 uniform vec4 g_LPoint_Origin[LIGHTS_POINT];
 uniform vec4 g_LPoint_Color[LIGHTS_POINT];
 #endif
-vec3 lw_point_light(vec3 normal, vec3 direction, vec3 viewDir, vec3 albedo, vec3 radiance, vec3 f0, vec3 specularTint, float roughness, float metallic) {
-    vec3 halfDir = normalize(direction + viewDir);
-    float ndl = max(dot(normal, direction), 0.0);
-    float ndv = max(dot(normal, viewDir), 0.0);
-    float ndh = max(dot(normal, halfDir), 0.0);
-    float vdh = max(dot(viewDir, halfDir), 0.0);
-    float alpha = roughness * roughness;
-    float d = ndh * ndh * (alpha * alpha - 1.0) + 1.0;
-    float distribution = alpha * alpha / max(3.14159265359 * d * d, 0.0001);
-    float k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
-    float geometry = (ndl / (ndl * (1.0 - k) + k)) * (ndv / (ndv * (1.0 - k) + k));
-    vec3 fresnel = f0 + (vec3(1.0) - f0) * pow(1.0 - vdh, 5.0);
-    vec3 specular = distribution * geometry * fresnel * specularTint / max(4.0 * ndl * ndv, 0.0001);
-    vec3 diffuse = (vec3(1.0) - fresnel) * (1.0 - metallic) * albedo / 3.14159265359;
-    return (diffuse + specular) * radiance * ndl;
-}
+#if LIGHTS_SPOT
+uniform vec4 g_LSpot_Origin[LIGHTS_SPOT];
+uniform vec4 g_LSpot_Direction[LIGHTS_SPOT];
+uniform vec4 g_LSpot_Color[LIGHTS_SPOT];
+uniform vec4 g_LSpot_Exponent[LIGHTS_SPOT];
+#endif
+#if LIGHTS_TUBE
+uniform vec4 g_LTube_OriginA[LIGHTS_TUBE];
+uniform vec4 g_LTube_OriginB[LIGHTS_TUBE];
+uniform vec4 g_LTube_Color[LIGHTS_TUBE];
+#endif
+#if LIGHTS_DIRECTIONAL
+uniform vec4 g_LDirectional_Direction[LIGHTS_DIRECTIONAL];
+uniform vec4 g_LDirectional_Color[LIGHTS_DIRECTIONAL];
+#endif
 vec3 PerformLighting_V1(vec3 worldPos, vec3 color, vec3 normal, vec3 viewVector, vec3 specularTint, vec3 f0, float roughness, float metallic) {
     vec3 light = vec3(0.0);
 #if LIGHTS_POINT
     for (int i = 0; i < LIGHTS_POINT; ++i) {
-        vec3 delta = g_LPoint_Origin[i].xyz - worldPos;
-        float distance = length(delta);
-        vec3 direction = delta / max(distance, 0.0001);
-        vec3 radiance = g_LPoint_Color[i].rgb / max(distance * distance, 0.0001);
-        light += lw_point_light(normal, direction, viewVector, color, radiance, f0, specularTint, roughness, metallic);
+        light += ComputePBRLightShadow(normal, g_LPoint_Origin[i].xyz - worldPos, viewVector, color, g_LPoint_Color[i].rgb, g_LPoint_Color[i].w, g_LPoint_Origin[i].w, specularTint, f0, roughness, metallic, 1.0);
+    }
+#endif
+#if LIGHTS_SPOT
+    for (int i = 0; i < LIGHTS_SPOT; ++i) {
+        vec3 toLight = g_LSpot_Origin[i].xyz - worldPos;
+        // Lit fully inside the inner cone, not at all outside the outer one (their cosines in w).
+        float cone = smoothstep(g_LSpot_Direction[i].w, g_LSpot_Origin[i].w, dot(normalize(-toLight), g_LSpot_Direction[i].xyz));
+        light += ComputePBRLightShadow(normal, toLight, viewVector, color, g_LSpot_Color[i].rgb * cone, g_LSpot_Color[i].w, g_LSpot_Exponent[i].x, specularTint, f0, roughness, metallic, 1.0);
+    }
+#endif
+#if LIGHTS_TUBE
+    for (int i = 0; i < LIGHTS_TUBE; ++i) {
+        vec3 toLight = PointSegmentDelta(worldPos, g_LTube_OriginA[i].xyz, g_LTube_OriginB[i].xyz);
+        light += ComputePBRLightShadow(normal, toLight, viewVector, color, g_LTube_Color[i].rgb, g_LTube_Color[i].w, g_LTube_OriginA[i].w, specularTint, f0, roughness, metallic, 1.0);
+    }
+#endif
+#if LIGHTS_DIRECTIONAL
+    for (int i = 0; i < LIGHTS_DIRECTIONAL; ++i) {
+        light += ComputePBRLightShadowInfinite(normal, g_LDirectional_Direction[i].xyz, viewVector, color, g_LDirectional_Color[i].rgb, specularTint, f0, roughness, metallic, 1.0);
     }
 #endif
     return light;
@@ -1303,6 +1320,19 @@ fn fix_store(
         naga::Expression::LocalVariable(local) => module.types[function.local_variables[local].ty]
             .inner
             .clone(),
+        // A global (an output varying such as `v_NoiseCoord = v_TexCoord;`): its span is its
+        // declaration, so the value is converted where it stands in the assignment.
+        naga::Expression::GlobalVariable(global) => {
+            let target = &module.types[module.global_variables[global].ty].inner;
+            let value_type = expr_type(module, function, value)?;
+            let span = function.expressions.get_span(value).to_range()?;
+            let text = src.get(span.clone())?;
+            if !is_whole_expression(text) {
+                return None;
+            }
+            let new_text = converted(src, module, function, value, target, &value_type, text)?;
+            return patch(src, span, &new_text);
+        }
         _ => return None,
     };
     let value_type = expr_type(module, function, value)?;
@@ -1337,12 +1367,29 @@ fn fix_store(
             range.start - statement.start..range.end - statement.start
         }
     };
-    let value_text = src.get(statement.start + range.start..statement.start + range.end)?.to_string();
-    let new_text = match (&target, &value_type) {
+    let value_text = src.get(statement.start + range.start..statement.start + range.end)?;
+    let new_text = converted(src, module, function, value, &target, &value_type, value_text)?;
+    let start = statement.start + range.start;
+    let end = statement.start + range.end;
+    patch(src, start..end, &new_text)
+}
+
+/// `value_text` (of type `value_type`) converted the way HLSL does it implicitly when it is
+/// stored into a variable of type `target`; `None` for a pair GLSL cannot be taught.
+fn converted(
+    src: &str,
+    module: &naga::Module,
+    function: &naga::Function,
+    value: naga::Handle<naga::Expression>,
+    target: &naga::TypeInner,
+    value_type: &naga::TypeInner,
+    value_text: &str,
+) -> Option<String> {
+    Some(match (target, value_type) {
         // HLSL converts between the numeric types on the fly, GLSL wants the cast spelled out.
         (naga::TypeInner::Scalar(want), naga::TypeInner::Scalar(got)) if want.kind != got.kind => {
             let inner = float_modulo_text(src, module, function, value)
-                .unwrap_or_else(|| value_text.clone());
+                .unwrap_or_else(|| value_text.to_string());
             format!("{}({inner})", glsl_type(want.kind))
         }
         // A scalar written into a vector is a splat in HLSL.
@@ -1357,10 +1404,7 @@ fn fix_store(
             format!("({value_text}).{}", &"xyzw"[..*want as usize])
         }
         _ => return None,
-    };
-    let start = statement.start + range.start;
-    let end = statement.start + range.end;
-    patch(src, start..end, &new_text)
+    })
 }
 
 /// The range of `= <expr>` after a variable name at `from`: the expression up to the `;` that ends
@@ -1854,6 +1898,7 @@ fn cache_key(texts: &[&str], defines: &BTreeMap<String, i64>) -> String {
     // Bump when the translation itself changes so stale cached MSL is not reused.
     (env!("CARGO_PKG_VERSION"), TRANSLATOR_REVISION).hash(&mut h);
     PRELUDE.hash(&mut h);
+    LIGHTING_V1.hash(&mut h);
     texts.hash(&mut h);
     defines.hash(&mut h);
     format!("{:016x}", h.finish())
@@ -1961,6 +2006,14 @@ mod tests {
         let src = "uniform sampler2D g_Texture0;\nvarying vec2 v_TexCoord;\nvoid main() {\n vec3 c = texSample2D(g_Texture0, v_TexCoord);\n gl_FragColor = vec4(c, 1.0);\n}\n";
         let (frag, _, _) = rewrite(src, Stage::Fragment, &[]);
         to_msl(&frag, Stage::Fragment).expect("translates");
+    }
+
+    #[test]
+    fn a_wide_varying_written_into_a_narrow_one_is_narrowed() {
+        // The cloud motion effect's vertex shader does this.
+        let src = "uniform mat4 g_ModelViewProjectionMatrix;\nattribute vec3 a_Position;\nattribute vec2 a_TexCoord;\nvarying vec4 v_TexCoord;\nvarying vec2 v_NoiseCoord;\nvoid main() {\n gl_Position = mul(vec4(a_Position, 1.0), g_ModelViewProjectionMatrix);\n v_TexCoord = a_TexCoord.xyxy;\n v_NoiseCoord = v_TexCoord;\n v_NoiseCoord.x *= 2.0;\n}\n";
+        let (vert, _, _) = rewrite(src, Stage::Vertex, &[]);
+        to_msl(&vert, Stage::Vertex).expect("translates");
     }
 
     #[test]
@@ -2185,6 +2238,27 @@ mod tests {
         };
         let program = src.compile(&BTreeMap::new()).unwrap();
         assert!(program.fragment.msl.contains("PerformLighting_V1"));
+    }
+
+    #[test]
+    fn the_lighting_chunk_compiles_with_every_light_kind() {
+        // Stand-ins with the signatures of `common_pbr_2.h`, which the real shaders include.
+        let frag = "vec3 ComputePBRLightShadow(vec3 N, vec3 L, vec3 V, vec3 albedo, vec3 lightColor, float radius, float exponent, vec3 specularTint, vec3 baseReflectance, float roughness, float metallic, float shadowFactor) { return lightColor * max(dot(N, normalize(L)), 0.0) * pow(max(1.0 - length(L) / radius, 0.0), exponent); }\nvec3 ComputePBRLightShadowInfinite(vec3 N, vec3 L, vec3 V, vec3 albedo, vec3 lightColor, vec3 specularTint, vec3 baseReflectance, float roughness, float metallic, float shadowFactor) { return lightColor * max(dot(N, L), 0.0); }\nvec3 PointSegmentDelta(vec3 pos, vec3 a, vec3 b) { return a - pos; }\n#require LightingV1\nvarying vec3 v_Normal;\nvoid main() {\n gl_FragColor = vec4(PerformLighting_V1(vec3(0.0), vec3(1.0), normalize(v_Normal), vec3(0.0, 0.0, 1.0), CAST3(1.0), vec3(0.04), 0.5, 0.0), 1.0);\n}\n";
+        let src = Source {
+            vert: "attribute vec3 a_Position;\nvarying vec3 v_Normal;\nvoid main() { gl_Position = vec4(a_Position, 1.0); v_Normal = a_Position; }\n".into(),
+            frag: frag.into(),
+            combo_defaults: BTreeMap::new(),
+            uniform_meta: HashMap::new(),
+            texture_meta: HashMap::new(),
+        };
+        let combos = defs(&[("LIGHTS_POINT", 2), ("LIGHTS_SPOT", 1), ("LIGHTS_TUBE", 1), ("LIGHTS_DIRECTIONAL", 1)]);
+        let program = src.compile(&combos).unwrap();
+        let names: Vec<&str> = program.fragment.uniforms.iter().map(|u| u.name.as_str()).collect();
+        for name in ["g_LPoint_Origin", "g_LSpot_Direction", "g_LTube_OriginB", "g_LDirectional_Color"] {
+            assert!(names.contains(&name), "{names:?}");
+        }
+        let point = program.fragment.uniforms.iter().find(|u| u.name == "g_LPoint_Color").unwrap();
+        assert_eq!((point.count, point.rows, point.stride), (2, 4, 16));
     }
 
     #[test]

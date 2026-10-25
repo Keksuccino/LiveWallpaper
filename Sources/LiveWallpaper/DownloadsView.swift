@@ -52,7 +52,7 @@ struct DownloadsView: View {
             })
     }
 
-    private var headerSubtitle: String {
+    private var headerSubtitle: LocalizedStringKey {
         switch active.count {
         case 0: return "Workshop downloads appear here while they run."
         case 1: return "One wallpaper downloading · the rest of the app stays free to use."
@@ -95,10 +95,10 @@ struct DownloadsView: View {
         }
     }
 
-    private func sectionTitle(_ title: String, count: Int) -> some View {
+    private func sectionTitle(_ title: LocalizedStringKey, count: Int) -> some View {
         HStack(spacing: 8) {
             Text(title).font(.title3.weight(.semibold))
-            Text("\(count)")
+            Text(count, format: .number)
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.tertiary)
         }
@@ -178,16 +178,26 @@ private struct DownloadRow: View {
     private var phaseText: String {
         switch phase {
         case .queued(let position):
-            return position > 1 ? "Waiting · \(ordinal(position)) in queue" : "Waiting…"
-        case .signingIn: return "Signing in to Steam…"
+            guard position > 1, let place = Self.ordinal.string(from: position as NSNumber) else {
+                return String(localized: "Waiting…")
+            }
+            return String(localized: "Waiting · \(place) in queue")
+        case .signingIn: return String(localized: "Signing in to Steam…")
         case .downloading(let progress):
-            guard let progress else { return "Downloading…" }
-            return "Downloading · \(Int((min(max(progress, 0), 1) * 100).rounded()))%"
-        case .importing: return "Adding to your library…"
-        case .done: return "Added to your library"
+            guard let progress else { return String(localized: "Downloading…") }
+            return String(localized: "Downloading · \(Int((min(max(progress, 0), 1) * 100).rounded()))%")
+        case .importing: return String(localized: "Adding to your library…")
+        case .done: return String(localized: "Added to your library")
         case .failed(let error): return error.title
         }
     }
+
+    /// "1st", "2nd", ... in the user's language.
+    private static let ordinal: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .ordinal
+        return formatter
+    }()
 
     private var statusLine: some View {
         HStack(spacing: 8) {
@@ -224,8 +234,7 @@ private struct DownloadRow: View {
     }
 
     private var kindChip: (text: String, tint: Color)? {
-        guard item.kind != .unknown else { return nil }
-        return (item.kind.rawValue.capitalized, item.isImportable ? Color.accentColor : Color.orange)
+        item.kind.label.map { ($0, item.isImportable ? Color.accentColor : Color.orange) }
     }
 
     @ViewBuilder private func kindChipView(_ chip: (text: String, tint: Color)) -> some View {
@@ -281,7 +290,7 @@ private struct DownloadRow: View {
         }
     }
 
-    private func cancelButton(_ help: String) -> some View {
+    private func cancelButton(_ help: LocalizedStringKey) -> some View {
         Button {
             workshop.cancelDownload(entry.id)
         } label: {
@@ -298,14 +307,5 @@ private struct DownloadRow: View {
     private func showInLibrary() {
         if let video = model.videos.first(where: { $0.workshopID == item.id }) { model.focusedID = video.id }
         openLibrary()
-    }
-
-    private func ordinal(_ value: Int) -> String {
-        switch value % 10 {
-        case 1 where value % 100 != 11: return "\(value)st"
-        case 2 where value % 100 != 12: return "\(value)nd"
-        case 3 where value % 100 != 13: return "\(value)rd"
-        default: return "\(value)th"
-        }
     }
 }

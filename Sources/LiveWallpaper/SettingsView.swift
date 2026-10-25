@@ -75,11 +75,39 @@ private struct GeneralSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
+            sound
             lockScreen
             about
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var sound: some View {
+        InspectorSection(title: "Sound") {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) {
+                    Text("Master volume")
+                    Image(systemName: "speaker.fill").foregroundStyle(.secondary)
+                    Slider(value: $model.masterVolume, in: 0...1)
+                    Image(systemName: "speaker.wave.3.fill").foregroundStyle(.secondary)
+                    Text(model.masterVolume, format: .percent.precision(.fractionLength(0)))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, alignment: .trailing)
+                }
+                Text("Scales the sound of every wallpaper on every display. Each wallpaper has its own volume too, in its settings.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Toggle("Mute all wallpapers", isOn: Binding(get: { model.muted }, set: { model.setMuted($0) }))
+                    .padding(.top, 6)
+                Text("Silences every wallpaper, like Mute Sound in the menu bar.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     private var lockScreen: some View {
@@ -99,7 +127,7 @@ private struct GeneralSettingsView: View {
         }
     }
 
-    private static func delayTitle(_ seconds: Double) -> String {
+    private static func delayTitle(_ seconds: Double) -> LocalizedStringKey {
         seconds == 0 ? "No delay" : "\(seconds.formatted()) s"
     }
 

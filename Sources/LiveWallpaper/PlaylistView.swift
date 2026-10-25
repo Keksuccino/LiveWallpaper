@@ -106,10 +106,10 @@ private struct PlaylistEditorCard: View {
         .animation(LWMotion.content, value: isCustom)
     }
 
-    private var subtitle: String {
+    private var subtitle: LocalizedStringKey {
         guard isCustom else { return "No playlist yet" }
         let count = items.count
-        return count == 0 ? "Empty" : "\(count) \(count == 1 ? "wallpaper" : "wallpapers") · drag to reorder"
+        return count == 0 ? "Empty" : "\(count) wallpapers · drag to reorder"
     }
 
     /// Turning custom order on starts from the whole library, in library order.
@@ -161,7 +161,7 @@ private struct PlaylistEditorCard: View {
                 if let info = item.scene {
                     SceneSupportBadge(info: info)
                 } else {
-                    LWChip(text: "Video")
+                    LWChip(text: String(localized: "Video"))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -289,13 +289,15 @@ private struct PlaylistAddSheet: View {
             Divider()
 
             HStack(spacing: 12) {
-                Text(selected.isEmpty ? "" : "\(selected.count) selected")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if !selected.isEmpty {
+                    Text("\(selected.count) selected")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("Add \(selected.isEmpty ? "" : "\(selected.count) ")Wallpaper\(selected.count == 1 ? "" : "s")") {
+                Button(selected.isEmpty ? "Add Wallpapers" : "Add \(selected.count) Wallpapers") {
                     // Library order, so the appended order is stable.
                     let ordered = model.videos.filter { selected.contains($0.id) }.map(\.id)
                     onAdd(ordered)
@@ -333,7 +335,7 @@ private struct PlaylistAddSheet: View {
                 if let info = item.scene {
                     SceneSupportBadge(info: info)
                 } else {
-                    LWChip(text: "Video")
+                    LWChip(text: String(localized: "Video"))
                 }
             }
             .padding(.horizontal, 16)

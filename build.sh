@@ -55,6 +55,16 @@ cp "$BIN_DIR/LiveWallpaperService" "$SERVICE/Contents/MacOS/LiveWallpaperService
 cp Resources/Service-Info.plist "$SERVICE/Contents/Info.plist"
 printf 'APPL????' > "$SERVICE/Contents/PkgInfo"
 
+# Translations: each String Catalog becomes <language>.lproj/<table>.strings(dict) in both bundles (Localizable: the
+# apps' text; InfoPlist: the permission prompts of Info.plist). The service needs its own copy: its menu and the error
+# messages it reports to Settings are looked up in the service's bundle. SwiftPM's executables have no resource bundle
+# of their own, so this is the only place the catalogs are compiled.
+for bundle in "$APP" "$SERVICE"; do
+  for catalog in Resources/Localizable.xcstrings Resources/InfoPlist.xcstrings; do
+    xcrun xcstringstool compile "$catalog" --output-directory "$bundle/Contents/Resources"
+  done
+done
+
 # Version injection: the same version in both bundles (the UI can compare the running service's version with its own).
 if [[ -n "${VERSION:-}" ]]; then
   for plist in "$APP/Contents/Info.plist" "$SERVICE/Contents/Info.plist"; do
