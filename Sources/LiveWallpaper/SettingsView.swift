@@ -14,8 +14,9 @@ enum SettingsTab: Hashable {
     /// SwiftUI's openSettings action, installed by SettingsOpenerInstaller on macOS 14 and later.
     fileprivate var openSettings: (() -> Void)?
 
-    func open(_ tab: SettingsTab) {
-        self.tab = tab
+    /// Opens Settings at `tab`, or at the tab it showed last.
+    func open(_ tab: SettingsTab? = nil) {
+        if let tab { self.tab = tab }
         if let openSettings {
             openSettings()
         } else {

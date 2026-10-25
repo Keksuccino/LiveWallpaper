@@ -31,7 +31,8 @@ import SceneFormat
     @Published private(set) var importedFromPhase1: Int = 0
     /// A phase-1 copy of the app is running; it would fight the service over the wallpaper.
     @Published private(set) var legacyAppRunning: Bool = false
-    /// Settings-side problem (service unreachable, command failed); cleared by clearStatus().
+    /// A command the service answered with an error; cleared by clearStatus(). A service that cannot be reached
+    /// is ServiceClient.problem instead.
     @Published private(set) var localMessage: String? = nil
 
     private var serviceStatus: ServiceStatus? { client.status }
@@ -131,6 +132,8 @@ import SceneFormat
     let client = ServiceClient.shared
     private var written = LibraryState()           // what state.json last held, revision included
     private var writesSuspended = false
+    /// A commit could not be sent because the service was not connected; it goes out once the service answers.
+    private var commitPending = false
     private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     private var clientWatch: [AnyCancellable] = []
 
@@ -208,9 +211,6 @@ import SceneFormat
 
     // MARK: Service intents
 
-    /// Terminates the service (`.quit`).
-    func quitService() { send(.quit) }
-
     func restartService() { Task { await client.restart() } }
 
     /// Registers/connects to the service again.
@@ -242,11 +242,12 @@ import SceneFormat
         if persisting { persist() }
     }
 
-    private func persist() {
+    /// Commits the persisted fields when they differ from what was last sent (`force`: in any case).
+    private func persist(force: Bool = false) {
         guard !writesSuspended else { return }
         var state = snapshot
         state.revision = written.revision
-        guard state != written else { return }
+        guard force || state != written else { return }
         written = state
         send(.commit(state))   // the service writes state.json and bumps the revision
     }
@@ -286,7 +287,8 @@ import SceneFormat
 
     // MARK: Service
 
-    /// Sends a command; a failure shows up as `localMessage`.
+    /// Sends a command. An error the service answers with shows up as `localMessage`; without a connection the
+    /// sidebar already says so, and a commit is sent again once the service answers.
     private func send(_ command: ServiceCommand) {
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -294,13 +296,21 @@ import SceneFormat
                 let status = try await self.client.perform(command)
                 if case .commit = command { self.written.revision = max(self.written.revision, status.stateRevision) }
             } catch {
-                self.localMessage = error.localizedDescription
+                if self.client.state == .connected {
+                    self.localMessage = error.localizedDescription
+                } else if case .commit = command {
+                    self.commitPending = true
+                }
             }
         }
     }
 
     /// A status arrived (reply or push): the service owns each display's `muted` (its menu can toggle them all).
     private func statusReceived(_ status: ServiceStatus) {
+        if commitPending {
+            commitPending = false
+            persist(force: true)
+        }
         let changed = status.displays.filter { display in
             displays[display.id].map { $0.muted != display.muted } ?? false
         }

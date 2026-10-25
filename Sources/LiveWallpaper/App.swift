@@ -123,18 +123,21 @@ struct RootView: View {
 
     // MARK: Sidebar
 
+    // The footer sits below the list, not in its safe-area inset: over the list's scroll view its buttons get no
+    // hover and no tooltips.
     private var sidebar: some View {
-        List(selection: $selection) {
-            sidebarRow(.home, count: model.videos.count)
-            sidebarRow(.playlists, count: nil)
-            sidebarRow(.workshop, count: workshop.results.isEmpty ? nil : workshop.results.count)
-            sidebarRow(.downloads, count: workshop.downloadEntries.isEmpty ? nil : workshop.downloadEntries.count,
-                       live: workshop.hasActiveDownloads)
-        }
-        .listStyle(.sidebar)
-        .safeAreaInset(edge: .bottom) {
-            ServiceFooter(model: model)
-                .padding(10)
+        VStack(spacing: 0) {
+            List(selection: $selection) {
+                sidebarRow(.home, count: model.videos.count)
+                sidebarRow(.playlists, count: nil)
+                sidebarRow(.workshop, count: workshop.results.isEmpty ? nil : workshop.results.count)
+                sidebarRow(.downloads, count: workshop.downloadEntries.isEmpty ? nil : workshop.downloadEntries.count,
+                           live: workshop.hasActiveDownloads)
+            }
+            .listStyle(.sidebar)
+            SidebarFooter(model: model)
+                .padding(.horizontal, 10)
+                .padding(.bottom, 8)
         }
     }
 
@@ -304,55 +307,137 @@ fileprivate struct BannerBar: View {
 
 // MARK: - Service status
 
+/// The bottom of the sidebar: restart the wallpaper service on the left, open Settings on the right, and above them a
+/// warning while the service is not running or reports a problem.
 @MainActor
-private struct ServiceFooter: View {
+private struct SidebarFooter: View {
     @ObservedObject var model: SettingsModel
 
+    private struct Warning {
+        let title: String
+        let message: Text
+        /// Set for a message the user can close; problems of the service itself go away when it answers again.
+        var dismiss: (() -> Void)? = nil
+    }
+
     var body: some View {
-        HStack(spacing: 7) {
-            StatusDot(color: dot, pulsing: model.client.state == .connecting)
-            Text(shortText)
-                .font(.caption)
-                .foregroundStyle(model.client.state == .connected ? .secondary : .primary)
-                .lineLimit(1)
-            Spacer(minLength: 0)
-            Menu {
-                Button("Connect to Service") { model.startService() }
-                    .disabled(model.client.state == .connected)
-                Button("Restart Service") { model.restartService() }
-                    .disabled(model.client.state != .connected)
-                Button("Quit Service") { model.quitService() }
-                    .disabled(model.client.state != .connected)
-            } label: {
-                Image(systemName: "ellipsis")
+        VStack(alignment: .leading, spacing: 8) {
+            if let warning {
+                warningCard(warning)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("Service options")
-            .accessibilityLabel("Service options")
+            HStack {
+                Button { model.restartService() } label: {
+                    if model.client.isRestarting {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+                .disabled(model.client.isRestarting)
+                .help("Restart the wallpaper service")
+                .accessibilityLabel("Restart the wallpaper service")
+                Spacer()
+                Button { SettingsNavigator.shared.open() } label: {
+                    Image(systemName: "gearshape")
+                }
+                .help("Settings")
+                .accessibilityLabel("Settings")
+            }
+            .buttonStyle(SidebarIconButtonStyle())
+        }
+        .animation(LWMotion.content, value: warning?.title)
+        .animation(LWMotion.content, value: model.client.isRestarting)
+    }
+
+    /// What is wrong, in the user's words, and what fixes it. Nothing while a restart is under way.
+    private var warning: Warning? {
+        guard !model.client.isRestarting else { return nil }
+        let restart = Image(systemName: "arrow.clockwise")
+        switch model.client.problem {
+        case .missing:
+            return Warning(title: "Wallpaper service missing",
+                           message: Text("This copy of Live Wallpaper is incomplete, so your live wallpapers can’t be shown. Reinstall Live Wallpaper to fix it."))
+        case .didNotStart:
+            return Warning(title: "Wallpaper service didn’t start",
+                           message: Text("Your live wallpapers can’t be shown right now. Press \(restart) below to try again. If that doesn’t help, reinstall Live Wallpaper."))
+        case .noAnswer:
+            return Warning(title: "Wallpaper service not responding",
+                           message: Text("Your live wallpapers may have stopped, and changes you make here can’t reach them. Press \(restart) below to fix it."))
+        case nil:
+            break
+        }
+        guard model.client.state == .connected, let message = model.statusMessage, !message.isEmpty else { return nil }
+        return Warning(title: "Wallpaper service problem", message: Text(message),
+                       dismiss: model.localMessage == nil ? nil : { model.clearStatus() })
+    }
+
+    private func warningCard(_ warning: Warning) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text(warning.title)
+                    .font(.caption.weight(.semibold))
+                Spacer(minLength: 4)
+                if let dismiss = warning.dismiss {
+                    Button(action: dismiss) { Image(systemName: "xmark") }
+                        .buttonStyle(.borderless)
+                        .font(.caption2.weight(.semibold))
+                        .help("Dismiss")
+                        .accessibilityLabel("Dismiss")
+                }
+            }
+            warning.message
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(10)
-        .background { glassShape(radius: 12) }
+        // The window's minimum size is worked out from its content: without a minimum width the wrapped text would
+        // be measured one word per line, and the window would demand a height no screen has.
+        .frame(minWidth: 188, maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.orange.opacity(0.12))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Color.orange.opacity(0.25), lineWidth: 1)
+                }
+        }
+        .accessibilityElement(children: .combine)
     }
 
-    private var dot: Color {
-        switch model.client.state {
-        case .connected: return model.isLive ? .green : .secondary
-        case .connecting: return .orange
-        case .needsApproval, .unavailable: return .orange
-        case .unknown: return .secondary
-        }
+}
+
+/// An icon button without a border that still looks and feels pressable: a soft highlight under the pointer and a
+/// stronger one while pressed.
+private struct SidebarIconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        SidebarIconButton(configuration: configuration)
+    }
+}
+
+private struct SidebarIconButton: View {
+    let configuration: ButtonStyleConfiguration
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var hovering = false
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 7, style: .continuous)
+        configuration.label
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(isEnabled ? Color.primary.opacity(0.8) : Color.secondary)
+            .frame(width: 28, height: 28)
+            .background(shape.fill(Color.primary.opacity(highlight)))
+            .contentShape(shape)
+            .onHover { inside in withAnimation(LWMotion.hover) { hovering = inside } }
     }
 
-    private var shortText: String {
-        switch model.client.state {
-        case .connected: return "Wallpaper service · running"
-        case .connecting: return "Starting service…"
-        case .needsApproval: return "Service needs approval"
-        case .unavailable: return "Service not responding"
-        case .unknown: return "Service not running"
-        }
+    private var highlight: Double {
+        guard isEnabled else { return 0 }
+        if configuration.isPressed { return 0.16 }
+        return hovering ? 0.08 : 0
     }
 }
 
@@ -389,18 +474,17 @@ struct ServiceStatusPill: View {
     }
 
     private var dot: Color {
+        if model.client.problem != nil { return .orange }
         switch model.client.state {
         case .connected: return model.isLive ? .green : .secondary
-        case .connecting: return .orange
-        case .needsApproval, .unavailable: return .orange
+        case .connecting, .unavailable: return .orange
         case .unknown: return .secondary
         }
     }
 
     private var pillText: String {
+        if model.client.problem != nil { return "Service offline" }
         if model.client.state == .connecting { return "Starting…" }
-        if model.client.state == .unavailable { return "Service offline" }
-        if model.client.state == .needsApproval { return "Needs approval" }
         if model.isLive { return model.isPaused ? "Paused" : "Live" }
         return "Ready"
     }
@@ -433,13 +517,10 @@ private struct ServicePopover: View {
             }
 
             HStack(spacing: 10) {
-                if model.client.state == .unavailable {
+                if model.client.problem != nil {
                     Button("Reconnect") { model.startService() }.buttonStyle(.link)
                 }
                 Button("Restart") { model.restartService() }
-                    .buttonStyle(.link)
-                    .disabled(model.client.state != .connected)
-                Button("Quit") { model.quitService() }
                     .buttonStyle(.link)
                     .disabled(model.client.state != .connected)
             }
@@ -452,7 +533,6 @@ private struct ServicePopover: View {
         switch model.client.state {
         case .connected: return "running"
         case .connecting: return "starting"
-        case .needsApproval: return "needs approval"
         case .unavailable: return "offline"
         case .unknown: return "not running"
         }

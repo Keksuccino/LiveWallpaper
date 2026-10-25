@@ -16,21 +16,29 @@ struct ServiceError: LocalizedError {
 
     enum State: Equatable {
         case unknown          // not started
-        case needsApproval    // unused since the socket transport (kept so the UI's switches stay unchanged)
         case connecting       // launching / waiting for the first answer
         case connected
-        case unavailable      // the service could not be started or does not answer; see connectionError
+        case unavailable      // the service could not be started or does not answer; see `problem`
+    }
+
+    /// Why the service is unavailable. It stays while the client keeps trying, until the service answers.
+    enum Problem: Equatable {
+        case missing          // the service app is not inside this copy of Live Wallpaper
+        case didNotStart      // it was launched but never answered
+        case noAnswer         // it does not answer on its socket
     }
 
     @Published private(set) var status: ServiceStatus?
-    @Published private(set) var connectionError: String?
+    @Published private(set) var problem: Problem?
     @Published private(set) var state: State = .unknown
+    /// A restart is under way: from asking the service to quit until a fresh one answers or fails.
+    @Published private(set) var isRestarting = false
 
     private var connection: ServiceSocketClient?
     private var connecting: Task<Void, Never>?
     private var retry: Task<Void, Never>?
     private var loginItemTried = false
-    private var quitRequested = false   // Quit Service: reconnect only if something else starts the service
+    private var quitRequested = false   // the service was asked to quit (restart): its going away is no crash
 
     /// <LiveWallpaper.app>/Contents/Library/LoginItems/LiveWallpaperService.app
     private static let serviceApp = Bundle.main.bundleURL
@@ -64,6 +72,7 @@ struct ServiceError: LocalizedError {
 
     /// Quits the service, then connects again (which launches a fresh copy).
     func restart() async {
+        isRestarting = true
         _ = try? await perform(.quit)
         try? await Task.sleep(nanoseconds: 1_000_000_000)
         stop()
@@ -80,7 +89,7 @@ struct ServiceError: LocalizedError {
             while !(await Self.isServing(path)) {
                 waited += 1
                 guard waited <= 20, !Task.isCancelled else {
-                    return fail("The wallpaper service didn’t start. Try Connect to Service, or reinstall Live Wallpaper.")
+                    return fail(.didNotStart, "it did not answer within 5 seconds")
                 }
                 try? await Task.sleep(nanoseconds: 250_000_000)
             }
@@ -97,7 +106,7 @@ struct ServiceError: LocalizedError {
         do {
             try await Self.offMain { try client.connect(path: path) }
         } catch {
-            return fail("Couldn’t connect to the wallpaper service: \(error.localizedDescription)")
+            return fail(.noAnswer, error.localizedDescription)
         }
         connection = client
         await refreshStatus()
@@ -107,7 +116,7 @@ struct ServiceError: LocalizedError {
     /// False (and `.unavailable`) when the service app cannot be found or opened.
     private func launchService() -> Bool {
         guard FileManager.default.fileExists(atPath: Self.serviceApp.path) else {
-            fail("The wallpaper service is missing from this copy of the app.")
+            fail(.missing, Self.serviceApp.path)
             return false
         }
         let configuration = NSWorkspace.OpenConfiguration()
@@ -157,7 +166,7 @@ struct ServiceError: LocalizedError {
     }
 
     func refreshStatus() async {
-        do { try await perform(.status) } catch { fail(error.localizedDescription) }
+        do { try await perform(.status) } catch { fail(.noAnswer, error.localizedDescription) }
     }
 
     // MARK: Connection
@@ -166,23 +175,26 @@ struct ServiceError: LocalizedError {
         guard connection != nil else { return }   // a push that raced stop()
         status = new
         state = .connected
-        connectionError = nil
+        problem = nil
+        isRestarting = false
         retry?.cancel()
     }
 
-    /// The service went away: relaunch it after a crash, only watch for it after Quit Service.
+    /// The service went away: relaunch it after a crash, only watch for it while a restart brings it back.
     private func lost() {
         connection = nil
         status = nil
-        state = quitRequested ? .unknown : .connecting
+        state = .connecting
         retryLater()
     }
 
-    private func fail(_ message: String) {
+    private func fail(_ problem: Problem, _ detail: String) {
+        NSLog("LiveWallpaper: wallpaper service unavailable (\(problem)): \(detail)")
         connection?.close()
         connection = nil
-        connectionError = message
+        self.problem = problem
         state = .unavailable
+        isRestarting = false
         retryLater()
     }
 

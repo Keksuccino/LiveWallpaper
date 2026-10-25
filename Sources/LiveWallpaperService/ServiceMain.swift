@@ -105,7 +105,7 @@ enum ServiceEntry {
         case .status: break
         case .quit:
             // After the reply has gone out.
-            DispatchQueue.main.async { [weak self] in self?.quitWallpaper() }
+            DispatchQueue.main.async { [weak self] in self?.quitService() }
         }
         let status = orchestrator.status()
         server.push(status)  // other connected windows learn about it too
@@ -117,7 +117,8 @@ enum ServiceEntry {
         if !handlingCommand { server.push(orchestrator.status()) }
     }
 
-    private func quitWallpaper() {
+    /// Only the service quits (`.quit`, which Settings sends to restart it).
+    private func quitService() {
         orchestrator.shutdown()
         NSApp.terminate(nil)
     }
@@ -137,9 +138,10 @@ enum ServiceEntry {
         configure(muteItem, title: "Mute Sound", action: #selector(toggleMute))
         let settings = NSMenuItem(title: "Open Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
-        let quit = NSMenuItem(title: "Quit Wallpaper", action: #selector(quitFromMenu), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "Quit Live Wallpaper", action: #selector(quitLiveWallpaper), keyEquivalent: "q")
         quit.target = self
-        quit.toolTip = "Stops the live wallpapers and quits this helper. Their stills stay your system wallpapers."
+        quit.toolTip = "Closes Live Wallpaper. Your live wallpapers stop, and each display keeps a still picture of its "
+            + "wallpaper."
         [statusLine, messageItem, .separator(), settings, .separator(),
          pauseItem, nextItem, muteItem, .separator(), quit].forEach(menu.addItem)
         item.menu = menu
@@ -186,7 +188,14 @@ enum ServiceEntry {
     @objc private func togglePause() { orchestrator.setPaused(!orchestrator.isPaused) }
     @objc private func nextWallpaper() { orchestrator.next() }
     @objc private func toggleMute() { orchestrator.setMuted(!orchestrator.muted, display: nil) }
-    @objc private func quitFromMenu() { quitWallpaper() }
+    /// Quits the whole app: Settings first, so it does not start the service again, then the service.
+    @objc private func quitLiveWallpaper() {
+        for app in NSRunningApplication.runningApplications(withBundleIdentifier: AppIdentity.settingsBundleID) {
+            let role = app.bundleURL.flatMap { Bundle(url: $0) }?.object(forInfoDictionaryKey: AppIdentity.roleKey)
+            if role as? String == "settings" { app.terminate() }
+        }
+        quitService()
+    }
 
     // The service lives at <LiveWallpaper.app>/Contents/Library/LoginItems/LiveWallpaperService.app.
     @objc private func openSettings() {

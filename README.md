@@ -99,10 +99,10 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the process, IPC and bridge diagram.
 - Rotation cycles a display through the playlist (Playlists page) in list order. Turn it on per display in the inspector and set how often it switches (minimum 5 seconds). Rotation needs at least two wallpapers in the playlist.
 - **Update delay** (Settings ⌘, → General) sets how long the app waits before the picture on your lock screen and behind the menu bar follows a wallpaper change (2 seconds by default).
 - The **Steam** tab in Settings sets up Workshop downloads.
-- The service's menu bar item offers Open Settings, Pause/Resume, Next Wallpaper, Mute Sound (every display) and Quit.
-- Closing the Settings window quits Settings; the service keeps running. Choosing Quit Wallpaper stops the service; the stills of the live wallpapers stay your system wallpapers.
+- The service's menu bar item offers Open Settings, Pause/Resume, Next Wallpaper, Mute Sound (every display) and Quit Live Wallpaper.
+- Closing the Settings window quits Settings; the service keeps running. **Quit Live Wallpaper** closes Settings and the service; the stills of the live wallpapers stay your system wallpapers.
 
-Everything the app installs stays in `~/Library/Application Support/LiveWallpaper/` and `~/Library/Caches/LiveWallpaperSteam/`. Remove the app and those folders to uninstall; choose **Quit Wallpaper** in the menu bar first, and pick another wallpaper in System Settings → Wallpaper, since the current one is a still stored in that folder.
+Everything the app installs stays in `~/Library/Application Support/LiveWallpaper/` and `~/Library/Caches/LiveWallpaperSteam/`. Remove the app and those folders to uninstall; choose **Quit Live Wallpaper** in the menu bar first, and pick another wallpaper in System Settings → Wallpaper, since the current one is a still stored in that folder.
 
 ## Requirements
 

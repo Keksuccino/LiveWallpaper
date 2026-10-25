@@ -17,7 +17,7 @@ Each entry: what to test, where, and why it was skipped.
 - ServiceSocket: a frame split across several partial reads (header and body in separate writes) reassembles into one envelope.
 - ServiceSocket: a frame header announcing more than 16 MB (or 0 bytes) closes the connection without allocating it.
 - ServiceSocketServer.start: a stale service.sock with no listener is replaced; a second service exits when a live one answers.
-- ServiceClient: after the service is killed and relaunched, the UI reconnects within ~3 s and shows "Service running"; after Quit Service it only watches, never relaunches.
+- ServiceClient: after the service is killed and relaunched, the UI reconnects within ~3 s and shows "Service running"; Restart Service leaves exactly one fresh service running.
 - SettingsModel scene options: changing a per-scene or power setting sends one .commit; reopening the app shows the same values; a battery fps/scale outside range is clamped by PowerOptions.
 - SceneProperty.load: project.json with bool/slider/color/text/combo/unknown properties yields the supported ones sorted by order; missing or invalid JSON yields none.
 - Service scene options: change zoom/fit/pan/volume/property in state.json while a scene runs and check it updates live without restart.
