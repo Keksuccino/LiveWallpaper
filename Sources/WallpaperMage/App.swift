@@ -315,11 +315,11 @@ private struct SidebarIconButton: View {
     @State private var hovering = false
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 7, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
         configuration.label
-            .font(.system(size: 14, weight: .medium))
+            .font(.system(size: 18, weight: .medium))
             .foregroundStyle(isEnabled ? Color.primary.opacity(0.8) : Color.secondary)
-            .frame(width: 28, height: 28)
+            .frame(width: 36, height: 36)
             .background(shape.fill(Color.primary.opacity(highlight)))
             .contentShape(shape)
             .onHover { inside in withAnimation(WMMotion.hover) { hovering = inside } }
