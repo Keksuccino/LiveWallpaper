@@ -201,14 +201,10 @@ struct HomeView: View {
         }
     }
 
-    private var subtitle: LocalizedStringKey {
-        if selectionMode {
-            return selectedIDs.isEmpty ? "Select wallpapers to remove." : "\(selectedIDs.count) selected"
-        }
-        if !searchText.isEmpty {
-            return "\(items.count) results for “\(searchText)”"
-        }
-        return "\(items.count) wallpapers"
+    /// Only selection mode has a subtitle; the library's count sits beside its title.
+    private var subtitle: LocalizedStringKey? {
+        guard selectionMode else { return nil }
+        return selectedIDs.isEmpty ? "Select wallpapers to remove." : "\(selectedIDs.count) selected"
     }
 
     private var libraryHeader: some View {
