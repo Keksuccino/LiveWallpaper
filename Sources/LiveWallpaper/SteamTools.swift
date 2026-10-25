@@ -131,7 +131,7 @@ enum SteamSetupError: Error, Equatable {
     var message: String {
         switch self {
         case .downloadFailed(let detail): return "Check your internet connection and try again. (\(detail))"
-        case .extractFailed(let detail), .toolsBroken(let detail): return "Remove it in Steam Setup and install it again. (\(detail))"
+        case .extractFailed(let detail), .toolsBroken(let detail): return "Remove it in Steam Settings and install it again. (\(detail))"
         case .rosettaMissing: return "Steam’s tool is built for Intel Macs. Install Rosetta, then try again."
         case .rosettaInstallFailed: return "Check your internet connection and try again. If this Mac has only standard accounts, ask an administrator to install Rosetta."
         case .firstRunFailed(let detail): return "Try again. If it keeps failing, remove the tool and reinstall. (\(detail))"

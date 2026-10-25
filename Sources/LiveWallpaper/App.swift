@@ -23,7 +23,7 @@ struct LiveWallpaperApp: App {
         .commands { AppCommands(model: model) }
 
         Settings {
-            AppSettingsView(model: model)
+            AppSettingsView(model: model, workshop: workshop)
         }
     }
 }
@@ -78,7 +78,7 @@ struct LiveWallpaperApp: App {
 // MARK: - Navigation
 
 enum SidebarSelection: Hashable {
-    case all, scenes, playlists, workshop, downloads, steamSetup
+    case all, scenes, playlists, workshop, downloads
 
     var isLibrary: Bool {
         switch self {
@@ -101,7 +101,6 @@ enum SidebarSelection: Hashable {
         case .playlists: return "Playlists"
         case .workshop: return "Workshop"
         case .downloads: return "Downloads"
-        case .steamSetup: return "Steam Setup"
         }
     }
 
@@ -112,7 +111,6 @@ enum SidebarSelection: Hashable {
         case .playlists: return "list.bullet.rectangle"
         case .workshop: return "square.grid.2x2"
         case .downloads: return "arrow.down.circle"
-        case .steamSetup: return "key.horizontal"
         }
     }
 }
@@ -134,6 +132,9 @@ struct RootView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 980, minHeight: 640)
+        .background {
+            if #available(macOS 14.0, *) { SettingsOpenerInstaller() }
+        }
     }
 
     // MARK: Sidebar
@@ -149,7 +150,6 @@ struct RootView: View {
                 sidebarRow(.workshop, count: workshop.results.isEmpty ? nil : workshop.results.count)
                 sidebarRow(.downloads, count: workshop.downloadEntries.isEmpty ? nil : workshop.downloadEntries.count,
                            live: workshop.hasActiveDownloads)
-                sidebarRow(.steamSetup, count: nil)
             }
         }
         .listStyle(.sidebar)
@@ -246,27 +246,29 @@ struct RootView: View {
                         filter: selection.libraryFilter,
                         showInspector: $showInspector,
                         openWorkshop: { selection = .workshop },
-                        openSteamSetup: { selection = .steamSetup })
+                        openSteamSetup: openSteamSettings)
                 .lwInspector(isPresented: $showInspector) {
                     LibraryInspectorView(model: model,
                                          item: focusedLibraryItem,
-                                         openSteamSetup: { selection = .steamSetup },
+                                         openSteamSetup: openSteamSettings,
                                          remove: removeFocused)
                 }
         case .playlists:
             PlaylistView(model: model)
         case .workshop:
             WorkshopView(model: model, workshop: workshop,
-                         openSteamSetup: { selection = .steamSetup },
+                         openSteamSetup: openSteamSettings,
                          openLibrary: { selection = .all },
                          openDownloads: { selection = .downloads })
         case .downloads:
             DownloadsView(model: model, workshop: workshop,
                           openLibrary: { selection = .all },
                           openWorkshop: { selection = .workshop })
-        case .steamSetup:
-            SteamSetupView(workshop: workshop, setup: SteamSetupModel.shared)
         }
+    }
+
+    private func openSteamSettings() {
+        SettingsNavigator.shared.open(.steam)
     }
 
     private var focusedLibraryItem: VideoItem? {

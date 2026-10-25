@@ -2,9 +2,9 @@ import SwiftUI
 import AppKit
 import Core
 
-// Views for the Workshop and Steam Setup tabs, built on the WorkshopModel surface in Workshop.swift. Result cards
-// open the detail pane (WorkshopDetailView.swift); downloads live in their own page (DownloadsView.swift). Steam
-// Setup is the in-app wizard (SteamWizardView.swift) plus an Advanced section.
+// Views for the Workshop and the Steam settings, built on the WorkshopModel surface in Workshop.swift. Result cards
+// open the detail pane (WorkshopDetailView.swift); downloads live in their own page (DownloadsView.swift). The Steam
+// tab of the Settings window is the in-app wizard (SteamWizardView.swift) plus an Advanced section.
 //
 // Layout stability rule: the browse task hangs off WorkshopView's root, whose identity never changes when the
 // window is resized or the detail pane opens. Only a real change of the search inputs (sort, text, mature, kind)
@@ -52,7 +52,7 @@ private struct FixButton: View {
 
     private var title: String {
         switch fix {
-        case .openSteamSetup: return "Open Steam Setup"
+        case .openSteamSetup: return "Open Steam Settings"
         case .copyLoginCommand: return "Copy login command"
         case .copyBrewCommand: return "Copy brew command"
         case .copyRosettaCommand: return "Copy Rosetta command"
@@ -189,8 +189,8 @@ struct WorkshopCardActions: View {
     let openSteamSetup: () -> Void
     let showInLibrary: () -> Void
 
-    /// Why Download is disabled until Steam Setup is complete.
-    static let setupFirst = "Finish Steam Setup first"
+    /// Why Download is disabled until the Steam setup is complete.
+    static let setupFirst = "Finish the Steam setup in Settings first"
 
     var body: some View {
         switch action {
@@ -454,7 +454,7 @@ struct WorkshopView: View {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
             Text("Finish the Steam setup to download wallpapers.")
             Spacer()
-            Button("Open Steam Setup", action: openSteamSetup)
+            Button("Open Steam Settings", action: openSteamSetup)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -578,9 +578,9 @@ struct WorkshopView: View {
     private var keyHint: some View {
         HStack(spacing: 9) {
             Image(systemName: "info.circle")
-            Text("Browsing needs a free Steam Web API key. Add one in Steam Setup, or paste a link above.")
+            Text("Browsing needs a free Steam Web API key. Add one in Steam Settings, or paste a link above.")
             Spacer(minLength: 6)
-            Button("Steam Setup", action: openSteamSetup).buttonStyle(.link)
+            Button("Steam Settings", action: openSteamSetup).buttonStyle(.link)
         }
         .font(.callout)
         .foregroundStyle(.secondary)
@@ -734,10 +734,10 @@ struct WorkshopView: View {
     }
 }
 
-// MARK: - Steam Setup tab
+// MARK: - Steam settings
 
-/// Steam Setup tab: the wizard, then an Advanced section with the optional Web API key, a manual SteamCMD path
-/// and the sign-in check of the download path.
+/// The Steam tab of the Settings window: the wizard, then an Advanced section with the optional Web API key, a manual
+/// SteamCMD path and the sign-in check of the download path.
 @MainActor
 struct SteamSetupView: View {
     @ObservedObject var workshop: WorkshopModel
@@ -746,10 +746,10 @@ struct SteamSetupView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: LWTheme.sectionSpacing) {
-                LWPageHeader(
-                    title: "Steam Setup",
-                    subtitle: "Download wallpapers from the Steam Workshop with your own account.")
+            VStack(alignment: .leading, spacing: 18) {
+                Text("Download wallpapers from the Steam Workshop with your own account.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
                 SteamWizardView(setup: setup)
                 DisclosureGroup("Advanced", isExpanded: $advancedOpen) {
                     advanced.padding(.top, 10)
@@ -757,11 +757,10 @@ struct SteamSetupView: View {
                 .font(.callout)
                 .lwGlassCard()
             }
-            .padding(LWTheme.contentPadding)
+            .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.visible)
-        .background(LWBackground())
         .onAppear { workshop.recheckSetup() }
         .onChange(of: setup.account) { account in
             // The download path reads the username from the Workshop model; keep both on the signed-in name.

@@ -121,13 +121,13 @@ enum WorkshopError: Error, Equatable {
         case .unsupportedCodec:
             return "macOS can’t decode this video (probably VP9 or AV1). Choose a wallpaper with an H.264 or HEVC video."
         case .steamcmdMissing:
-            return "Open Steam Setup and choose Install Steam tools. Live Wallpaper downloads Valve’s tool for you."
+            return "Open Steam Settings and choose Install Steam tools. Live Wallpaper downloads Valve’s tool for you."
         case .rosettaMissing:
             return "SteamCMD is an Intel program. On Apple silicon install Rosetta once: softwareupdate --install-rosetta --agree-to-license"
         case .usernameMissing:
-            return "Open Steam Setup and sign in with the Steam account that owns Wallpaper Engine."
+            return "Open Steam Settings and sign in with the Steam account that owns Wallpaper Engine."
         case .needsLogin:
-            return "Open Steam Setup and sign in, so Steam’s tool can download with your account."
+            return "Open Steam Settings and sign in, so Steam’s tool can download with your account."
         case .notOwned:
             return "The most common reason is that this Steam account doesn’t own Wallpaper Engine, which is a paid app. Sign in with the account that does."
         case .steamcmdFailed(let detail):
@@ -139,7 +139,7 @@ enum WorkshopError: Error, Equatable {
         case .importFailed(let detail):
             return "The file was downloaded but couldn’t be saved to your library. (\(detail))"
         case .apiKeyRejected:
-            return "Check the key in Steam Setup, or remove it and paste a Workshop link instead."
+            return "Check the key in Steam Settings, or remove it and paste a Workshop link instead."
         case .cancelled:
             return "The download was cancelled."
         }
@@ -779,7 +779,7 @@ enum WorkshopKit {
         pairs.map { "\(encode($0.0))=\(encode($0.1))" }.joined(separator: "&")
     }
 
-    /// The values the user typed in Steam Setup (never a password).
+    /// The values the user typed in the Steam settings (never a password).
     enum Prefs: String {
         case username = "LiveWallpaper.steam.username"
         case steamcmd = "LiveWallpaper.steam.steamcmdPath"

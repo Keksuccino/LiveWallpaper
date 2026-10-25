@@ -3,7 +3,7 @@ import AppKit
 import Core
 
 // The shared visual language for the Settings app. Keep every custom colour, radius, curve and
-// reusable surface here so the library, Workshop and Steam Setup feel like one product.
+// reusable surface here so the library, Workshop and Steam settings feel like one product.
 //
 // The look: soft ambient colour behind everything, translucent "liquid glass" surfaces on top with a
 // light-catching top edge, one accent gradient used sparingly, and quiet typography that leans on

@@ -32,7 +32,7 @@
 | ![Steam Workshop grid showing trending video and scene wallpapers with download buttons](assets/screenshots/workshop-browse.png) | ![Steam Workshop link lookup showing a scene wallpaper's tags, resolution, size and download button](assets/screenshots/workshop-lookup.png) |
 | **Workshop browser.** Trending, search and a Mature filter. Web wallpapers are flagged as unsupported instead of failing after download. | **Paste a link.** Any Workshop URL or item number is looked up automatically and shows type, resolution, rating and size before you download. |
 | ![Steam Setup wizard: install SteamCMD, sign in to Steam, check Wallpaper Engine](assets/screenshots/steam-setup.png) | ![Empty wallpaper library with Choose Videos and Browse the Workshop buttons](assets/screenshots/library-empty.png) |
-| **Steam Setup.** Three steps: install SteamCMD (about 3 MB), sign in, check Wallpaper Engine. | **Library.** Drop videos anywhere on the window. Sidebar filters: All, Scenes. |
+| **Steam settings.** Three steps: install SteamCMD (about 3 MB), sign in, check Wallpaper Engine. | **Library.** Drop videos anywhere on the window. Sidebar filters: All, Scenes. |
 
 ## How the renderer works
 
@@ -95,7 +95,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the process, IPC and bridge diagram.
 - Add videos by dropping them on the window or with Add Videos (⌘O). The first item is selected automatically.
 - The preview shows the selected item, muted and looping.
 - **Play** (or a double-click) shows a wallpaper.
-- **Update delay** (Settings ⌘, → Lock Screen & Menu Bar) sets how long the app waits before the picture on your lock screen and behind the menu bar follows a wallpaper change (2 seconds by default).
+- **Update delay** (Settings ⌘, → General) sets how long the app waits before the picture on your lock screen and behind the menu bar follows a wallpaper change (2 seconds by default).
+- The **Steam** tab in Settings sets up Workshop downloads.
 - Rotation cycles through the playlist, or the library when no playlist is set, in list order. Set how often it switches (minimum 5 seconds). Rotation needs at least two wallpapers.
 - **Start Wallpaper** (⌘↩) starts the service if needed and begins playback. **Stop Wallpaper** ends playback; the still of the last wallpaper stays your system wallpaper.
 - The service's menu bar item offers Open Settings, Start/Stop, Pause/Resume, Next Wallpaper, Mute and Quit.
@@ -139,7 +140,7 @@ Two processes: the SwiftUI **LiveWallpaper** (Settings) app, which plays nothing
 
 **Does Wallpaper Engine work on Mac?** Not officially. Live Wallpaper plays Wallpaper Engine *video* and *scene* wallpapers natively on macOS. Web and application wallpapers are not supported.
 
-**Do I need Wallpaper Engine or Steam?** Local videos need neither. Workshop downloads use Valve's SteamCMD with your own Steam account, and the Steam Setup page walks you through it.
+**Do I need Wallpaper Engine or Steam?** Local videos need neither. Workshop downloads use Valve's SteamCMD with your own Steam account, and the Steam tab in Settings walks you through it.
 
 **Does it drain the battery?** Videos use `AVPlayer`. Scenes only render while something changes, and you can cap FPS, lower render scale or pause on battery.
 
