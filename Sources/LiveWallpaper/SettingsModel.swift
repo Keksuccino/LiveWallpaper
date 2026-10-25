@@ -36,9 +36,6 @@ import SceneFormat
     @Published private(set) var localMessage: String? = nil
 
     private var serviceStatus: ServiceStatus? { client.status }
-    var isPaused: Bool { serviceStatus?.paused ?? false }
-    /// Some display shows a live wallpaper.
-    var isLive: Bool { serviceStatus?.isLive ?? false }
     var statusMessage: String? { localMessage ?? serviceStatus?.message }
 
     /// The persisted fields as one value (what gets written to state.json).
@@ -212,9 +209,6 @@ import SceneFormat
     // MARK: Service intents
 
     func restartService() { Task { await client.restart() } }
-
-    /// Registers/connects to the service again.
-    func startService() { client.start() }
 
     func clearStatus() {
         localMessage = nil

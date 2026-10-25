@@ -260,36 +260,6 @@ struct StatusDot: View {
     }
 }
 
-/// Small animated equaliser shown while a wallpaper is on screen.
-struct ActivityBars: View {
-    let playing: Bool
-    let paused: Bool
-    var tint: Color = .accentColor
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 0.09, paused: !playing || paused || reduceMotion)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            HStack(alignment: .bottom, spacing: 2) {
-                ForEach(0..<3, id: \.self) { index in
-                    Capsule()
-                        .fill(tint)
-                        .frame(width: 2.5, height: height(index: index, time: t))
-                }
-            }
-            .frame(height: 13, alignment: .bottom)
-        }
-        .opacity(playing ? 1 : 0)
-        .accessibilityHidden(true)
-    }
-
-    private func height(index: Int, time: TimeInterval) -> CGFloat {
-        guard !reduceMotion else { return index == 1 ? 9 : 5 }
-        let phase = time * (2.1 + Double(index) * 0.35) + Double(index) * 1.7
-        return 4 + CGFloat((sin(phase) + 1) / 2) * 9
-    }
-}
-
 struct ProgressRing: View {
     let progress: Double
     var size: CGFloat = 34

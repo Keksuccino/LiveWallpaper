@@ -95,7 +95,7 @@ enum SidebarSelection: Hashable, CaseIterable {
     }
 }
 
-/// Window content: native sidebar, gallery, inspector and a toolbar status pill.
+/// Window content: native sidebar, gallery and inspector.
 @MainActor
 struct RootView: View {
     @ObservedObject var model: SettingsModel
@@ -198,9 +198,6 @@ struct RootView: View {
                     .help("Downloads in progress")
                     .accessibilityLabel("Downloads in progress")
                 }
-            }
-            ToolbarItem(placement: .primaryAction) {
-                ServiceStatusPill(model: model)
             }
         }
     }
@@ -422,121 +419,5 @@ private struct SidebarIconButton: View {
         guard isEnabled else { return 0 }
         if configuration.isPressed { return 0.16 }
         return hovering ? 0.08 : 0
-    }
-}
-
-@MainActor
-struct ServiceStatusPill: View {
-    @ObservedObject var model: SettingsModel
-    @State private var showing = false
-
-    var body: some View {
-        Button { showing.toggle() } label: {
-            HStack(spacing: 7) {
-                StatusDot(color: dot, pulsing: model.client.state == .connecting)
-                Text(pillText)
-                    .font(.caption)
-                    .lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background {
-                Capsule()
-                    .fill(.regularMaterial)
-                    .overlay(Capsule().strokeBorder(Color.primary.opacity(0.09), lineWidth: 1))
-            }
-        }
-        .buttonStyle(.plain)
-        .help("Wallpaper service status and controls")
-        .popover(isPresented: $showing, arrowEdge: .bottom) {
-            ServicePopover(model: model)
-                .frame(width: 320)
-        }
-    }
-
-    private var dot: Color {
-        if model.client.problem != nil { return .orange }
-        switch model.client.state {
-        case .connected: return model.isLive ? .green : .secondary
-        case .connecting, .unavailable: return .orange
-        case .unknown: return .secondary
-        }
-    }
-
-    private var pillText: String {
-        if model.client.problem != nil { return "Service offline" }
-        if model.client.state == .connecting { return "Starting…" }
-        if model.isLive { return model.isPaused ? "Paused" : "Live" }
-        return "Ready"
-    }
-}
-
-@MainActor
-private struct ServicePopover: View {
-    @ObservedObject var model: SettingsModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("Wallpaper Service").font(.headline)
-                Spacer()
-                StatusDot(color: model.client.state == .connected ? .green : .orange)
-                Text(stateText).font(.caption).foregroundStyle(.secondary)
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(model.screens) { screen in displayRow(screen) }
-            }
-            .padding(12)
-            .background {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.primary.opacity(0.045))
-            }
-
-            if let message = model.statusMessage, !message.isEmpty {
-                Text(message).font(.caption).foregroundStyle(.orange).lineLimit(2)
-            }
-
-            HStack(spacing: 10) {
-                if model.client.problem != nil {
-                    Button("Reconnect") { model.startService() }.buttonStyle(.link)
-                }
-                Button("Restart") { model.restartService() }
-                    .buttonStyle(.link)
-                    .disabled(model.client.state != .connected)
-            }
-            .font(.caption)
-        }
-        .padding(16)
-    }
-
-    private var stateText: String {
-        switch model.client.state {
-        case .connected: return "running"
-        case .connecting: return "starting"
-        case .unavailable: return "offline"
-        case .unknown: return "not running"
-        }
-    }
-
-    private func displayRow(_ screen: ScreenInfo) -> some View {
-        let item = model.liveItem(on: screen.id)
-        return HStack(spacing: 9) {
-            Image(systemName: "display")
-                .foregroundStyle(.secondary)
-                .frame(width: 16)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(screen.name).font(.caption).foregroundStyle(.secondary)
-                Text(item?.name ?? "No live wallpaper")
-                    .font(.callout.weight(.medium))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            Spacer(minLength: 6)
-            ActivityBars(playing: item != nil, paused: model.isPaused)
-        }
     }
 }

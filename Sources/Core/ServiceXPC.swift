@@ -54,9 +54,6 @@ public struct ServiceStatus: Codable, Equatable, Sendable {
     }
 
     public func display(_ id: String) -> DisplayStatus? { displays.first { $0.id == id } }
-
-    /// Some display shows a live wallpaper.
-    public var isLive: Bool { displays.contains { $0.itemID != nil } }
 }
 
 public enum ServiceCoding {
