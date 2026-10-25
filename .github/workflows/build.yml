@@ -14,6 +14,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Every later step builds for macOS 26 against the macOS 26 SDK (rustc, clang and SwiftPM read both variables).
+      - name: Pin the macOS 26 SDK
+        run: |
+          source scripts/macos-sdk.sh
+          echo "SDKROOT=$SDKROOT" >> "$GITHUB_ENV"
+          echo "MACOSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET" >> "$GITHUB_ENV"
+
       # Restore before installing the toolchain so a cached ~/.cargo/bin cannot overwrite a newer rustup.
       - name: Cache cargo registry and build output
         uses: actions/cache@v4
@@ -21,9 +28,10 @@ jobs:
           path: |
             ~/.cargo
             SceneRenderer/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('SceneRenderer/Cargo.lock') }}
+          # scripts/macos-sdk.sh (the deployment target) is part of the key: cargo does not rebuild for a new one.
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('SceneRenderer/Cargo.lock', 'scripts/macos-sdk.sh') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-cargo-test-
 
       - name: Ensure stable Rust toolchain
         run: |
@@ -49,11 +57,18 @@ jobs:
         run: cargo +stable clippy --offline --all-targets -- -D warnings
 
   build:
-    # One arm64 runner with the macOS 26 SDK (the audio tap needs the macOS 14.2+ Core Audio API).
+    # One arm64 runner with Xcode 26 and its macOS 26 SDK, which the app is built against.
     name: build (macos-26)
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+
+      # Every later step builds for macOS 26 against the macOS 26 SDK (rustc, clang and SwiftPM read both variables).
+      - name: Pin the macOS 26 SDK
+        run: |
+          source scripts/macos-sdk.sh
+          echo "SDKROOT=$SDKROOT" >> "$GITHUB_ENV"
+          echo "MACOSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET" >> "$GITHUB_ENV"
 
       - name: Toolchain versions
         run: |
@@ -66,9 +81,11 @@ jobs:
           path: |
             ~/.cargo
             SceneRenderer/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('SceneRenderer/Cargo.lock') }}
+          # scripts/macos-sdk.sh (the deployment target) is part of the key: build-scene-renderer.sh cleans a target/
+          # built for another deployment target, and a cache under an unchanged key would never be saved again.
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('SceneRenderer/Cargo.lock', 'scripts/macos-sdk.sh') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-cargo-release-
 
       - name: Ensure stable Rust toolchain
         run: rustup toolchain install stable --profile minimal --component clippy
@@ -83,10 +100,10 @@ jobs:
         run: OFFLINE=1 scripts/build-scene-renderer.sh
 
       - name: Swift build (release)
-        run: swift build -c release
+        run: scripts/macos-sdk.sh swift build -c release
 
       - name: Tests (Core and SceneFormat)
-        run: swift test
+        run: scripts/macos-sdk.sh swift test
 
       - name: Package app bundle
         run: ./build.sh

@@ -94,7 +94,7 @@ extension View {
 }
 
 /// Floating glass for the navigation/transport layer only (hero controls, status popover, pills).
-/// On macOS 26 this is real Liquid Glass; earlier systems get a quiet material fallback.
+/// Real Liquid Glass; with Reduce Transparency on, an opaque panel with a hairline border.
 struct GlassPanel<Content: View>: View {
     var radius: CGFloat = 18
     @ViewBuilder var content: Content
@@ -102,18 +102,15 @@ struct GlassPanel<Content: View>: View {
 
     @ViewBuilder var body: some View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        if #available(macOS 26.0, *), !reduceTransparency {
+        if reduceTransparency {
             content
-                .glassEffect(.regular, in: shape)
-        } else {
-            content
-                .background(reduceTransparency
-                            ? AnyShapeStyle(Color(nsColor: .controlBackgroundColor))
-                            : AnyShapeStyle(.ultraThinMaterial),
-                            in: shape)
+                .background(Color(nsColor: .controlBackgroundColor), in: shape)
                 .overlay {
                     shape.strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
                 }
+        } else {
+            content
+                .glassEffect(.regular, in: shape)
         }
     }
 }
@@ -259,7 +256,7 @@ struct StatusDot: View {
             }
             .animation(pulsing ? .easeOut(duration: 1.2).repeatForever(autoreverses: false) : .default, value: on)
             .onAppear { on = pulsing }
-            .onChange(of: pulsing) { on = $0 }
+            .onChange(of: pulsing) { _, newValue in on = newValue }
     }
 }
 
@@ -397,23 +394,12 @@ extension View {
         modifier(HoverLiftModifier(enabled: enabled))
     }
 
-    /// The inspector on macOS 14+, a trailing panel on older systems. Keeps the app on its macOS 13 floor.
-    @ViewBuilder
+    /// The inspector, in the app's inspector column width.
     func lwInspector<Inspector: View>(isPresented: Binding<Bool>,
                                       @ViewBuilder inspector: @escaping () -> Inspector) -> some View {
-        if #available(macOS 14.0, *) {
-            self.inspector(isPresented: isPresented) {
-                inspector()
-                    .inspectorColumnWidth(min: 280, ideal: LWTheme.inspectorWidth, max: 380)
-            }
-        } else {
-            HStack(spacing: 0) {
-                self
-                if isPresented.wrappedValue {
-                    Divider()
-                    inspector().frame(width: LWTheme.inspectorWidth)
-                }
-            }
+        self.inspector(isPresented: isPresented) {
+            inspector()
+                .inspectorColumnWidth(min: 280, ideal: LWTheme.inspectorWidth, max: 380)
         }
     }
 }

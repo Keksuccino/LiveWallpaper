@@ -5,7 +5,7 @@
 [![Build](https://github.com/NOOB-3301/LiveWallpaper/actions/workflows/build.yml/badge.svg)](https://github.com/NOOB-3301/LiveWallpaper/actions/workflows/build.yml)
 [![Release](https://img.shields.io/github/v/release/NOOB-3301/LiveWallpaper)](../../releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![macOS 15+](https://img.shields.io/badge/macOS-15%2B-black)
+![macOS 26+](https://img.shields.io/badge/macOS-26%2B-black)
 ![Apple silicon](https://img.shields.io/badge/Apple%20silicon-arm64-informational)
 ![Rust](https://img.shields.io/badge/renderer-Rust%20%2B%20Metal-orange)
 ![Swift](https://img.shields.io/badge/app-Swift%20%2B%20SwiftUI-F05138)
@@ -106,8 +106,8 @@ Everything the app installs stays in `~/Library/Application Support/LiveWallpape
 
 ## Requirements
 
-- macOS 15 or later on Apple silicon.
-- To build from source: macOS 26 with Xcode 26 or matching Command Line Tools, and Rust stable (rustup). No Homebrew libraries are needed.
+- macOS 26 or later on Apple silicon.
+- To build from source: Xcode 26 or Command Line Tools with the macOS 26 SDK (newer Xcode or Command Line Tools that still include `MacOSX26.sdk` work too), and Rust stable (rustup). No Homebrew libraries are needed.
 
 Release builds are arm64. `UNIVERSAL=1 ./build.sh` adds an x86_64 slice (it needs `rustup target add x86_64-apple-darwin`).
 
@@ -126,7 +126,9 @@ Useful options:
 
 - `CONFIG=debug ./build.sh` builds a debug variant.
 - `VERSION=1.2.3 BUILD_NUMBER=45 ./build.sh` stamps a version into both bundles.
-- `swift test` runs the Core and SceneFormat tests after the renderer has been built.
+- `scripts/macos-sdk.sh swift test` runs the Core and SceneFormat tests after the renderer has been built.
+
+Everything is built for macOS 26 against the macOS 26 SDK. `build.sh` and the renderer build find that SDK through `scripts/macos-sdk.sh`, also when a newer Xcode is the active one (then SwiftPM runs with `--build-system native`, which prints a deprecation warning on Swift 6.4); set `SDKROOT` to pick a specific macOS 26 SDK. Plain `swift build` or `swift test` use the active Xcode's default SDK, so prefix them with `scripts/macos-sdk.sh`.
 
 The build checks that Settings never links the old scene engine and that the service never links SwiftUI or the old in-repo scene engine. The service does link Metal and `SceneBridge` for scenes.
 

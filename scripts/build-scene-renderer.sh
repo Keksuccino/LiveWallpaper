@@ -15,8 +15,8 @@ BINDGEN="$RENDERER/target/release/uniffi-bindgen"
 # rustup installs into ~/.cargo/bin; put it first so a Homebrew cargo does not win. GitHub's macOS
 # runners ship cargo/rustup on PATH already.
 export PATH="$HOME/.cargo/bin:$PATH"
-# The app's own target is macOS 15, so the library is built for the same one.
-export MACOSX_DEPLOYMENT_TARGET=15.0
+# Same deployment target and SDK as the app (macOS 26).
+source "$ROOT/scripts/macos-sdk.sh"
 
 # Respect an explicit CARGO override; otherwise find cargo (PATH first, then rustup's default).
 if [[ -n "${CARGO:-}" ]]; then
@@ -45,8 +45,17 @@ fi
 
 cd "$RENDERER"
 
+# Cargo does not rebuild a crate when only MACOSX_DEPLOYMENT_TARGET changes, so its objects would keep the old minimum
+# system version. Build output without this stamp, or with another deployment target in it, is cleaned first.
+STAMP="$RENDERER/target/macos-deployment-target"
+if [[ -d "$RENDERER/target" && "$(cat "$STAMP" 2>/dev/null || true)" != "$MACOSX_DEPLOYMENT_TARGET" ]]; then
+  echo "--- cleaning SceneRenderer/target (built for another deployment target) ---"
+  "${CARGO_CMD[@]}" clean
+fi
+
 echo "--- building SceneRenderer ---"
 "${CARGO_CMD[@]}" "${CARGO_FLAGS[@]}" --package scene_renderer
+echo "$MACOSX_DEPLOYMENT_TARGET" > "$STAMP"
 
 # The bindgen binary is a separate workspace member. If it cannot be built but the bindings are
 # already checked in, keep them: the library above is still usable and a warning is clearer than a

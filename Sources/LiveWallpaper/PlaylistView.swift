@@ -102,7 +102,7 @@ private struct PlaylistEditorCard: View {
             }
         }
         .onAppear { ids = storedIDs ?? [] }
-        .onChange(of: storedIDs ?? []) { ids = $0 }
+        .onChange(of: storedIDs ?? []) { _, stored in ids = stored }
         .animation(LWMotion.content, value: isCustom)
     }
 

@@ -16,7 +16,7 @@ final class RendererBox: @unchecked Sendable {
     private var renderer: Renderer?
     private let windows: DisplayWindow<MetalView>
     private let power = PowerSource()
-    private var audio: AnyObject?   // SystemAudioTap on macOS 14.2+
+    private var audio: SystemAudioTap?
     private var pointerMonitor: Any?
     private var muted = true
     private var generation = 0
@@ -245,7 +245,6 @@ final class RendererBox: @unchecked Sendable {
 
     /// System audio is captured only while a playing scene asks for audio response.
     private func setAudioCapture(_ on: Bool) {
-        guard #available(macOS 14.2, *) else { return }
         if on, audio == nil, let renderer {
             let tap = SystemAudioTap()
             tap.onSpectrum = { left, right in renderer.setAudioSpectrum(left: left, right: right) }
@@ -255,7 +254,7 @@ final class RendererBox: @unchecked Sendable {
             } catch {
                 NSLog("LiveWallpaper: audio response unavailable: \(error)")
             }
-        } else if !on, let tap = audio as? SystemAudioTap {
+        } else if !on, let tap = audio {
             tap.stop()
             audio = nil
         }

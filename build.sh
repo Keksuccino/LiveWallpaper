@@ -16,14 +16,19 @@ if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
   trap 'echo "::error::build.sh failed at line $LINENO: $BASH_COMMAND"' ERR
 fi
 
+# macOS 26 deployment target and SDK for the Swift products and the renderer build below.
+source scripts/macos-sdk.sh
+
 CONFIG="${CONFIG:-release}"
 APP="build/LiveWallpaper.app"
 HELPERS="$APP/Contents/Library/LoginItems"
 SERVICE="$HELPERS/LiveWallpaperService.app"
 
-ARCH_FLAGS=()
+# Configuration, architectures and the build system scripts/macos-sdk.sh asks for (word splitting of LW_SWIFTPM_FLAGS
+# is intended: it holds whole flags or nothing).
+SWIFT_FLAGS=(-c "$CONFIG" $LW_SWIFTPM_FLAGS)
 if [[ "${UNIVERSAL:-0}" == "1" ]]; then
-  ARCH_FLAGS=(--arch arm64 --arch x86_64)
+  SWIFT_FLAGS+=(--arch arm64 --arch x86_64)
 fi
 
 # Our own scene renderer (SceneRenderer/) has to exist before SwiftPM starts: SceneBridge links
@@ -31,12 +36,11 @@ fi
 # bindings. UNIVERSAL=1 builds it for both architectures.
 UNIVERSAL="${UNIVERSAL:-0}" scripts/build-scene-renderer.sh
 
-# The expansion form keeps an empty array safe under `set -u` on macOS's bash 3.2.
 # Only the two bundled products, so targets that are not bundled never break the bundle build.
 for product in LiveWallpaper LiveWallpaperService; do
-  swift build -c "$CONFIG" ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"} --product "$product"
+  swift build "${SWIFT_FLAGS[@]}" --product "$product"
 done
-BIN_DIR="$(swift build -c "$CONFIG" ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"} --show-bin-path)"
+BIN_DIR="$(swift build "${SWIFT_FLAGS[@]}" --show-bin-path)"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" \

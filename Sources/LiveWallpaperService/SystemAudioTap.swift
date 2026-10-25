@@ -3,8 +3,8 @@ import CoreAudio
 import Foundation
 
 // Audio response: what the Mac is playing, as a spectrum for scenes that move with music. A Core
-// Audio process tap (macOS 14.2+) captures the system output; the first use asks the user for
-// permission (NSAudioCaptureUsageDescription). Nothing is recorded or kept, only band levels.
+// Audio process tap captures the system output; the first use asks the user for permission
+// (NSAudioCaptureUsageDescription). Nothing is recorded or kept, only band levels.
 
 enum AudioTapError: Error {
     case status(String, OSStatus)
@@ -12,7 +12,6 @@ enum AudioTapError: Error {
 
 /// Captures system audio and reports 64 band levels (0...1, low to high) per channel, about 30
 /// times a second, on its own queue.
-@available(macOS 14.2, *)
 final class SystemAudioTap: @unchecked Sendable {
     var onSpectrum: (([Float], [Float]) -> Void)?
 

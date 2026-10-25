@@ -82,7 +82,7 @@ struct HomeView: View {
                  ? "Downloaded Workshop files are deleted and can be downloaded again."
                  : "You can download it again from the Workshop.")
         }
-        .onChange(of: model.videos.map(\.id)) { ids in selectedIDs.formIntersection(ids) }
+        .onChange(of: model.videos.map(\.id)) { _, ids in selectedIDs.formIntersection(ids) }
     }
 
     // MARK: Data
@@ -162,7 +162,7 @@ struct HomeView: View {
             .scrollIndicators(.visible)
             .animation(LWMotion.panel, value: selectionMode)
             .onAppear { reveal(with: proxy) }
-            .onChange(of: model.focusedID) { _ in reveal(with: proxy) }
+            .onChange(of: model.focusedID) { reveal(with: proxy) }
         }
         .overlay(alignment: .top) {
             if isTargeted {
@@ -717,7 +717,7 @@ struct RotationBlock: View {
             }
         }
         .animation(LWMotion.panel, value: config.rotateEnabled && canRotate)
-        .onChange(of: config.intervalValue) { intervalText = String($0) }
+        .onChange(of: config.intervalValue) { _, value in intervalText = String(value) }
     }
 
     private var intervalRow: some View {
@@ -729,7 +729,7 @@ struct RotationBlock: View {
                 .frame(width: 56)
                 .focused($intervalFocused)
                 .onSubmit(commitInterval)
-                .onChange(of: intervalFocused) { if !$0 { commitInterval() } }
+                .onChange(of: intervalFocused) { _, focused in if !focused { commitInterval() } }
                 .accessibilityLabel("Interval value")
             Picker("Interval unit", selection: unitBinding) {
                 ForEach(IntervalUnit.allCases) { Text($0.label.lowercased()).tag($0) }

@@ -24,10 +24,17 @@ permissions:
 
 jobs:
   dmg:
-    # macos-26: the macOS 26 SDK has the Core Audio tap API the service uses for audio response.
+    # macos-26: Xcode 26 and its macOS 26 SDK, which the app is built against.
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+
+      # Every later step builds for macOS 26 against the macOS 26 SDK (rustc, clang and SwiftPM read both variables).
+      - name: Pin the macOS 26 SDK
+        run: |
+          source scripts/macos-sdk.sh
+          echo "SDKROOT=$SDKROOT" >> "$GITHUB_ENV"
+          echo "MACOSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET" >> "$GITHUB_ENV"
 
       - name: Resolve version
         id: version
@@ -58,9 +65,11 @@ jobs:
           path: |
             ~/.cargo
             SceneRenderer/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('SceneRenderer/Cargo.lock') }}
+          # scripts/macos-sdk.sh (the deployment target) is part of the key: build-scene-renderer.sh cleans a target/
+          # built for another deployment target, and a cache under an unchanged key would never be saved again.
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('SceneRenderer/Cargo.lock', 'scripts/macos-sdk.sh') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-cargo-release-
 
       - name: Ensure stable Rust toolchain
         run: rustup toolchain install stable --profile minimal --target aarch64-apple-darwin --target x86_64-apple-darwin
@@ -71,7 +80,7 @@ jobs:
         run: scripts/build-scene-renderer.sh
 
       - name: Tests (Core and SceneFormat)
-        run: swift test
+        run: scripts/macos-sdk.sh swift test
 
       - name: Build and assemble the app
         env:

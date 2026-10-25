@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Checks the layout of an assembled LiveWallpaper.app: the settings app and its background service, executables,
-# ids, matching versions, ad-hoc signatures that verify, the linked scene renderer and no Homebrew load paths.
+# ids, matching versions, the executables' minimum system version and SDK, ad-hoc signatures that verify, the linked
+# scene renderer and no Homebrew load paths.
 # Used by build.yml and release.yml.
 #   scripts/verify-bundle.sh [path/to/LiveWallpaper.app] [expected-version]
 set -euo pipefail
@@ -30,6 +31,20 @@ V_APP="$(plist "$APP" CFBundleShortVersionString)"
 if [[ -n "$EXPECTED_VERSION" && "$V_APP" != "$EXPECTED_VERSION" ]]; then
   fail "version is $V_APP, expected $EXPECTED_VERSION"
 fi
+
+# Every architecture of both executables is built for the plists' minimum system version, against an SDK of that
+# macOS version (the SDK decides which AppKit and SwiftUI behaviours the app gets).
+MIN_OS="$(plist "$APP" LSMinimumSystemVersion)"
+[[ "$(plist "$SERVICE" LSMinimumSystemVersion)" == "$MIN_OS" ]] || fail "service LSMinimumSystemVersion differs from the app"
+for bin in "$APP/Contents/MacOS/LiveWallpaper" "$SERVICE/Contents/MacOS/LiveWallpaperService"; do
+  BUILDS="$(vtool -show-build "$bin" | awk '$1 == "minos" { minos = $2 } $1 == "sdk" { print minos, $2 }')"
+  [[ -n "$BUILDS" ]] || fail "$(basename "$bin") has no build version"
+  while read -r minos sdk; do
+    [[ "$minos" == "$MIN_OS" ]] || fail "$(basename "$bin") is built for macOS $minos, Info.plist says $MIN_OS"
+    [[ "${sdk%%.*}" == "${MIN_OS%%.*}" ]] || fail "$(basename "$bin") is built with the macOS $sdk SDK, not macOS ${MIN_OS%%.*}"
+  done <<<"$BUILDS"
+done
+echo "--- built for macOS $MIN_OS ---"
 
 codesign --verify --strict --deep "$APP" || fail "codesign verify (app)"
 codesign --verify --strict "$SERVICE" || fail "codesign verify (service)"

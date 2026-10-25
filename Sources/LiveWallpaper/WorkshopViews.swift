@@ -762,7 +762,7 @@ struct SteamSetupView: View {
         }
         .scrollIndicators(.visible)
         .onAppear { workshop.recheckSetup() }
-        .onChange(of: setup.account) { account in
+        .onChange(of: setup.account) { _, account in
             // The download path reads the username from the Workshop model; keep both on the signed-in name.
             if case .signedIn(let name) = account, workshop.steamUsername != name { workshop.steamUsername = name }
         }
