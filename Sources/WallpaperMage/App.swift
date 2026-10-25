@@ -34,6 +34,10 @@ struct WallpaperMageApp: App {
             onImport: { SettingsModel.shared.addImported($0) },
             isInLibrary: { SettingsModel.shared.hasWorkshopItem($0) })
         SettingsModel.shared.bootstrap()
+        // The menu bar item's Quit. Delivered at once: an inactive app would otherwise only get it when activated.
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(quitRequested),
+                                                            name: AppIdentity.quitRequest, object: nil,
+                                                            suspensionBehavior: .deliverImmediately)
         // `$downloads` fires before the value changes; the hop reads the settled state.
         downloadWatch = WorkshopModel.shared.$downloads.sink { [weak self] _ in
             Task { @MainActor [weak self] in self?.quitWhenDownloadsEnd() }
@@ -52,6 +56,10 @@ struct WallpaperMageApp: App {
         SteamSetupModel.shared.cancelSignIn()   // never leave a steamcmd sign-in waiting on a prompt
         SteamSetupModel.shared.cancelInstall()
         SettingsModel.shared.shutdown()
+    }
+
+    @objc private func quitRequested() {
+        SettingsNavigator.shared.quitApp()
     }
 
     /// A second copy hands over to the first (lowest process id wins, as with the agent) and quits.
@@ -111,7 +119,7 @@ struct RootView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 980, minHeight: 640)
-        .sheet(isPresented: $settings.isPresented) {
+        .sheet(isPresented: $settings.isPresented, onDismiss: settings.didClose) {
             AppSettingsView(model: model, workshop: workshop)
         }
     }

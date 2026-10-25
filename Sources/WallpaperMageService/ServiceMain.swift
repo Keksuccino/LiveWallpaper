@@ -188,12 +188,12 @@ enum ServiceEntry {
     @objc private func togglePause() { orchestrator.setPaused(!orchestrator.isPaused) }
     @objc private func nextWallpaper() { orchestrator.next() }
     @objc private func toggleMute() { orchestrator.setMuted(!orchestrator.muted) }
-    /// Quits the whole app: Settings first, so it does not start the service again, then the service.
+    /// Quits the whole app: Settings first, so it does not start the service again, then the service. Settings is
+    /// asked through a notification rather than a quit event: macOS refuses quit events while Settings shows a sheet,
+    /// and Settings closes its sheet before it quits.
     @objc private func quitWallpaperMage() {
-        for app in NSRunningApplication.runningApplications(withBundleIdentifier: AppIdentity.settingsBundleID) {
-            let role = app.bundleURL.flatMap { Bundle(url: $0) }?.object(forInfoDictionaryKey: AppIdentity.roleKey)
-            if role as? String == "settings" { app.terminate() }
-        }
+        DistributedNotificationCenter.default().postNotificationName(AppIdentity.quitRequest, object: nil,
+                                                                     userInfo: nil, deliverImmediately: true)
         quitService()
     }
 

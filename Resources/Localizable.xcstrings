@@ -22805,7 +22805,7 @@
       }
     },
     "Quit Wallpaper Mage" : {
-      "comment" : "Menu bar menu item that quits the background service. “Wallpaper Mage” is the app's name: keep it unchanged in every language.",
+      "comment" : "Menu item that quits the whole app, in the app menu and in the menu bar item's menu. “Wallpaper Mage” is the app's name: keep it unchanged in every language.",
       "localizations" : {
         "de" : {
           "stringUnit" : {

@@ -14,10 +14,25 @@ enum SettingsTab: Hashable {
     /// Settings is shown as a sheet on the main window (RootView).
     @Published var isPresented = false
 
+    /// Set while Settings closes on the way to quitting the app.
+    private var quitsWhenClosed = false
+
     /// Opens Settings at `tab`, or at the tab it showed last.
     func open(_ tab: SettingsTab? = nil) {
         if let tab { self.tab = tab }
         isPresented = true
+    }
+
+    /// Quits the app, closing Settings first: macOS refuses to quit an app while it shows a sheet.
+    func quitApp() {
+        guard isPresented else { return NSApp.terminate(nil) }
+        quitsWhenClosed = true
+        isPresented = false
+    }
+
+    /// Called by the sheet once Settings has closed.
+    func didClose() {
+        if quitsWhenClosed { NSApp.terminate(nil) }
     }
 }
 

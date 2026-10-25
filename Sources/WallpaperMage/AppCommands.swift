@@ -48,6 +48,12 @@ struct AppCommands: Commands {
                 .keyboardShortcut(",", modifiers: .command)
         }
 
+        // macOS refuses to quit while Settings is open; this Quit closes it first, like the menu bar item's.
+        CommandGroup(replacing: .appTermination) {
+            Button("Quit Wallpaper Mage") { SettingsNavigator.shared.quitApp() }
+                .keyboardShortcut("q", modifiers: .command)
+        }
+
         CommandGroup(replacing: .newItem) {
             Button("Import Wallpapers…") {
                 Task { @MainActor in _ = await ImportCenter.importWallpapers(model: model) }

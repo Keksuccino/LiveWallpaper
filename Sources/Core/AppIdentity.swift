@@ -9,4 +9,6 @@ public enum AppIdentity {
     public static let serviceBundleID = "com.noob3301.WallpaperMage.service"
     /// Info.plist key that tells the two apps apart: "settings" or "service".
     public static let roleKey = "WMRole"
+    /// Distributed notification from the service's Quit menu item that asks the settings app to quit.
+    public static let quitRequest = Notification.Name("com.noob3301.WallpaperMage.quitRequest")
 }
