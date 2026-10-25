@@ -35,12 +35,6 @@ import Core
         }
     }
 
-    /// What the connected displays show, in screen order, each item once.
-    var shownItems: [VideoItem] {
-        var seen = Set<UUID>()
-        return NSScreen.screens.compactMap { players[$0.displayID]?.currentItem }.filter { seen.insert($0.id).inserted }
-    }
-
     var isLive: Bool { players.values.contains { $0.current != nil } }
     var canRotate: Bool { players.values.contains { $0.current != nil && $0.rotates } }
     /// Every wallpaper is silent (the menu's Mute Sound).

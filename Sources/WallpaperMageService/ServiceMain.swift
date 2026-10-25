@@ -23,7 +23,6 @@ enum ServiceEntry {
     private let server = SocketServer()
     private var statusItem: NSStatusItem?
     private let menu = NSMenu()
-    private let statusLine = NSMenuItem()
     private let messageItem = NSMenuItem()
     private let pauseItem = NSMenuItem()
     private let nextItem = NSMenuItem()
@@ -133,7 +132,8 @@ enum ServiceEntry {
         icon?.accessibilityDescription = AppIdentity.name
         item.button?.image = icon
         menu.autoenablesItems = false
-        statusLine.isEnabled = false
+        let header = NSMenuItem(title: "\(AppIdentity.name) \(AppIdentity.version)", action: nil, keyEquivalent: "")
+        header.isEnabled = false
         messageItem.isEnabled = false
         messageItem.isHidden = true
         configure(pauseItem, title: String(localized: "Pause Wallpapers"), action: #selector(togglePause))
@@ -147,7 +147,7 @@ enum ServiceEntry {
                               keyEquivalent: "q")
         quit.target = self
         quit.toolTip = String(localized: "Closes Wallpaper Mage. Your live wallpapers stop, and each display keeps a still picture of its wallpaper.")
-        [statusLine, messageItem, .separator(), settings, .separator(),
+        [header, messageItem, .separator(), settings, .separator(),
          pauseItem, nextItem, muteItem, .separator(), quit].forEach(menu.addItem)
         item.menu = menu
     }
@@ -159,7 +159,6 @@ enum ServiceEntry {
     }
 
     private func refreshMenu() {
-        statusLine.title = statusText
         let message = orchestrator.message
         messageItem.isHidden = message == nil
         messageItem.toolTip = message
@@ -175,14 +174,6 @@ enum ServiceEntry {
         pauseItem.isEnabled = orchestrator.isLive || orchestrator.isPaused
         nextItem.isEnabled = orchestrator.canRotate
         muteItem.state = orchestrator.muted ? .on : .off
-    }
-
-    private var statusText: String {
-        let shown = orchestrator.shownItems
-        guard let first = shown.first else { return String(localized: "No live wallpaper") }
-        let text = shown.count == 1 ? String(localized: "Showing “\(first.name)”")
-                                    : String(localized: "Showing \(shown.count) wallpapers")
-        return orchestrator.isPaused ? String(localized: "Paused · \(text)") : text
     }
 
     @objc private func togglePause() { orchestrator.setPaused(!orchestrator.isPaused) }

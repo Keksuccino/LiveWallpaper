@@ -230,7 +230,7 @@ private struct AboutSettingsView: View {
                 .accessibilityHidden(true)
             VStack(spacing: 3) {
                 Text(AppIdentity.name).font(.title2.weight(.semibold))
-                Text("Version \(version)").font(.callout).foregroundStyle(.secondary)
+                Text("Version \(AppIdentity.version)").font(.callout).foregroundStyle(.secondary)
             }
             Text("Videos and Wallpaper Engine scenes for your desktop.")
                 .foregroundStyle(.secondary)
@@ -241,11 +241,5 @@ private struct AboutSettingsView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var version: String {
-        let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "3.0"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
-        return build.map { "\(short) (\($0))" } ?? short
     }
 }
