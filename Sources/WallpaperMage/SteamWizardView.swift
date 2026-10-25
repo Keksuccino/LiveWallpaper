@@ -48,11 +48,13 @@ struct SteamWizardView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            toolsCard
-            accountCard
-            ownershipCard
-            if showsSharedFiles { SharedFilesCard(setup: setup).padding(.top, 14) }
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: WizardLayout.gap) {
+                toolsCard
+                accountCard
+                ownershipCard
+            }
+            if showsSharedFiles { SharedFilesCard(setup: setup) }
             Text("Not affiliated with Valve or Wallpaper Engine. Downloads use Valve’s own SteamCMD with your own account, for your personal use on this Mac. Workshop items belong to their creators; don’t redistribute them.")
                 .font(.caption).foregroundStyle(.secondary)
         }
@@ -185,6 +187,15 @@ private enum WizardPhase: Equatable {
     case done, current, waiting
 }
 
+private enum WizardLayout {
+    /// Inside a step's card.
+    static let padding: CGFloat = 18
+    /// The node on the rail; a step's title row is at least this tall, so the two line up.
+    static let node: CGFloat = 24
+    /// Between two steps.
+    static let gap: CGFloat = 10
+}
+
 /// One step on the setup rail. Only the current step is open; completed steps collapse to a summary row.
 @MainActor
 private struct WizardCard<Content: View>: View {
@@ -215,12 +226,13 @@ private struct WizardCard<Content: View>: View {
                         Text("Next").font(.caption).foregroundStyle(.tertiary)
                     }
                 }
+                .frame(minHeight: WizardLayout.node)
                 if phase == .current {
                     content
                         .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
-            .padding(18)
+            .padding(WizardLayout.padding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 glassShape(radius: WMTheme.cardRadius)
@@ -237,12 +249,13 @@ private struct WizardCard<Content: View>: View {
         .accessibilityElement(children: .contain)
     }
 
+    /// The node, level with the title row, and the line down to the next step's node.
     private var rail: some View {
         VStack(spacing: 0) {
             ZStack {
                 Circle()
                     .fill(nodeBackground)
-                    .frame(width: 24, height: 24)
+                    .frame(width: WizardLayout.node, height: WizardLayout.node)
                 if phase == .done {
                     Image(systemName: "checkmark")
                         .font(.system(size: 10, weight: .bold))
@@ -259,9 +272,12 @@ private struct WizardCard<Content: View>: View {
                     .frame(width: 1.5)
                     .frame(maxHeight: .infinity)
                     .padding(.vertical, 4)
+                    // Reaches past this step's bottom, across the gap, to the next step's node.
+                    .padding(.bottom, -(WizardLayout.gap + WizardLayout.padding))
             }
         }
-        .frame(width: 24)
+        .padding(.top, WizardLayout.padding)
+        .frame(width: WizardLayout.node)
     }
 
     private var nodeBackground: Color {

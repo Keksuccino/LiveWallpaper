@@ -147,7 +147,7 @@ private struct GeneralSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Toggle("Mute all wallpapers", isOn: Binding(get: { model.muted }, set: { model.setMuted($0) }))
+                WMSwitchRow("Mute all wallpapers", isOn: Binding(get: { model.muted }, set: { model.setMuted($0) }))
                     .padding(.top, 6)
                 Text("Silences every wallpaper, like Mute Sound in the menu bar.")
                     .font(.caption)
