@@ -1,6 +1,6 @@
 # Wallpaper Mage for macOS: video and Wallpaper Engine wallpapers, rendered with Rust + Metal
 
-<img src="assets/logos/app-icon.svg" width="128" alt="Wallpaper Mage app icon">
+<img src="icons/macos/wallpaper-mage-macos-256.png" width="128" alt="Wallpaper Mage app icon">
 
 [![Build](https://github.com/NOOB-3301/LiveWallpaper/actions/workflows/build.yml/badge.svg)](https://github.com/NOOB-3301/LiveWallpaper/actions/workflows/build.yml)
 [![Release](https://img.shields.io/github/v/release/NOOB-3301/LiveWallpaper)](../../releases)
@@ -131,6 +131,7 @@ Useful options:
 - `CONFIG=debug ./build.sh` builds a debug variant.
 - `VERSION=1.2.3 BUILD_NUMBER=45 ./build.sh` stamps a version into both bundles.
 - `scripts/macos-sdk.sh swift test` runs the Core and SceneFormat tests after the renderer has been built.
+- `scripts/make-icons.py` regenerates the app icon and the icon set in `icons/` (see `icons/README.md`).
 
 Everything is built for macOS 26 against the macOS 26 SDK. `build.sh` and the renderer build find that SDK through `scripts/macos-sdk.sh`, also when a newer Xcode is the active one (then SwiftPM runs with `--build-system native`, which prints a deprecation warning on Swift 6.4); set `SDKROOT` to pick a specific macOS 26 SDK. Plain `swift build` or `swift test` use the active Xcode's default SDK, so prefix them with `scripts/macos-sdk.sh`.
 

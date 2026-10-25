@@ -23,6 +23,8 @@ plist() { /usr/libexec/PlistBuddy -c "Print :$2" "$1/Contents/Info.plist"; }
 [[ "$(plist "$SERVICE" CFBundleIdentifier)" == "com.noob3301.WallpaperMage.service" ]] || fail "service bundle id"
 [[ "$(plist "$APP" WMRole)" == "settings" ]] || fail "Settings WMRole"
 [[ "$(plist "$SERVICE" WMRole)" == "service" ]] || fail "service WMRole"
+test -s "$APP/Contents/Resources/Assets.car" || fail "missing app icon (Assets.car)"
+test -s "$APP/Contents/Resources/AppIcon.icns" || fail "missing app icon (AppIcon.icns)"
 [[ -n "$(plist "$APP" NSAudioCaptureUsageDescription 2>/dev/null || true)" ]] || fail "Settings Info.plist is missing NSAudioCaptureUsageDescription"
 [[ -n "$(plist "$SERVICE" NSAudioCaptureUsageDescription 2>/dev/null || true)" ]] || fail "service Info.plist is missing NSAudioCaptureUsageDescription"
 

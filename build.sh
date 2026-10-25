@@ -48,6 +48,9 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" \
 
 cp "$BIN_DIR/WallpaperMage" "$APP/Contents/MacOS/WallpaperMage"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+# The app icon: Assets.car for macOS 26 (CFBundleIconName), AppIcon.icns as the flat fallback (CFBundleIconFile).
+# Both are built by scripts/make-icons.py.
+cp Resources/Assets.car "$APP/Contents/Resources/Assets.car"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
