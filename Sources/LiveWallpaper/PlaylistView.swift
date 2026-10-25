@@ -150,8 +150,7 @@ private struct PlaylistEditorCard: View {
                 .frame(width: 22, alignment: .trailing)
 
             ItemThumbnail(item: item,
-                          broken: !FileManager.default.fileExists(atPath: item.path),
-                          showsHoverPreview: false, cornerRadius: 6)
+                          broken: !FileManager.default.fileExists(atPath: item.path), cornerRadius: 6)
                 .frame(width: 72, height: 41)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -323,8 +322,7 @@ private struct PlaylistAddSheet: View {
                     .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.5))
                     .frame(width: 18)
                 ItemThumbnail(item: item,
-                              broken: !FileManager.default.fileExists(atPath: item.path),
-                              showsHoverPreview: false, cornerRadius: 5)
+                              broken: !FileManager.default.fileExists(atPath: item.path), cornerRadius: 5)
                     .frame(width: 64, height: 36)
                 Text(item.name)
                     .font(.callout.weight(.medium))

@@ -616,7 +616,7 @@ struct DisplayInspectorView: View {
     private func header(_ item: VideoItem, on screen: ScreenInfo) -> some View {
         HStack(spacing: 11) {
             ItemThumbnail(item: item, broken: !FileManager.default.fileExists(atPath: item.path),
-                          showsHoverPreview: false, cornerRadius: 8)
+                          cornerRadius: 8)
                 .frame(width: 76, height: 43)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.name).font(.callout.weight(.semibold)).lineLimit(2).truncationMode(.middle)

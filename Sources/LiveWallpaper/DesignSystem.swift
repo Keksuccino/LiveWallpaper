@@ -440,14 +440,9 @@ final class ThumbnailCache {
 struct ItemThumbnail: View {
     let item: VideoItem
     var broken = false
-    var showsHoverPreview = true
     var cornerRadius: CGFloat = 12
 
     @State private var image: NSImage?
-    @State private var hovering = false
-    @State private var previewVisible = false
-    @State private var previewTask: Task<Void, Never>?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -470,11 +465,6 @@ struct ItemThumbnail: View {
                     .font(.system(size: 20))
                     .foregroundStyle(.tertiary)
             }
-
-            if previewVisible && !broken && !item.isScene {
-                HoverPreview(item: item)
-                    .transition(.opacity)
-            }
         }
         .clipped()
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
@@ -482,48 +472,6 @@ struct ItemThumbnail: View {
             let loaded = await ThumbnailCache.shared.image(for: item)
             withAnimation(.easeInOut(duration: 0.2)) { image = loaded }
         }
-        .onHover(perform: hoverChanged)
-        .onDisappear {
-            previewTask?.cancel()
-            previewVisible = false
-        }
-    }
-
-    private func hoverChanged(_ inside: Bool) {
-        hovering = inside
-        previewTask?.cancel()
-        guard inside, showsHoverPreview, !item.isScene, !reduceMotion,
-              !ProcessInfo.processInfo.isLowPowerModeEnabled else {
-            withAnimation(.easeOut(duration: 0.16)) { previewVisible = false }
-            return
-        }
-        previewTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 320_000_000)
-            guard !Task.isCancelled, hovering else { return }
-            withAnimation(.easeInOut(duration: 0.2)) { previewVisible = true }
-        }
-    }
-}
-
-private struct HoverPreview: View {
-    let item: VideoItem
-    @StateObject private var player = PreviewPlayer()
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        Group {
-            if reduceMotion {
-                Color.black
-            } else {
-                PlayerSurface(player: player.player)
-            }
-        }
-        .allowsHitTesting(false)
-        .onAppear {
-            player.load(item.url)
-            player.setActive(true)
-        }
-        .onDisappear { player.setActive(false) }
     }
 }
 
