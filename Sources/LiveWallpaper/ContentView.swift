@@ -444,7 +444,7 @@ private struct LibraryCard: View {
                         .background(.ultraThinMaterial, in: Capsule())
                         .padding(8)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        .transition(.opacity)
                     }
                 }
                 .overlay {
