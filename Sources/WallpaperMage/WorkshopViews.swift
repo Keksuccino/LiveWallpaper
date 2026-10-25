@@ -758,10 +758,11 @@ struct SteamSetupView: View {
                     .foregroundStyle(.secondary)
                 SteamWizardView(setup: setup)
                 DisclosureGroup("Advanced", isExpanded: $advancedOpen) {
-                    advanced.padding(.top, 10)
+                    advanced
                 }
+                .disclosureGroupStyle(WMCardDisclosureStyle())
                 .font(.callout)
-                .wmGlassCard()
+                .wmGlassCard(padding: 0)
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)

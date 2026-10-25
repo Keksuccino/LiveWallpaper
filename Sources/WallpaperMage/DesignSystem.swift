@@ -69,6 +69,40 @@ struct WMCard<Content: View>: View {
     }
 }
 
+/// A disclosure group that fills a whole card: the entire header strip, the card's padding included, opens and closes
+/// it, not only the chevron. Put the card around it with no padding (`wmGlassCard(padding: 0)`); this style pads the
+/// header and the content itself.
+struct WMCardDisclosureStyle: DisclosureGroupStyle {
+    var padding: CGFloat = 16
+
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(WMMotion.content) { configuration.isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .rotationEffect(.degrees(configuration.isExpanded ? 90 : 0))
+                        .accessibilityHidden(true)
+                    configuration.label
+                    Spacer(minLength: 0)
+                }
+                .padding(padding)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if configuration.isExpanded {
+                configuration.content
+                    .padding([.horizontal, .bottom], padding)
+                    .transition(.opacity)
+            }
+        }
+        // Reveals the content as the card grows instead of letting it spill over the card's bottom edge meanwhile.
+        .clipped()
+    }
+}
+
 /// One glass shape used by cards, banners and rows: material fill, top sheen, gradient hairline, shadow.
 @ViewBuilder
 func glassShape(radius: CGFloat, cornerStyle: RoundedCornerStyle = .continuous,
