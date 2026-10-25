@@ -6,38 +6,24 @@ enum SettingsTab: Hashable {
     case general, steam
 }
 
-/// Opens the Settings window at a tab from anywhere in the app (the Workshop's "Open Steam Settings", for one).
+/// Opens Settings at a tab from anywhere in the app (the sidebar's ⚙, ⌘, and the Workshop's "Open Steam Settings").
 @MainActor final class SettingsNavigator: ObservableObject {
     static let shared = SettingsNavigator()
 
     @Published var tab: SettingsTab = .general
-    /// SwiftUI's openSettings action, installed by SettingsOpenerInstaller on macOS 14 and later.
-    fileprivate var openSettings: (() -> Void)?
+    /// Settings is shown as a sheet on the main window (RootView).
+    @Published var isPresented = false
 
     /// Opens Settings at `tab`, or at the tab it showed last.
     func open(_ tab: SettingsTab? = nil) {
         if let tab { self.tab = tab }
-        if let openSettings {
-            openSettings()
-        } else {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        }
+        isPresented = true
     }
 }
 
-/// Hands SwiftUI's openSettings action to SettingsNavigator. Since macOS 14 the Settings window opens only through
-/// it (the old showSettingsWindow: action is ignored), and it is only readable from inside a view.
-@available(macOS 14.0, *)
-struct SettingsOpenerInstaller: View {
-    @Environment(\.openSettings) private var openSettings
-
-    var body: some View {
-        Color.clear.onAppear { SettingsNavigator.shared.openSettings = { openSettings() } }
-    }
-}
-
-/// The standard macOS Settings window (⌘,): settings about the app as a whole. Everything about a display's
-/// wallpaper lives in the Home inspector (DisplayInspectorView).
+/// Settings about the app as a whole, as a sheet on the main window: it opens centred on the window and keeps it
+/// blocked until it is closed. Everything about a display's wallpaper lives in the Home inspector
+/// (DisplayInspectorView).
 @MainActor
 struct AppSettingsView: View {
     @ObservedObject var model: SettingsModel
@@ -45,15 +31,41 @@ struct AppSettingsView: View {
     @ObservedObject private var navigator = SettingsNavigator.shared
 
     var body: some View {
-        TabView(selection: $navigator.tab) {
-            GeneralSettingsView(model: model)
-                .tabItem { Label("General", systemImage: "gearshape") }
-                .tag(SettingsTab.general)
-            SteamSetupView(workshop: workshop, setup: SteamSetupModel.shared)
-                .frame(width: 640, height: 620)
-                .tabItem { Label("Steam", systemImage: "key.horizontal") }
-                .tag(SettingsTab.steam)
+        VStack(spacing: 0) {
+            Picker("Settings", selection: $navigator.tab) {
+                Text("General").tag(SettingsTab.general)
+                Text("Steam").tag(SettingsTab.steam)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .padding(.vertical, 14)
+
+            Divider()
+
+            Group {
+                switch navigator.tab {
+                case .general:
+                    ScrollView { GeneralSettingsView(model: model) }
+                case .steam:
+                    SteamSetupView(workshop: workshop, setup: SteamSetupModel.shared)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+
+            Divider()
+
+            // Not the default button: Return belongs to the text fields of the Steam sign-in. Escape closes too.
+            HStack {
+                Spacer()
+                Button("Done") { navigator.isPresented = false }
+                    .controlSize(.large)
+            }
+            .padding(14)
         }
+        .frame(width: 660, height: 640)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .onExitCommand { navigator.isPresented = false }
     }
 }
 
@@ -67,8 +79,7 @@ private struct GeneralSettingsView: View {
             about
         }
         .padding(24)
-        .frame(width: 640, alignment: .leading)
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var lockScreen: some View {

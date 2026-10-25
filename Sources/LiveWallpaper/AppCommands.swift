@@ -43,6 +43,11 @@ struct AppCommands: Commands {
     let model: SettingsModel
 
     var body: some Commands {
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") { SettingsNavigator.shared.open() }
+                .keyboardShortcut(",", modifiers: .command)
+        }
+
         CommandGroup(replacing: .newItem) {
             Button("Import Wallpapers…") {
                 Task { @MainActor in _ = await ImportCenter.importWallpapers(model: model) }

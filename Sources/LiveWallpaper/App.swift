@@ -21,10 +21,6 @@ struct LiveWallpaperApp: App {
         .windowResizability(.contentMinSize) // the content's minimum frame is the window minimum
         .windowToolbarStyle(.unified(showsTitle: false))
         .commands { AppCommands(model: model) }
-
-        Settings {
-            AppSettingsView(model: model, workshop: workshop)
-        }
     }
 }
 
@@ -104,6 +100,7 @@ enum SidebarSelection: Hashable, CaseIterable {
 struct RootView: View {
     @ObservedObject var model: SettingsModel
     @ObservedObject var workshop: WorkshopModel
+    @ObservedObject private var settings = SettingsNavigator.shared
     @State private var selection: SidebarSelection = .home
     @State private var showInspector = true
 
@@ -116,8 +113,8 @@ struct RootView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 980, minHeight: 640)
-        .background {
-            if #available(macOS 14.0, *) { SettingsOpenerInstaller() }
+        .sheet(isPresented: $settings.isPresented) {
+            AppSettingsView(model: model, workshop: workshop)
         }
     }
 
@@ -128,9 +125,9 @@ struct RootView: View {
     private var sidebar: some View {
         VStack(spacing: 0) {
             List(selection: $selection) {
-                sidebarRow(.home, count: model.videos.count)
-                sidebarRow(.playlists, count: nil)
-                sidebarRow(.workshop, count: workshop.results.isEmpty ? nil : workshop.results.count)
+                sidebarRow(.home)
+                sidebarRow(.playlists)
+                sidebarRow(.workshop)
                 sidebarRow(.downloads, count: workshop.downloadEntries.isEmpty ? nil : workshop.downloadEntries.count,
                            live: workshop.hasActiveDownloads)
             }
@@ -141,7 +138,7 @@ struct RootView: View {
         }
     }
 
-    private func sidebarRow(_ item: SidebarSelection, count: Int?, live: Bool = false) -> some View {
+    private func sidebarRow(_ item: SidebarSelection, count: Int? = nil, live: Bool = false) -> some View {
         HStack(spacing: 0) {
             Label(item.title, systemImage: item.symbol)
                 .font(.callout.weight(.medium))
@@ -171,11 +168,11 @@ struct RootView: View {
                 BannerBar(banner: banner)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
+            // Pages switch without a transition: a page's toolbar items (Home's) would fade with it, and AppKit
+            // can leave them half transparent, looking disabled, until the pointer passes over them.
             content
-                .transition(.opacity)
         }
         .background(LWBackground())
-        .animation(LWMotion.content, value: selection)
         .animation(LWMotion.content, value: banner?.text)
         .toolbar {
             if selection == .home {
@@ -183,15 +180,14 @@ struct RootView: View {
                     Button {
                         withAnimation(LWMotion.panel) { showInspector.toggle() }
                     } label: {
-                        Image(systemName: showInspector ? "sidebar.right" : "sidebar.right")
+                        Label("Inspector", systemImage: "sidebar.right")
                     }
                     .help(showInspector ? "Hide Inspector" : "Show Inspector")
-                    .accessibilityLabel(showInspector ? "Hide Inspector" : "Show Inspector")
                     .keyboardShortcut("i", modifiers: [.command, .option])
                 }
             }
-            ToolbarItem(placement: .primaryAction) {
-                if workshop.hasActiveDownloads {
+            if workshop.hasActiveDownloads {
+                ToolbarItem(placement: .primaryAction) {
                     Button {
                         selection = .downloads
                     } label: {

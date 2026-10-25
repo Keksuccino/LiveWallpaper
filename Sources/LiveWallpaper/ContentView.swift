@@ -42,36 +42,27 @@ struct HomeView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .dropDestination(for: URL.self) { urls, _ in add(urls); return true } isTargeted: { isTargeted = $0 }
         .searchable(text: $searchText, placement: .toolbar, prompt: "Search wallpapers")
+        // Standard toolbar controls with fixed labels: a toggle shows the selection mode by its own on state, so
+        // nothing in the toolbar swaps its image while the page animates.
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    withAnimation(LWMotion.panel) { setSelectionMode(!selectionMode) }
-                } label: {
-                    Image(systemName: selectionMode ? "checkmark.circle.fill" : "checkmark.circle")
+            ToolbarItemGroup(placement: .primaryAction) {
+                Toggle(isOn: Binding(get: { selectionMode }, set: { setSelectionMode($0) })) {
+                    Label("Select", systemImage: "checkmark.circle")
                 }
+                .toggleStyle(.button)
                 .help(selectionMode ? "Stop selecting" : "Select wallpapers to remove")
-                .accessibilityLabel(selectionMode ? "Stop selecting" : "Select wallpapers to remove")
-            }
-            ToolbarItem(placement: .primaryAction) {
                 Button(action: removeSelection) {
-                    Image(systemName: "trash")
+                    Label("Remove", systemImage: "trash")
                 }
                 .disabled(!selectionMode || selectedIDs.isEmpty)
                 .help(removalHelp)
-                .accessibilityLabel(removalHelp)
                 .keyboardShortcut(.delete, modifiers: .command)
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    Button { layout = .grid } label: { Label("Grid", systemImage: "square.grid.2x2") }
-                    Button { layout = .list } label: { Label("List", systemImage: "list.bullet") }
-                } label: {
-                    Image(systemName: layout == .grid ? "square.grid.2x2" : "list.bullet")
+                Picker("Layout", selection: $layout) {
+                    Label("Grid", systemImage: "square.grid.2x2").tag(LibraryLayout.grid)
+                    Label("List", systemImage: "list.bullet").tag(LibraryLayout.list)
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .help("Change layout")
-                .accessibilityLabel("Change layout")
+                .pickerStyle(.segmented)
+                .help("Show the library as a grid or a list")
             }
         }
         .alert(skippedTitle, isPresented: $showSkipped) { Button("OK", role: .cancel) {} }
@@ -121,7 +112,7 @@ struct HomeView: View {
     private func click(_ item: VideoItem) {
         let flags = NSEvent.modifierFlags
         if !selectionMode, flags.contains(.command) || flags.contains(.shift) {
-            withAnimation(LWMotion.panel) { setSelectionMode(true) }
+            setSelectionMode(true)
         }
         if selectionMode {
             if flags.contains(.shift), let anchorID,
@@ -166,6 +157,7 @@ struct HomeView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .scrollIndicators(.visible)
+            .animation(LWMotion.panel, value: selectionMode)
             .onAppear { reveal(with: proxy) }
             .onChange(of: model.focusedID) { _ in reveal(with: proxy) }
         }
