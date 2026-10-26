@@ -317,9 +317,11 @@ enum WorkshopLookupState: Equatable {
 
 enum WorkshopListState: Equatable {
     case idle
-    case loading
+    case loading                        // the first page of a search
+    case loadingMore                    // a further page, appended below the results
     case loaded
-    case failed(WorkshopError)
+    case failed(WorkshopError)          // the first page
+    case loadMoreFailed(WorkshopError)  // a further page; the results so far stay
 }
 
 // MARK: - Model
@@ -585,13 +587,14 @@ enum WorkshopListState: Equatable {
         if canBrowse { loadPage(replacing: true) } else { listState = .idle }
     }
 
+    /// Appends the next page. Also the retry after `.loadMoreFailed`.
     func loadMore() {
-        guard canBrowse, canLoadMore, listState != .loading else { return }
+        guard canBrowse, canLoadMore, listState != .loading, listState != .loadingMore else { return }
         loadPage(replacing: false)
     }
 
     private func loadPage(replacing: Bool) {
-        listState = .loading
+        listState = replacing ? .loading : .loadingMore
         let generation = searchGeneration
         let request = WorkshopKit.API.Browse(key: trimmedKey, sort: sort, text: searchText,
                                              mature: includeMature, requiredTag: kindFilter.requiredTag,
@@ -610,7 +613,8 @@ enum WorkshopListState: Equatable {
                 self.listState = .loaded
             } catch {
                 guard let self, generation == self.searchGeneration, !Task.isCancelled else { return }
-                self.listState = .failed(error as? WorkshopError ?? .network(String(localized: "unexpected error")))
+                let failure = error as? WorkshopError ?? .network(String(localized: "unexpected error"))
+                self.listState = replacing ? .failed(failure) : .loadMoreFailed(failure)
             }
         }
     }

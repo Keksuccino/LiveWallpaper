@@ -408,7 +408,8 @@ struct WorkshopView: View {
     }
 
     /// Anchored, so the grid keeps showing the same wallpapers, and the one whose details are open, when the detail
-    /// pane narrows or widens it.
+    /// pane narrows or widens it. Nearing the end of the grid loads the next page (WorkshopListEnd); after a failed
+    /// page only Retry loads again, as retrying on every scroll would keep hitting a failing API.
     private var resultsColumn: some View {
         AnchoredScrollView(order: workshop.results.map(\.id), keepingVisible: detail?.id) {
             VStack(alignment: .leading, spacing: WMTheme.sectionSpacing) {
@@ -426,6 +427,9 @@ struct WorkshopView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.visible)
+        .onScrollGeometryChange(for: WorkshopListEnd.self, of: WorkshopListEnd.init) { _, end in
+            if end.isNear, workshop.listState == .loaded { workshop.loadMore() }
+        }
         .background(WMBackground())
     }
 
@@ -691,7 +695,8 @@ struct WorkshopView: View {
                 .opacity(workshop.listState == .loading ? 0.55 : 1)
                 .animation(WMMotion.content, value: workshop.listState == .loading)
         }
-        if workshop.listState == .loading {
+        switch workshop.listState {
+        case .loading:
             if workshop.results.isEmpty {
                 skeletonGrid
             } else {
@@ -701,14 +706,12 @@ struct WorkshopView: View {
                 }
                 .frame(maxWidth: .infinity)
             }
-        } else if workshop.canLoadMore {
-            Button {
-                workshop.loadMore()
-            } label: {
-                Label("Load More", systemImage: "chevron.down")
-            }
-            .buttonStyle(.bordered)
-            .frame(maxWidth: .infinity)
+        case .loadingMore:
+            ProgressView().controlSize(.small).frame(maxWidth: .infinity)
+        case .loadMoreFailed(let error):
+            WorkshopFailureView(error: error, workshop: workshop, retry: { workshop.loadMore() }, openSteamSetup: openSteamSetup)
+        case .idle, .loaded, .failed:
+            EmptyView()
         }
     }
 
@@ -737,6 +740,21 @@ struct WorkshopView: View {
                 .background { glassShape(radius: WMTheme.cardRadius) }
             }
         }
+    }
+}
+
+/// What the Workshop tab reads from its scroll view to load the next page in time. The content height is part of it so
+/// that every change of the list checks again with fresh geometry, which keeps loading while a new page still leaves
+/// the end in view (a tall window). A page that brings nothing new changes no grid height; the loading row below the
+/// grid coming and going still does, so that row must take up height, or such a page stops the list.
+private struct WorkshopListEnd: Equatable {
+    let isNear: Bool
+    let contentHeight: CGFloat
+
+    init(_ geometry: ScrollGeometry) {
+        contentHeight = geometry.contentSize.height
+        // Less than a screen to go, so the next page usually arrives before the user gets there.
+        isNear = contentHeight - geometry.visibleRect.maxY < geometry.containerSize.height
     }
 }
 
