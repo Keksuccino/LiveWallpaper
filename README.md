@@ -20,7 +20,7 @@
 - **Wallpaper Engine scenes on a Mac**: a from-scratch renderer for `.pkg` scene packages: layers, effects, bloom, particles, puppet animation, text, parallax, sound, SceneScript (QuickJS) and audio-reactive properties.
 - **Wallpaper Engine's wallpaper settings**: every wallpaper gets the options Wallpaper Engine shows for it — volume, playback speed, alignment (cover, fill, center, stretch, free, with position and zoom), flip, image filters, brightness/contrast/saturation/hue — plus the scene's own properties with their conditions, groups and translations, and presets you can save, load, share and apply to all wallpapers.
 - **Sound**: volume and mute per wallpaper and display, plus a master volume and a global mute (in Settings and the menu bar), all kept across restarts.
-- **Steam Workshop browser**: browse Trending wallpapers, search, or paste a Workshop link; download with Valve's official SteamCMD and your own account.
+- **Steam Workshop browser**: Wallpaper Engine's own sorts (top rated, most popular, most recent, friends' favorites, …) and filters (type, age rating, resolution, tags, show only), each working together with search, or paste a Workshop link; download with Valve's official SteamCMD and your own account.
 - **Every display its own**: each display gets its own wallpaper and settings, picked on a map of your display arrangement. Works with and without separate Spaces per display.
 - **Lock screen and menu bar to match**: each display's system wallpaper becomes a still of the live wallpaper, framed the same way, so the lock screen, the menu bar background and Mission Control show it too.
 - **Playlists**: named playlists of the wallpapers you pick, in your order, each wallpaper with its own settings in the playlist. Choose how long each one stays (minimum 5 seconds) and how the next one comes in: hard switch, fade, fade through black, blur, zoom or slide. A playlist shows a picture of your own or a collage of its first wallpapers.
@@ -34,7 +34,7 @@
 | | |
 |---|---|
 | ![Steam Workshop grid showing trending video and scene wallpapers with download buttons](assets/screenshots/workshop-browse.png) | ![Steam Workshop link lookup showing a scene wallpaper's tags, resolution, size and download button](assets/screenshots/workshop-lookup.png) |
-| **Workshop browser.** Trending, search and a Mature filter. Web wallpapers are flagged as unsupported instead of failing after download. | **Paste a link.** Any Workshop URL or item number is looked up automatically and shows type, resolution, rating and size before you download. |
+| **Workshop browser.** Wallpaper Engine's sorts and filters, together with search. Web wallpapers are flagged as unsupported instead of failing after download. | **Paste a link.** Any Workshop URL or item number is looked up automatically and shows type, resolution, rating and size before you download. |
 | ![Steam Setup wizard: install SteamCMD, sign in to Steam, check Wallpaper Engine](assets/screenshots/steam-setup.png) | ![Empty wallpaper library with Choose Videos and Browse the Workshop buttons](assets/screenshots/library-empty.png) |
 | **Steam settings.** Three steps: install SteamCMD (about 3 MB), sign in, check Wallpaper Engine. | **Library.** Drop videos anywhere on the window. |
 

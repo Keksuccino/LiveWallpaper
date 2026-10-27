@@ -289,9 +289,11 @@ struct WMChip: View {
     }
 }
 
-/// Lays chips and small buttons out in rows that wrap at the available width.
+/// Lays chips and small buttons out in rows that wrap at the available width, `spacing` apart in a row (or a view's own
+/// `wrappingGap`) and `lineSpacing` apart from row to row. The views keep their identity however they wrap.
 struct WrappingRows: Layout {
-    private let gap: CGFloat = 6
+    var spacing: CGFloat = 6
+    var lineSpacing: CGFloat = 6
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         place(subviews, width: proposal.width ?? .infinity).size
@@ -312,18 +314,31 @@ struct WrappingRows: Layout {
         var widest: CGFloat = 0
         for subview in subviews {
             let size = subview.sizeThatFits(.unspecified)
-            if x > 0, x + size.width > width {
+            let gap = x > 0 ? subview[WrappingGap.self] ?? spacing : 0
+            if x > 0, x + gap + size.width > width {
                 x = 0
-                y += rowHeight + gap
+                y += rowHeight + lineSpacing
                 rowHeight = 0
+            } else {
+                x += gap
             }
             origins.append(CGPoint(x: x, y: y))
-            x += size.width + gap
+            x += size.width
             rowHeight = max(rowHeight, size.height)
-            widest = max(widest, x - gap)
+            widest = max(widest, x)
         }
         return (origins, CGSize(width: widest, height: y + rowHeight))
     }
+}
+
+/// The gap before a view in `WrappingRows` when it does not start a row, in place of the rows' spacing: wider for a
+/// control that starts a group of its own.
+private struct WrappingGap: LayoutValueKey {
+    static let defaultValue: CGFloat? = nil
+}
+
+extension View {
+    func wrappingGap(_ gap: CGFloat) -> some View { layoutValue(key: WrappingGap.self, value: gap) }
 }
 
 /// The glass capsule behind the app's own small controls (chips, pickers, the sort menu, search fields): a material
@@ -428,42 +443,96 @@ private struct IconPickerSegment: View {
     }
 }
 
-/// What a list is sorted by: the chosen sort's name on a glass capsule, the sorts in its menu with a checkmark on the
-/// chosen one. Drawn like `WMIconPicker` and as tall, so it sits in a row of the app's capsule controls. It is as wide
-/// as the sort's name, so the row around it animates `selection` to move its other controls over smoothly.
-struct WMSortMenu<Value: Hashable>: View {
-    let title: LocalizedStringKey
-    @Binding var selection: Value
-    let options: [Value]
-    let label: (Value) -> String
-    @State private var hovering = false
+/// The label of the app's capsule menus (`WMSortMenu`, `WMFilterMenu`): a symbol, a title, what is chosen and a chevron
+/// on a glass capsule as tall as `WMIconPicker`, so it sits in a row of the app's capsule controls; on the accent while
+/// `highlighted`, like a selected `WMTopicChip`. It is as wide as its words, so a row around it animates what changes
+/// them to move its other controls over smoothly.
+private struct MenuCapsuleLabel: View {
+    var systemImage: String? = nil
+    let title: String
+    var value: String? = nil
+    var highlighted = false
+    let hovering: Bool
     @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
-        Menu {
-            Picker(title, selection: $selection) {
-                ForEach(options, id: \.self) { option in
-                    Text(label(option)).tag(option)
+        let secondary = highlighted ? AnyShapeStyle(Color.white.opacity(0.8)) : AnyShapeStyle(.secondary)
+        // New words take their place at once and the capsule, clipped, grows or shrinks around them: words that faded
+        // in and out while the row moves its controls over would cross each other.
+        HStack(spacing: 6) {
+            Group {
+                if let systemImage {
+                    Label(title, systemImage: systemImage)
+                } else {
+                    Text(title)
                 }
             }
-            .pickerStyle(.inline)
-            .labelsHidden()
+            .font(.callout.weight(.medium))
+            if let value {
+                Text(value)
+                    .font(.callout)
+                    .foregroundStyle(secondary)
+                    .transition(.identity)
+            }
+            Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(secondary)
+                .accessibilityHidden(true)
+        }
+        .contentTransition(.identity)
+        .fixedSize()
+        .foregroundStyle(highlighted ? AnyShapeStyle(Color.white) : AnyShapeStyle(.primary))
+        .padding(.horizontal, 12)
+        .frame(height: 28)
+        .background {
+            ZStack {
+                if highlighted {
+                    Capsule().fill(WMTheme.accent)
+                } else {
+                    WMControlCapsule()
+                }
+                Capsule().fill(Color.primary.opacity(hovering && isEnabled ? 0.07 : 0))
+            }
+        }
+        .clipShape(Capsule())
+        .contentShape(Capsule())
+    }
+}
+
+/// What a list is sorted by: the chosen sort's name on a glass capsule, the sorts in its menu with a checkmark on the
+/// chosen one, in sections parted by a line.
+struct WMSortMenu<Value: Hashable>: View {
+    let title: LocalizedStringKey
+    @Binding var selection: Value
+    let sections: [[Value]]
+    let label: (Value) -> String
+    @State private var hovering = false
+
+    init(title: LocalizedStringKey, selection: Binding<Value>, sections: [[Value]], label: @escaping (Value) -> String) {
+        self.title = title
+        self._selection = selection
+        self.sections = sections
+        self.label = label
+    }
+
+    init(title: LocalizedStringKey, selection: Binding<Value>, options: [Value], label: @escaping (Value) -> String) {
+        self.init(title: title, selection: selection, sections: [options], label: label)
+    }
+
+    var body: some View {
+        Menu {
+            ForEach(sections.indices, id: \.self) { index in
+                if index > 0 { Divider() }
+                Picker(title, selection: $selection) {
+                    ForEach(sections[index], id: \.self) { option in
+                        Text(label(option)).tag(option)
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            }
         } label: {
-            HStack(spacing: 6) {
-                Label(label(selection), systemImage: "arrow.up.arrow.down")
-                    .font(.callout.weight(.medium))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 28)
-            .background {
-                WMControlCapsule()
-                    .overlay(Capsule().fill(Color.primary.opacity(hovering && isEnabled ? 0.07 : 0)))
-            }
-            .contentShape(Capsule())
+            MenuCapsuleLabel(systemImage: "arrow.up.arrow.down", title: label(selection), hovering: hovering)
         }
         // The plain style draws the label as it is, so the capsule's edge is the control's edge and the row's spacing
         // is the gap that shows. The system's bordered menu button is next to invisible on the theme's gradient and
@@ -473,6 +542,41 @@ struct WMSortMenu<Value: Hashable>: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .onHover { inside in withAnimation(WMMotion.hover) { hovering = inside } }
+    }
+}
+
+/// A filter of a list on a capsule like `WMSortMenu`'s: its name and, while it narrows the list, what it lets through.
+/// A click opens its choices (`content`) in a popover, where every change applies at once. On the accent while
+/// `highlighted`.
+struct WMFilterMenu<Content: View>: View {
+    let title: String
+    var value: String? = nil
+    var highlighted = false
+    @ViewBuilder let content: () -> Content
+    @State private var open = false
+    @State private var closed = Date.distantPast
+    @State private var hovering = false
+
+    var body: some View {
+        Button {
+            // A click on the capsule while its popover is open closes the popover on mouse-down, as any click outside
+            // it does, and then arrives here: opening it again at once would make the click do nothing visible.
+            if open {
+                open = false
+            } else if Date().timeIntervalSince(closed) > 0.4 {
+                open = true
+            }
+        } label: {
+            MenuCapsuleLabel(title: title, value: value, highlighted: highlighted, hovering: hovering)
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .onHover { inside in withAnimation(WMMotion.hover) { hovering = inside } }
+        .popover(isPresented: $open, arrowEdge: .bottom, content: content)
+        .onChange(of: open) { _, isOpen in if !isOpen { closed = Date() } }
+        .animation(WMMotion.hover, value: highlighted)
+        .accessibilityLabel(Text(title))
+        .accessibilityValue(Text(value ?? ""))
     }
 }
 

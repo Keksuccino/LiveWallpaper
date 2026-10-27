@@ -705,8 +705,10 @@ struct ScreenInfo: Identifiable, Equatable {
 
 extension NSScreen {
     /// The display's UUID (DisplayIdentity): the key of its settings in state.json.
-    var displayID: String {
-        let number = (deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
-        return DisplayIdentity.uuid(of: number)
+    var displayID: String { DisplayIdentity.uuid(of: displayNumber ?? 0) }
+
+    /// The display's CGDirectDisplayID.
+    var displayNumber: CGDirectDisplayID? {
+        (deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
     }
 }

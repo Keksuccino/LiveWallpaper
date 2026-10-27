@@ -225,76 +225,13 @@ struct SteamSetupStatus: Equatable {
     }
 }
 
-enum WorkshopSort: String, CaseIterable, Identifiable {
-    case trending, newest, popular
-
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .trending: return String(localized: "Trending")
-        case .newest: return String(localized: "Newest")
-        case .popular: return String(localized: "Most Subscribed")
-        }
-    }
-}
-
-/// Curated browse topics. A topic is just Steam's ranked text search on the topic name (the raw value, in English like
-/// the Workshop's own tags), so it rides the existing search path (no extra endpoint, no API change). Chips are
-/// text-only on purpose.
-enum WorkshopTopic: String, CaseIterable, Identifiable {
-    case anime = "Anime"
-    case nature = "Nature"
-    case cyberpunk = "Cyberpunk"
-    case space = "Space"
-    case abstract = "Abstract"
-    case game = "Game"
-    case music = "Music"
-    case aesthetic = "Aesthetic"
-    case fantasy = "Fantasy"
-    case landscape = "Landscape"
-    case city = "City"
-    case animal = "Animal"
-
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .anime: return String(localized: "Anime")
-        case .nature: return String(localized: "Nature")
-        case .cyberpunk: return String(localized: "Cyberpunk")
-        case .space: return String(localized: "Space")
-        case .abstract: return String(localized: "Abstract")
-        case .game: return String(localized: "Game")
-        case .music: return String(localized: "Music")
-        case .aesthetic: return String(localized: "Aesthetic")
-        case .fantasy: return String(localized: "Fantasy")
-        case .landscape: return String(localized: "Landscape")
-        case .city: return String(localized: "City")
-        case .animal: return String(localized: "Animal")
-        }
-    }
-}
-
-/// What the browse grid offers: everything, or one kind of wallpaper.
-enum WorkshopKindFilter: String, CaseIterable, Identifiable {
-    case all, video, scene
-
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .all: return String(localized: "All")
-        case .video: return String(localized: "Videos")
-        case .scene: return String(localized: "Scenes")
-        }
-    }
-
-    /// Steam's own tag for this kind, when the list should be narrowed.
-    var requiredTag: String? {
-        switch self {
-        case .all: return nil
-        case .video: return "Video"
-        case .scene: return "Scene"
-        }
-    }
+/// The search inputs of the browse grid as one value, so a view can restart its browse task exactly when one of them
+/// changes (including the arrival of the API key, which switches browsing on).
+struct WorkshopBrowseKey: Equatable {
+    let sort: WorkshopSort
+    let text: String
+    let filters: WorkshopFilters
+    let canBrowse: Bool
 }
 
 /// One row of the Downloads section: the item and where its download stands.
@@ -392,12 +329,16 @@ enum WorkshopListState: Equatable {
     @Published var pastedText: String = ""
     @Published private(set) var lookup: WorkshopLookupState = .idle
 
-    // Browse and search (needs apiKey).
-    @Published var searchText: String = ""
-    @Published var sort: WorkshopSort = .trending
-    @Published var kindFilter: WorkshopKindFilter = .all
-    @Published var includeMature: Bool = !WorkshopKit.Prefs.includeMature.value.isEmpty {   // false = hide Questionable and Mature
-        didSet { WorkshopKit.Prefs.includeMature.value = includeMature ? "1" : "" }
+    // Browse and search (needs apiKey). The sort and the filters are remembered across launches; a sort that a search
+    // switched to (`searchTextChanged`) only while the search lasts.
+    @Published var searchText: String = "" {
+        didSet { searchTextChanged(from: oldValue) }
+    }
+    @Published var sort: WorkshopSort = WorkshopSort(rawValue: WorkshopKit.Prefs.sort.value) ?? .standard {
+        didSet { if searchText.isEmpty { WorkshopKit.Prefs.sort.value = sort.rawValue } }
+    }
+    @Published var filters: WorkshopFilters = WorkshopModel.storedFilters() {
+        didSet { WorkshopKit.Prefs.filters.value = filters.json }
     }
     @Published private(set) var results: [WorkshopItem] = []
     @Published private(set) var listState: WorkshopListState = .idle
@@ -437,9 +378,9 @@ enum WorkshopListState: Equatable {
         return queue.firstIndex(where: { $0.id == id }).map { $0 + 1 }
     }
 
-    /// The search inputs as one value, so a view can restart a browse task exactly when one of them changes
-    /// (including the arrival of the API key, which switches browsing on).
-    var searchKey: String { "\(sort.rawValue)|\(searchText)|\(includeMature)|\(kindFilter.rawValue)|\(canBrowse)" }
+    var browseKey: WorkshopBrowseKey {
+        WorkshopBrowseKey(sort: sort, text: searchText, filters: filters, canBrowse: canBrowse)
+    }
 
     /// True while any download is queued, signing in, downloading or importing. The Settings app stays alive
     /// with its window closed until this is false again.
@@ -468,6 +409,7 @@ enum WorkshopListState: Equatable {
     private var searchTask: Task<Void, Never>?
     private var searchGeneration = 0
     private var nextCursor: String?
+    private var sortBeforeSearch: WorkshopSort?   // the ranking a search switched away from
 
     /// True while steamcmd runs for a download or a sign-in check (the wizard refuses to start then).
     var isBusyWithSteam: Bool { runner != nil || hasActiveDownloads }
@@ -598,7 +540,44 @@ enum WorkshopListState: Equatable {
         nextCursor = "*"
         if !keep { results = [] }
         canLoadMore = false
-        if canBrowse { loadPage(replacing: true) } else { listState = .idle }
+        if !canBrowse {
+            listState = .idle
+        } else if filters.matchesNothing {
+            results = []
+            listState = .loaded
+        } else {
+            loadPage(replacing: true)
+        }
+    }
+
+    /// As in Wallpaper Engine, a new search ranks by how well the items match it (`WorkshopSort.search`), and the end of
+    /// the search brings the ranking back that it replaced, unless the user picked another sort meanwhile. The lists of
+    /// the key's own account stay as they are: a search narrows them.
+    private func searchTextChanged(from old: String) {
+        let searching = !searchText.isEmpty
+        guard searching != !old.isEmpty else { return }
+        if searching {
+            guard !sort.isPersonal, sort != WorkshopSort.search else { return }
+            sortBeforeSearch = sort
+            sort = WorkshopSort.search
+        } else {
+            if let previous = sortBeforeSearch, sort == WorkshopSort.search { sort = previous }
+            sortBeforeSearch = nil
+            WorkshopKit.Prefs.sort.value = sort.rawValue
+        }
+    }
+
+    /// The filters the browser was left with, else the standard ones; versions before the filters only had a checkbox
+    /// for questionable and mature items, which becomes the age rating filter.
+    private static func storedFilters() -> WorkshopFilters {
+        if let filters = WorkshopFilters(json: WorkshopKit.Prefs.filters.value) { return filters }
+        var filters = WorkshopFilters.standard
+        if !WorkshopKit.Prefs.includeMature.value.isEmpty {
+            filters.off[.rating] = nil
+            WorkshopKit.Prefs.filters.value = filters.json
+            UserDefaults.standard.removeObject(forKey: WorkshopKit.Prefs.includeMature.rawValue)
+        }
+        return filters
     }
 
     /// Appends the next page. Also the retry after `.loadMoreFailed`.
@@ -610,8 +589,7 @@ enum WorkshopListState: Equatable {
     private func loadPage(replacing: Bool) {
         listState = replacing ? .loading : .loadingMore
         let generation = searchGeneration
-        let request = WorkshopKit.API.Browse(key: trimmedKey, sort: sort, text: searchText,
-                                             mature: includeMature, requiredTag: kindFilter.requiredTag,
+        let request = WorkshopKit.API.Browse(key: trimmedKey, sort: sort, text: searchText, filters: filters,
                                              cursor: nextCursor ?? "*")
         searchTask = Task { @MainActor [weak self] in
             do {
@@ -836,7 +814,9 @@ enum WorkshopKit {
         case apiKey = "WallpaperMage.steam.apiKey"
         case signedOut = "WallpaperMage.steam.signedOut"       // the user signed out; ignore a token that is still around
         case tokenShared = "WallpaperMage.steam.tokenShared"   // SteamCMD keeps its login outside the app's own HOME
-        case includeMature = "WallpaperMage.workshop.includeMature"   // the browser's NSFW toggle
+        case sort = "WallpaperMage.workshop.sort"                     // WorkshopSort's raw value
+        case filters = "WallpaperMage.workshop.filters"               // WorkshopFilters as JSON
+        case includeMature = "WallpaperMage.workshop.includeMature"   // older versions' NSFW checkbox (storedFilters)
 
         var value: String {
             get { UserDefaults.standard.string(forKey: rawValue) ?? "" }
@@ -1043,9 +1023,51 @@ extension WorkshopKit {
             let key: String
             let sort: WorkshopSort
             let text: String
-            let mature: Bool
-            var requiredTag: String? = nil   // Steam tag the item must carry ("Video", "Scene")
+            let filters: WorkshopFilters
             let cursor: String
+        }
+
+        /// The parameters of a QueryFiles request (everything but the key), as its `input_json`. Only that JSON form
+        /// takes tag groups (`taggroups`: an item has to carry one tag of each); a plain query string cannot express
+        /// them.
+        struct QueryInput: Encodable, Equatable {
+            struct TagGroup: Encodable, Equatable { let tags: [String] }
+
+            var appid = Int(appID)!
+            var creatorAppid = Int(appID)!
+            let queryType: Int
+            let days: Int?
+            let searchText: String?
+            let cursor: String
+            var numperpage = pageSize
+            let requiredtags: [String]
+            let taggroups: [TagGroup]
+            /// Always Wallpaper Engine's editor assets, which are no wallpapers.
+            var excludedtags = ["Asset"]
+            var returnTags = true
+            var returnShortDescription = true
+            var returnPreviews = false
+            var returnVoteData = false
+            var returnMetadata = false
+
+            init(_ browse: Browse) {
+                let text = browse.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                queryType = browse.sort.queryType
+                days = browse.sort.trendDays
+                searchText = text.isEmpty ? nil : text
+                cursor = browse.cursor
+                requiredtags = browse.filters.requiredTags
+                taggroups = WorkshopFilterGroup.allCases.compactMap { group in
+                    browse.filters.allowed(in: group).map(TagGroup.init)
+                }
+            }
+
+            var json: String {
+                let encoder = JSONEncoder()
+                encoder.keyEncodingStrategy = .convertToSnakeCase
+                encoder.outputFormatting = .sortedKeys
+                return (try? encoder.encode(self)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+            }
         }
 
         struct Page {
@@ -1091,26 +1113,10 @@ extension WorkshopKit {
                         next: response.nextCursor, rawCount: response.files.count)
         }
 
+        /// The search text narrows every sort; Steam ranks Top Rated by how well items match it. Items the app cannot
+        /// import (web, application) show with an "unsupported" chip and no download unless the filters leave them out.
         static func queryURL(_ browse: Browse) -> URL {
-            let text = browse.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            var pairs: [(String, String)] = [("key", browse.key), ("appid", appID), ("creator_appid", appID)]
-            if !text.isEmpty {
-                pairs += [("query_type", "12"), ("search_text", text)]   // RankedByTextSearch
-            } else {
-                switch browse.sort {
-                case .trending: pairs += [("query_type", "3"), ("days", "7")]   // RankedByTrend
-                case .newest: pairs.append(("query_type", "1"))                 // RankedByPublicationDate
-                case .popular: pairs.append(("query_type", "9"))                // RankedByTotalUniqueSubscriptions
-                }
-            }
-            // No required tag by default: Steam's required tags must all match, so "Video" alone hid every scene.
-            // The kind filter sets exactly one ("Video" or "Scene") when the user narrows the grid. Items the app
-            // cannot import (web, application) still show, with an "unsupported" chip and no download.
-            pairs += [("cursor", browse.cursor), ("numperpage", String(pageSize))]
-            if let requiredTag = browse.requiredTag { pairs += [("requiredtags[0]", requiredTag)] }
-            if !browse.mature { pairs += [("excludedtags[0]", "Questionable"), ("excludedtags[1]", "Mature")] }
-            pairs += [("return_tags", "true"), ("return_short_description", "true"), ("return_previews", "false"),
-                      ("return_vote_data", "false"), ("return_metadata", "false")]
+            let pairs = [("key", browse.key), ("input_json", QueryInput(browse).json)]
             return URL(string: base + "/IPublishedFileService/QueryFiles/v1/?" + query(pairs))!
         }
 

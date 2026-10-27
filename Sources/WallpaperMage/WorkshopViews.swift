@@ -7,7 +7,7 @@ import Core
 // tab of the Settings window is the in-app wizard (SteamWizardView.swift) plus an Advanced section.
 //
 // Layout stability rule: the browse task hangs off WorkshopView's root, whose identity never changes when the
-// window is resized or the detail pane opens. Only a real change of the search inputs (sort, text, mature, kind)
+// window is resized or the detail pane opens. Only a real change of the search inputs (sort, text, filters)
 // restarts it, and a restart keeps the previous results on screen while the new page loads.
 
 // MARK: - Shared pieces
@@ -386,7 +386,8 @@ private struct CompactCard<Actions: View>: View {
 
 // MARK: - Workshop tab
 
-/// Workshop tab: paste field + result card, topic/tag browse grid (needs an API key) and setup banner.
+/// Workshop tab: paste field + result card, the browse grid with Wallpaper Engine's sorts and filters (needs an API
+/// key) and setup banner.
 @MainActor
 struct WorkshopView: View {
     @ObservedObject var model: SettingsModel
@@ -415,7 +416,7 @@ struct WorkshopView: View {
         }
         .animation(WMMotion.content, value: detail?.id)
         .onAppear { workshop.recheckSetup() }
-        .task(id: workshop.searchKey) { await refreshBrowse() }
+        .task(id: workshop.browseKey) { await refreshBrowse() }
     }
 
     /// The results column keeps one place in the view tree whether or not the detail pane is open: moving it
@@ -459,7 +460,7 @@ struct WorkshopView: View {
                 .padding(.top, WMTheme.pageTopPadding)
             foldingPart
             if workshop.canBrowse {
-                browseHeader
+                WorkshopBrowseControls(workshop: workshop)
                     .padding(.horizontal, WMTheme.contentPadding)
                     .padding(.bottom, 8)
                 results
@@ -629,7 +630,7 @@ struct WorkshopView: View {
 
     // MARK Browse
 
-    /// The first run loads (or keeps) the list at once; later changes of sort, search text, rating or kind wait
+    /// The first run loads (or keeps) the list at once; later changes of sort, search text or filters wait
     /// 400 ms and keep the previous results on screen while the new page loads (WorkshopModel.search).
     private func refreshBrowse() async {
         if !browsed {
@@ -654,69 +655,6 @@ struct WorkshopView: View {
         .background { glassShape(radius: 12) }
     }
 
-    /// The topics and the controls above the results. Its height is fixed to its content: the topics' horizontal
-    /// scroll view would otherwise share the column's free height with the results.
-    private var browseHeader: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            topicRow
-            browseControls
-        }
-        .fixedSize(horizontal: false, vertical: true)
-    }
-
-    /// Curated topics. A topic is the ranked text search on its name; "All" clears the text search.
-    private var topicRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: WMTheme.chipSpacing) {
-                WMTopicChip(title: String(localized: "All"),
-                            selected: workshop.searchText.isEmpty) {
-                    workshop.searchText = ""
-                }
-                ForEach(WorkshopTopic.allCases) { topic in
-                    WMTopicChip(title: topic.label,
-                                selected: workshop.searchText.caseInsensitiveCompare(topic.rawValue) == .orderedSame) {
-                        toggleTopic(topic)
-                    }
-                }
-            }
-            .padding(.vertical, 2)
-        }
-    }
-
-    private func toggleTopic(_ topic: WorkshopTopic) {
-        if workshop.searchText.caseInsensitiveCompare(topic.rawValue) == .orderedSame {
-            workshop.searchText = ""
-        } else {
-            workshop.searchText = topic.rawValue
-        }
-    }
-
-    private var browseControls: some View {
-        HStack(spacing: 10) {
-            WMSortMenu(title: "Sort By", selection: $workshop.sort, options: WorkshopSort.allCases, label: \.label)
-                .disabled(!workshop.searchText.isEmpty)
-                .help(workshop.searchText.isEmpty
-                      ? "Order of the browse grid"
-                      : "Steam decides the order while a search is active")
-
-            WMSearchField(prompt: "Search wallpapers", text: $workshop.searchText)
-
-            HStack(spacing: WMTheme.chipSpacing) {
-                ForEach(WorkshopKindFilter.allCases) { kind in
-                    WMTopicChip(title: kind.label,
-                                selected: workshop.kindFilter == kind) {
-                        withAnimation(WMMotion.hover) { workshop.kindFilter = kind }
-                    }
-                }
-            }
-
-            Toggle("NSFW", isOn: $workshop.includeMature)
-                .toggleStyle(.checkbox)
-                .help("Include questionable and mature items")
-        }
-        .animation(WMMotion.content, value: workshop.sort)
-    }
-
     @ViewBuilder private var browseResults: some View {
         if case .failed(let error) = workshop.listState, workshop.results.isEmpty {
             WorkshopFailureView(error: error, workshop: workshop, retry: { workshop.search() }, openSteamSetup: openSteamSetup)
@@ -732,7 +670,10 @@ struct WorkshopView: View {
             .frame(maxWidth: .infinity)
         }
         if workshop.listState == .loaded, workshop.results.isEmpty {
-            Text("No wallpapers match. Try another topic or search.").font(.callout).foregroundStyle(.secondary)
+            Text(personalListIsEmpty
+                 ? "Nothing here yet. This list comes from your Steam friends and the people you follow."
+                 : "No wallpapers match. Try other filters or another search.")
+                .font(.callout).foregroundStyle(.secondary)
         }
         if !workshop.results.isEmpty {
             resultGrid
@@ -757,6 +698,17 @@ struct WorkshopView: View {
         case .idle, .loaded, .failed:
             EmptyView()
         }
+    }
+
+    /// The key's own list (a personal sort) is empty, rather than narrowed down to nothing by a search or filters that
+    /// let less through than the standard ones.
+    private var personalListIsEmpty: Bool {
+        let filters = workshop.filters
+        return workshop.sort.isPersonal && workshop.searchText.isEmpty && filters.required.isEmpty
+            && WorkshopFilterGroup.allCases.allSatisfy { group in
+                guard let allowed = filters.allowed(in: group) else { return true }
+                return Set(allowed).isSuperset(of: WorkshopFilters.standard.allowed(in: group) ?? group.tags)
+            }
     }
 
     private var resultGrid: some View {

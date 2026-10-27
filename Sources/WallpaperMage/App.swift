@@ -32,6 +32,7 @@ struct WallpaperMageApp: App {
     /// window opens, and for the whole app, so menus, sheets and alerts are dark too.
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.appearance = NSAppearance(named: .darkAqua)
+        OffscreenTesting.start()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
