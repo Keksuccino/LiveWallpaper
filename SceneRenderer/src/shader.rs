@@ -17,7 +17,7 @@ use serde_json::Value;
 use crate::vfs::Vfs;
 use crate::Error;
 
-const TRANSLATOR_REVISION: u32 = 12;
+const TRANSLATOR_REVISION: u32 = 15;
 
 /// Vertex buffer slot; uniform blocks use slot 0 in both stages.
 pub const VERTEX_BUFFER_SLOT: u8 = 16;
@@ -26,8 +26,9 @@ pub const VERTEX_BUFFER_SLOT: u8 = 16;
 const FIX_ROUNDS: usize = 8;
 
 const PRELUDE: &str = "\
-#define texSample2D(t, uv) texture(t, uv)
-#define texSample2DLod(t, uv, l) textureLod(t, uv, l)
+// HLSL's `Sample` narrows a wider coordinate to its two components; GLSL has no such overload.
+#define texSample2D(t, uv) texture(t, (uv).xy)
+#define texSample2DLod(t, uv, l) textureLod(t, (uv).xy, l)
 #define mul(x, y) ((y) * (x))
 #define frac fract
 #define saturate(x) clamp(x, 0.0, 1.0)
@@ -247,18 +248,24 @@ impl Source {
         defines.extend(combos.iter().map(|(k, v)| (k.clone(), *v)));
         // Metal shares Direct3D's texture and clip-space orientation, so take the HLSL branches.
         let _ = defines.entry("HLSL".into()).or_insert(1);
-        // The engine counts the rows of a puppet's blend map per scene. We do not draw puppets
-        // yet, so one row is enough to make the shader compile.
+        // The engine counts the rows of a puppet's blend map per scene. Puppets are skinned on the
+        // CPU here, never through that shader, so one row is enough to make it compile.
         let _ = defines.entry("BLENDROWCOUNT".into()).or_insert(1);
 
         let key = cache_key(&[&self.vert, &self.frag], &defines);
         // The combo values go into the text instead of staying macros: naga's preprocessor gives
         // an expanded token the span of its definition, which would move the spans of the
         // expressions that use a combo out of their own text.
-        let vert = narrow_call_args(&expand_combos(&preprocess(&self.vert, &defines), &defines));
-        let frag = narrow_call_args(&expand_combos(&preprocess(&self.frag, &defines), &defines));
+        // The shader's own macros expand where they are defined, as in C (a name may be a variable
+        // before a later `#define` of it); the declarations and the prelude that `rewrite` adds
+        // expand after it.
+        let prepare = |text: &str| {
+            narrow_call_args(&expand_macros(&expand_combos(&preprocess(text, &defines), &defines)))
+        };
+        let (vert, frag) = (prepare(&self.vert), prepare(&self.frag));
         let (vert_glsl, attributes, varyings) = rewrite(&vert, Stage::Vertex, &[]);
         let (frag_glsl, _, _) = rewrite(&frag, Stage::Fragment, &varyings);
+        let (vert_glsl, frag_glsl) = (expand_macros(&vert_glsl), expand_macros(&frag_glsl));
         let vertex = cached(&key, "vs", || to_msl(&vert_glsl, Stage::Vertex))?;
         let fragment = cached(&key, "fs", || to_msl(&frag_glsl, Stage::Fragment))?;
         Ok(Program {
@@ -503,8 +510,230 @@ fn bracket(s: &str) -> Option<(&str, &str)> {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Macro expansion.
+//
+// naga's preprocessor gives every token of a macro expansion the span of the macro's definition,
+// so a type error in an expression that uses a macro points at the `#define` line and the
+// implicit-conversion fixer cannot patch it. The final text is therefore expanded here, the way a
+// C preprocessor does it, and naga never sees a macro.
+
+/// A `#define`: its parameters (`None` for an object-like macro) and its replacement text.
+struct Macro {
+    params: Option<Vec<String>>,
+    body: String,
+}
+
+/// How deep expansions may nest before the rest is left as it is.
+const MAX_MACRO_DEPTH: u32 = 32;
+
+/// Replaces every macro use in `text` and drops the `#define` and `#undef` lines. The other
+/// directives (`#version`) stay.
+fn expand_macros(text: &str) -> String {
+    let mut macros: HashMap<String, Macro> = HashMap::new();
+    let mut out = String::with_capacity(text.len());
+    let mut code = String::new();
+    for line in text.lines() {
+        let directive = line.trim_start().strip_prefix('#').map(str::trim_start);
+        let Some(directive) = directive else {
+            code.push_str(line);
+            code.push('\n');
+            continue;
+        };
+        // Code between two directives expands with the macros defined so far.
+        out.push_str(&expand(&code, &macros, &mut Vec::new(), 0));
+        code.clear();
+        if let Some(rest) = directive.strip_prefix("define") {
+            if let Some((name, m)) = parse_define(rest) {
+                let _ = macros.insert(name, m);
+            }
+        } else if let Some(rest) = directive.strip_prefix("undef") {
+            let _ = macros.remove(rest.trim());
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out.push_str(&expand(&code, &macros, &mut Vec::new(), 0));
+    out
+}
+
+/// `NAME body` or `NAME(a, b) body`, the text after `#define`.
+fn parse_define(rest: &str) -> Option<(String, Macro)> {
+    let rest = strip_comment(rest);
+    let end = rest.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).unwrap_or(rest.len());
+    let name = &rest[..end];
+    if name.is_empty() {
+        return None;
+    }
+    let after = &rest[end..];
+    // A parameter list only when `(` follows the name directly.
+    let (params, body) = match after.strip_prefix('(') {
+        Some(list) => {
+            let close = list.find(')')?;
+            let params = list[..close]
+                .split(',')
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty())
+                .collect();
+            (Some(params), &list[close + 1..])
+        }
+        None => (None, after),
+    };
+    Some((name.to_string(), Macro { params, body: body.trim().to_string() }))
+}
+
+/// Expands the macros in `text`. A macro is not expanded again inside its own expansion
+/// (`active`), as in C.
+fn expand(
+    text: &str,
+    macros: &HashMap<String, Macro>,
+    active: &mut Vec<String>,
+    depth: u32,
+) -> String {
+    if macros.is_empty() || depth > MAX_MACRO_DEPTH {
+        return text.to_string();
+    }
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let rest = &text[i..];
+        if rest.starts_with("//") {
+            let end = rest.find('\n').map_or(text.len(), |n| i + n);
+            out.push_str(&text[i..end]);
+            i = end;
+            continue;
+        }
+        if rest.starts_with("/*") {
+            let end = rest.find("*/").map_or(text.len(), |n| i + n + 2);
+            out.push_str(&text[i..end]);
+            i = end;
+            continue;
+        }
+        let c = bytes[i];
+        if c.is_ascii_digit() || c == b'.' && bytes.get(i + 1).is_some_and(u8::is_ascii_digit) {
+            // A number, with its exponent sign and suffix, never holds a macro name.
+            let start = i;
+            i += 1;
+            while i < bytes.len() {
+                let b = bytes[i];
+                let sign = matches!(b, b'+' | b'-') && matches!(bytes[i - 1], b'e' | b'E');
+                if !(b.is_ascii_alphanumeric() || b == b'.' || b == b'_' || sign) {
+                    break;
+                }
+                i += 1;
+            }
+            out.push_str(&text[start..i]);
+            continue;
+        }
+        if !(c.is_ascii_alphabetic() || c == b'_') {
+            let ch = rest.chars().next().unwrap_or('\u{fffd}');
+            out.push(ch);
+            i += ch.len_utf8();
+            continue;
+        }
+        let start = i;
+        while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+            i += 1;
+        }
+        let name = &text[start..i];
+        let Some(m) = macros.get(name).filter(|_| !active.iter().any(|a| a == name)) else {
+            out.push_str(name);
+            continue;
+        };
+        let body = match &m.params {
+            None => m.body.clone(),
+            Some(params) => {
+                // A function-like macro without arguments is a plain name.
+                let Some((args, end)) = macro_args(text, i) else {
+                    out.push_str(name);
+                    continue;
+                };
+                i = end;
+                let args: Vec<String> =
+                    args.iter().map(|a| expand(a, macros, active, depth + 1)).collect();
+                substitute(&m.body, params, &args)
+            }
+        };
+        active.push(name.to_string());
+        out.push_str(&expand(&body, macros, active, depth + 1));
+        let _ = active.pop();
+    }
+    out
+}
+
+/// The arguments of a macro call whose name ends at `from`, and where the call ends; `None` when
+/// no `(` follows.
+fn macro_args(text: &str, from: usize) -> Option<(Vec<String>, usize)> {
+    let open = from + (text[from..].len() - text[from..].trim_start().len());
+    if text.as_bytes().get(open) != Some(&b'(') {
+        return None;
+    }
+    let mut args = Vec::new();
+    let (mut depth, mut start) = (0i32, open + 1);
+    for (offset, c) in text[open + 1..].char_indices() {
+        let at = open + 1 + offset;
+        match c {
+            '(' => depth += 1,
+            ')' if depth > 0 => depth -= 1,
+            ')' => {
+                let last = text[start..at].trim();
+                if !last.is_empty() || !args.is_empty() {
+                    args.push(last.to_string());
+                }
+                return Some((args, at + 1));
+            }
+            ',' if depth == 0 => {
+                args.push(text[start..at].trim().to_string());
+                start = at + 1;
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The body with every parameter name replaced by its argument; `a ## b` pastes the two.
+fn substitute(body: &str, params: &[String], args: &[String]) -> String {
+    let bytes = body.as_bytes();
+    let mut out = String::with_capacity(body.len() + args.iter().map(String::len).sum::<usize>());
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if c.is_ascii_alphabetic() || c == b'_' {
+            let start = i;
+            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                i += 1;
+            }
+            let word = &body[start..i];
+            match params.iter().position(|p| p == word) {
+                Some(n) => out.push_str(args.get(n).map_or("", String::as_str)),
+                None => out.push_str(word),
+            }
+            continue;
+        }
+        if c.is_ascii_digit() {
+            let start = i;
+            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'.') {
+                i += 1;
+            }
+            out.push_str(&body[start..i]);
+            continue;
+        }
+        let ch = body[i..].chars().next().unwrap_or('\u{fffd}');
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    if out.contains("##") {
+        out = out.split("##").map(str::trim).collect();
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------------------------
 // Conditional compilation. Only `#if` family directives are resolved here; `#define`s stay in the
-// text for naga's preprocessor but are tracked so later conditions see them.
+// text, where `expand_macros` replaces them right after, but are tracked so later conditions see
+// them.
 
 fn preprocess(text: &str, combos: &BTreeMap<String, i64>) -> String {
     let mut defs: HashMap<String, String> = combos
@@ -760,18 +989,22 @@ impl Expr<'_> {
 // Declaration rewrite to GLSL 4.50.
 
 /// The 4.50 text plus the attribute locations (vertex) and the varying locations.
-type RewriteOut = (String, Vec<(String, u32)>, Vec<(String, u32)>);
+type RewriteOut = (String, Vec<(String, u32)>, Vec<Varying>);
+
+/// A vertex output: its declared name (with any array size), location and type.
+type Varying = (String, u32, String);
 
 /// Returns the 4.50 text, the attribute locations (vertex) and the varying locations.
-fn rewrite(text: &str, stage: Stage, varyings_in: &[(String, u32)]) -> RewriteOut {
+fn rewrite(text: &str, stage: Stage, varyings_in: &[Varying]) -> RewriteOut {
     let mut decls = String::new();
     let mut body = String::new();
     let mut block = String::new();
     let mut seen = std::collections::HashSet::new();
     let mut attributes = Vec::new();
-    let mut varyings: Vec<(String, u32)> = varyings_in.to_vec();
+    let mut varyings: Vec<Varying> = varyings_in.to_vec();
     let mut next_sampler = 32usize;
-    let mut copies: Vec<String> = Vec::new();
+    // Fragment inputs read into globals: (global, value).
+    let mut copies: Vec<(String, String)> = Vec::new();
 
     for line in text.lines() {
         let code = strip_comment(line);
@@ -866,19 +1099,19 @@ fn rewrite(text: &str, stage: Stage, varyings_in: &[(String, u32)]) -> RewriteOu
                     // varying
                     let existing = varyings
                         .iter()
-                        .find(|(n, _)| n.split('[').next() == Some(&base))
-                        .map(|(_, l)| *l);
-                    match (stage, existing) {
+                        .find(|(n, _, _)| n.split('[').next() == Some(&base))
+                        .map(|(_, l, t)| (*l, t.clone()));
+                    match (stage, &existing) {
                         (Stage::Fragment, None) => {
                             // Not written by the vertex stage: a zero constant keeps the pipeline valid.
                             let _ = writeln!(decls, "{ty} {name} = {ty}(0);");
                         }
                         _ => {
-                            let loc = existing.unwrap_or_else(|| {
+                            let (loc, out_ty) = existing.unwrap_or_else(|| {
                                 // Arrays take one location per element.
-                                let l = varyings.last().map_or(0, |(n, l)| l + slots(n));
-                                varyings.push((name.to_string(), l));
-                                l
+                                let l = varyings.last().map_or(0, |(n, l, _)| l + slots(n));
+                                varyings.push((name.to_string(), l, ty.to_string()));
+                                (l, ty.to_string())
                             });
                             let flat = if ty.starts_with('u') || ty.starts_with('i') {
                                 "flat "
@@ -892,9 +1125,20 @@ fn rewrite(text: &str, stage: Stage, varyings_in: &[(String, u32)]) -> RewriteOu
                                 );
                             } else {
                                 // 1.20 shaders may write to their inputs, so read them into globals.
+                                // Direct3D lets the pixel stage read fewer components than the
+                                // vertex stage writes (`vec4` out, `vec2` in); Metal wants the
+                                // same type on both sides, so the input keeps the vertex type.
                                 let suffix = name.strip_prefix(base.as_str()).unwrap_or("");
-                                let _ = writeln!(decls, "layout(location = {loc}) {flat}in {ty} wm_in_{base}{suffix};\n{ty} {name};");
-                                copies.push(base.clone());
+                                let input = format!("wm_in_{base}");
+                                let (in_ty, value) = match resized_varying(&input, &out_ty, ty) {
+                                    Some(value) if suffix.is_empty() => (out_ty.as_str(), value),
+                                    _ => (ty, input.clone()),
+                                };
+                                let _ = writeln!(
+                                    decls,
+                                    "layout(location = {loc}) {flat}in {in_ty} {input}{suffix};\n{ty} {name};"
+                                );
+                                copies.push((base.clone(), value));
                             }
                         }
                     }
@@ -910,15 +1154,6 @@ fn rewrite(text: &str, stage: Stage, varyings_in: &[(String, u32)]) -> RewriteOu
             "layout(location = 0) out vec4 wm_FragColor;\n#define gl_FragColor wm_FragColor\n",
         );
     }
-    // Macros the declarations depend on (e.g. array sizes) are defined in the body, so keep the
-    // body's `#define`s first.
-    for line in body
-        .lines()
-        .filter(|l| l.trim_start().starts_with("#define") || l.trim_start().starts_with("#undef"))
-    {
-        out.push_str(line);
-        out.push('\n');
-    }
     if !block.is_empty() {
         let _ = writeln!(
             out,
@@ -926,13 +1161,7 @@ fn rewrite(text: &str, stage: Stage, varyings_in: &[(String, u32)]) -> RewriteOu
         );
     }
     out.push_str(&decls);
-    let mut code: String = body
-        .lines()
-        .filter(|l| {
-            !(l.trim_start().starts_with("#define") || l.trim_start().starts_with("#undef"))
-        })
-        .flat_map(|l| [l, "\n"])
-        .collect();
+    let mut code = body;
     if !copies.is_empty() {
         if let Some(open) = code
             .find("void main")
@@ -940,13 +1169,34 @@ fn rewrite(text: &str, stage: Stage, varyings_in: &[(String, u32)]) -> RewriteOu
         {
             let init: String = copies
                 .iter()
-                .map(|n| format!(" {n} = wm_in_{n};"))
+                .map(|(name, value)| format!(" {name} = {value};"))
                 .collect();
             code.insert_str(open, &init);
         }
     }
     out.push_str(&code);
     (out, attributes, varyings)
+}
+
+/// `input`, declared as the vertex stage's `from` type, converted to the fragment stage's `to`
+/// type the way Direct3D links them: extra components are dropped, missing ones read 0. `None`
+/// when the types match or are not float scalars and vectors.
+fn resized_varying(input: &str, from: &str, to: &str) -> Option<String> {
+    let size = |t: &str| match t {
+        "float" => Some(1),
+        "vec2" => Some(2),
+        "vec3" => Some(3),
+        "vec4" => Some(4),
+        _ => None,
+    };
+    let (have, want) = (size(from)?, size(to)?);
+    Some(match have.cmp(&want) {
+        std::cmp::Ordering::Equal => return None,
+        std::cmp::Ordering::Greater => format!("{input}.{}", &"xyzw"[..want]),
+        std::cmp::Ordering::Less => {
+            format!("{to}({input}{})", ", 0.0".repeat(want - have))
+        }
+    })
 }
 
 fn slots(declared: &str) -> u32 {
@@ -1395,6 +1645,14 @@ fn converted(
         // A scalar written into a vector is a splat in HLSL.
         (naga::TypeInner::Vector { size, .. }, naga::TypeInner::Scalar(_)) => {
             format!("vec{}({value_text})", *size as u8)
+        }
+        // A vector written into a scalar keeps its first component.
+        (naga::TypeInner::Scalar(want), naga::TypeInner::Vector { scalar: got, .. }) => {
+            if want.kind == got.kind {
+                format!("({value_text}).x")
+            } else {
+                format!("{}(({value_text}).x)", glsl_type(want.kind))
+            }
         }
         // A wider vector written into a narrower one keeps its leading components.
         (
@@ -2259,6 +2517,50 @@ mod tests {
         }
         let point = program.fragment.uniforms.iter().find(|u| u.name == "g_LPoint_Color").unwrap();
         assert_eq!((point.count, point.rows, point.stride), (2, 4, 16));
+    }
+
+    #[test]
+    fn macros_expand_like_the_c_preprocessor() {
+        let text = "#version 450\n#define LIMIT 0.6\n#define TWICE(x) ((x) + (x))\n#define SELF SELF + 1\nfloat a = TWICE(LIMIT) * 1e-3; // LIMIT\nfloat b = SELF;\n#undef LIMIT\nfloat c = LIMIT;\n";
+        let out = expand_macros(text);
+        assert!(out.contains("float a = ((0.6) + (0.6)) * 1e-3; // LIMIT"), "{out}");
+        assert!(out.contains("float b = SELF + 1;"), "{out}");
+        assert!(out.contains("float c = LIMIT;"), "{out}");
+        assert!(out.starts_with("#version 450") && !out.contains("#define"), "{out}");
+    }
+
+    /// Compiles a fragment shader behind a plain vertex shader writing `v_TexCoord` as `vert_ty`.
+    fn compile_frag(frag: &str, vert_ty: &str) -> Result<Program, Error> {
+        let vert = format!("uniform mat4 g_ModelViewProjectionMatrix;\nattribute vec3 a_Position;\nattribute vec2 a_TexCoord;\nvarying {vert_ty} v_TexCoord;\nvoid main() {{\n gl_Position = mul(vec4(a_Position, 1.0), g_ModelViewProjectionMatrix);\n v_TexCoord = {vert_ty}(0.0);\n v_TexCoord.xy = a_TexCoord;\n}}\n");
+        Source {
+            vert,
+            frag: frag.into(),
+            combo_defaults: BTreeMap::new(),
+            uniform_meta: HashMap::new(),
+            texture_meta: HashMap::new(),
+        }
+        .compile(&BTreeMap::new())
+    }
+
+    #[test]
+    fn hlsl_conversions_inside_macros_compile() {
+        // From a bokeh blur and a chromatic aberration effect: a bool times a float through a
+        // macro, a wide coordinate sampled, a vector stored into a float, a vec4 into a vec3.
+        let frag = "#define LIMIT 0.6\nuniform sampler2D g_Texture0;\nuniform vec2 g_PointerPosition;\nuniform float u_speed;\nvarying vec4 v_TexCoord;\nvoid main() {\n float depth = 1.0;\n depth *= (depth < LIMIT) * 6.0;\n float pointer = g_PointerPosition * u_speed;\n vec4 c = texSample2D(g_Texture0, v_TexCoord.xy - (u_speed * v_TexCoord + pointer));\n vec3 rgb = vec4(c.r, c.g, c.b, depth);\n gl_FragColor = vec4(rgb, 1.0);\n}\n";
+        compile_frag(frag, "vec4").unwrap();
+    }
+
+    #[test]
+    fn a_narrower_fragment_input_reads_the_vertex_output() {
+        // The vertex stage writes a vec4, the fragment stage reads a vec2: Metal needs one type.
+        let frag = "uniform sampler2D g_Texture0;\nvarying vec2 v_TexCoord;\nvoid main() {\n gl_FragColor = texSample2D(g_Texture0, v_TexCoord);\n}\n";
+        let (_, _, varyings) = rewrite("varying vec4 v_TexCoord;\nvoid main() { v_TexCoord = vec4(0.0); }\n", Stage::Vertex, &[]);
+        let (glsl, _, _) = rewrite(frag, Stage::Fragment, &varyings);
+        assert!(glsl.contains("in vec4 wm_in_v_TexCoord;"), "{glsl}");
+        assert!(glsl.contains("v_TexCoord = wm_in_v_TexCoord.xy;"), "{glsl}");
+        compile_frag(frag, "vec4").unwrap();
+        assert_eq!(resized_varying("x", "vec2", "vec4").as_deref(), Some("vec4(x, 0.0, 0.0)"));
+        assert_eq!(resized_varying("x", "vec4", "vec4"), None);
     }
 
     #[test]

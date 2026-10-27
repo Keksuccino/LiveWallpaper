@@ -2,21 +2,19 @@
 //!
 //! # Layout
 //!
-//! All integers are little-endian and all offsets below are absolute in the file. The layout was
-//! read from the four puppet models shipped with two local scenes: `angelcommison_puppet.mdl`
-//! (13 bones), `angelhair_puppet.mdl` (5 bones), `Right Hand_puppet.mdl` (4 bones) and
-//! `Finger Left_puppet.mdl` (3 bones). Nothing here comes from another renderer's source.
+//! All integers are little-endian and all offsets below are absolute in the file. The layout is
+//! the one Wallpaper Engine's model reader walks (see `NOTES.md`); every chunk tag is followed by
+//! a NUL, and the four digits after the kind are the version that gates optional fields.
 //!
 //! ## Mesh (`MDLV0023`)
 //!
 //! ```text
-//! 0x00  8   tag "MDLV0023" (no NUL)
-//! 0x08  4   format word (0x8000_0900 observed)
-//! 0x0c  4   format word (0x0000_0101 observed)
-//! 0x10  4   format word (0x0000_0100 observed)
-//! 0x14  1   0
+//! 0x00  9   tag "MDLV0023\0"
+//! 0x09  4   flags (0x0180_0009 observed)
+//! 0x0d  4   strings per mesh (1)
+//! 0x11  4   mesh count (1)
 //! 0x15  ..  NUL-terminated material path, e.g. "materials/angelcommison.json"
-//!       ..  28 zero bytes
+//!       ..  u32 mesh flags and six f32 bounds (zero in most files)
 //!       ..  u32 vertex_flags (0x0180_000f observed), u32 vertex_bytes
 //!       ..  vertex_bytes / 80 vertices, 80 bytes each:
 //!             (the layout below is the 80-byte one; the flags word is an attribute mask, see `Attributes`)
@@ -27,19 +25,22 @@
 //!             +56 bone weights (4 f32, normally summing to 1)
 //!             +72 uv (2 f32)
 //!       ..  u32 index_bytes, then index_bytes / 2 u16 triangle indices
-//!       ..  optional block (not understood), then the per-bone index ranges
-//!       ..  16-byte range records: first_index u32, index_count u32, bone u32, 0 u32
+//!       ..  version > 20: u8 flag, then (if set) u32 (1), u32 bytes and one position (3 f32)
+//!             per vertex; u8 flag, then (if set) u32 bytes of 16-byte index range records:
+//!             u32 bone, i32 draw-order offset, u32 first index, u32 index count
+//!       ..  version > 22: u32 group count; per group u64 id, name cstring, u32 flags, and two
+//!             u32-counted lists of range indices (clipping masks and the parts they clip)
 //! ```
 //!
-//! The block between the index buffer and the range table is not understood. In the 5-, 4- and
-//! 3-bone files it is 14 bytes and starts `00 01` + a u16 equal to `16 * bone_count`; the 3-bone
-//! file has another 16 bytes after that. The 13-bone file instead copies all vertex positions
-//! (a 9-byte header, then 12 bytes per vertex) and has a 13-byte block before the table. Rather
-//! than guess, the parser locates the table by scanning for a tiling of the index buffer and
-//! picks the candidate with the most ranges.
+//! The parser reads the header as three words after the eight tag bytes, which cover the same
+//! bytes. The optional positions say where each vertex lies in the flat texture (they match its
+//! uv); the vertex positions above are the assembled rest pose, which differs when the texture
+//! is an atlas of parts. The engine never reads them.
 //!
-//! The last range record can be 12 bytes (without its padding word), and a zero-count record can
-//! follow the ranges. Every range tiles the index buffer from 0 to `index_bytes / 2`.
+//! The ranges tile the index buffer, which is stored sorted by draw order: each range's bone's
+//! order value (end of the skeleton chunk) plus the range's offset, back to front. Drawing the
+//! indices as stored is therefore in order; only a mesh with flag 8 re-sorts them each frame by
+//! animated orders, which no local model has.
 //!
 //! ## Skeleton (`MDLS0004`)
 //!
@@ -47,11 +48,11 @@
 //! 0x00  9   tag "MDLS0004\0"
 //! 0x09  4   next chunk offset
 //! 0x0d  4   bone count
-//! 0x11  1   0
 //!       ..  per bone:
-//!             u32 flags, u32 parent (0xffff_ffff = root, otherwise an earlier bone),
+//!             name cstring (usually empty), u32 flags,
+//!             u32 parent (0xffff_ffff = root, otherwise an earlier bone),
 //!             u32 matrix_bytes = 64, 64-byte 4x4 f32 matrix,
-//!             optional NUL-terminated JSON object plus one NUL, or two NULs
+//!             metadata cstring (a JSON object, or empty)
 //! ```
 //!
 //! The matrix is stored row-vector style: rows 0..2 are direction, row 3 is translation. It is
@@ -59,8 +60,11 @@
 //! exactly the first keyframe translation. The JSON object is editor metadata (`tm`, `tp`, ...),
 //! not a transform.
 //!
-//! A trailing block after the last bone (0x1b1 bytes in the 5-bone file, 0x451 in the 13-bone
-//! file) holds more editor data; it is skipped via the next-chunk offset.
+//! After the last bone (version >= 2) come inverse kinematics handles, optional rest matrices,
+//! constraints, solver records, a pick box per bone, and the bones' draw order and order values.
+//! None of the local models uses handles, constraints or rest matrices, and the stored index
+//! order already follows the draw order, so the parser skips them via the next-chunk offset. The
+//! metadata JSON holds each bone's physics settings (see `pose::Spring`).
 //!
 //! ## Attachments (`MDAT0001`)
 //!
@@ -87,25 +91,26 @@
 //! 0x15  4   0
 //!       ..  animation 0 immediately:
 //!             name cstring, flag cstring ("loop" or "mirror"),
-//!             f32 fps (30), u32 duration_frames, u32 0,
-//!             u32 bone_count, u32 0, u32 first_track_bytes,
-//!             bone_count tracks: first track has first_track_bytes; the others have
-//!             u32 bytes, the keyframes, then u32 0
+//!             f32 fps (30), u32 duration_frames, u32 animation flags,
+//!             u32 bone_count, then per bone a track: u32 flags (bit 0: the track is excluded
+//!             and leaves the pose below it), u32 bytes, the keyframes
 //! ```
 //!
 //! A keyframe is 9 f32: translation xyz, rotation xyz in radians, scale xyz. Every observed file
 //! has `duration_frames + 1` keyframes per track, and only the Z rotation was non-zero. The
 //! rotation order is unconfirmed; the values are exposed as-is.
 //!
-//! Every animation record starts with its id (u32) and a zero word, then the name. The id is what
-//! a scene's `animationlayers[].animation` refers to; it is stored, not computed (`61, 63, 65, 67`
-//! in one file, `107, 122, 391, 704, 131` in another). What lies between two records differs
-//! between files (39 bytes in some, extra curve data in others), so the parser finds the next
-//! record by checking that a whole one parses there.
+//! Every animation record starts with its id (u64), then the name. The id is what a scene's
+//! `animationlayers[].animation` refers to; it is stored, not computed (`61, 63, 65, 67` in one
+//! file, `107, 122, 391, 704, 131` in another). After the tracks come per-frame curves for the
+//! skeleton's inverse kinematics handles and constraints, bone alpha, blend shape weights and
+//! bone draw orders (all empty in the local models), the animation's bounds and its script
+//! events; a version-6 record without curves ends 35 bytes after its last track. The parser
+//! finds the next record by checking that a whole one parses there. Wallpaper Engine turns each
+//! keyframe's Euler rotation into a quaternion when it loads the file.
 //!
-//! After the last track there are 31 bytes before the next-chunk offset (32 bytes at the end of a
-//! file without an `MDLE` chunk). `MDLE0002` is an end marker; files without it store `len - 1`
-//! as the next offset. This parser ignores both.
+//! `MDLE0002` holds one matrix per bone, which nothing at run time reads; files without it store
+//! `len - 1` as the next offset. This parser ignores both.
 
 use crate::vfs::Reader;
 use crate::Error;
@@ -232,6 +237,8 @@ pub struct Vertex {
 /// One skeleton bone. `parent` indexes an earlier bone; roots have `None`.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Bone {
+    /// Name given in the editor; most bones have none.
+    pub name: String,
     /// Editor flags; their meaning is not known.
     pub flags: u32,
     pub parent: Option<usize>,
@@ -251,12 +258,14 @@ pub struct Attachment {
     pub matrix: [[f32; 4]; 4],
 }
 
-/// A contiguous run of indices drawn with one bone. `bone` indexes [`Puppet::bones`].
+/// A contiguous run of indices that belongs to one bone. `bone` indexes [`Puppet::bones`];
+/// `order` is added to the bone's draw order to sort the run.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Segment {
     pub first_index: u32,
     pub index_count: u32,
     pub bone: u32,
+    pub order: i32,
 }
 
 /// A per-bone keyframe: translation, Euler rotation in radians, and scale.
@@ -273,6 +282,8 @@ pub struct Track {
     /// Index into [`Puppet::bones`].
     pub bone: usize,
     pub keyframes: Vec<Transform>,
+    /// The animation leaves this bone to the layers below it.
+    pub excluded: bool,
 }
 
 /// One animation. `flag` was `"loop"` or `"mirror"` in the observed files.
@@ -299,38 +310,6 @@ impl Animation {
         } else {
             0.0
         }
-    }
-}
-
-impl Transform {
-    /// Linear blend of two transforms. Rotations are blended as Euler angles; a caller that
-    /// wants shortest-path rotation should replace this with quaternion interpolation.
-    pub fn lerp(a: &Self, b: &Self, t: f32) -> Self {
-        Self {
-            translation: lerp3(a.translation, b.translation, t),
-            rotation: lerp3(a.rotation, b.rotation, t),
-            scale: lerp3(a.scale, b.scale, t),
-        }
-    }
-}
-
-impl Track {
-    /// Sample the track at a fractional frame, clamping to the first/last keyframe.
-    pub fn sample(&self, frame: f32) -> Transform {
-        let Some(first) = self.keyframes.first() else {
-            return Transform::default();
-        };
-        if !frame.is_finite() || frame <= 0.0 {
-            return first.clone();
-        }
-        let last = self.keyframes.len() - 1;
-        let frame = frame.min(last as f32);
-        let index = frame.floor() as usize;
-        if index >= last {
-            return self.keyframes[last].clone();
-        }
-        let t = frame - index as f32;
-        Transform::lerp(&self.keyframes[index], &self.keyframes[index + 1], t)
     }
 }
 
@@ -363,13 +342,11 @@ impl Puppet {
             }
         }
 
-        let segments = find_segments(
-            data,
-            mesh.end,
-            skeleton_off,
-            bones.len(),
-            mesh.indices.len(),
-        );
+        let segments = if mesh.segments.iter().all(|s| (s.bone as usize) < bones.len()) {
+            mesh.segments
+        } else {
+            Vec::new()
+        };
 
         let mut attachments = Vec::new();
         if chunk_at(data, next, ATTACHMENT_KIND) {
@@ -412,6 +389,7 @@ impl Puppet {
             first_index: 0,
             index_count: mesh.indices.len() as u32,
             bone: 0,
+            order: 0,
         }];
         Self {
             material: mesh.material,
@@ -430,6 +408,7 @@ struct Mesh {
     material: String,
     vertices: Vec<Vertex>,
     indices: Vec<u16>,
+    segments: Vec<Segment>,
     end: usize,
     skinned: bool,
 }
@@ -550,13 +529,54 @@ fn parse_mesh(data: &[u8]) -> Result<Mesh, Error> {
         indices.push(index);
     }
 
+    // The ranges are not needed to draw (see the module notes); a table that does not read
+    // cleanly is left out rather than failing the model.
+    let version = std::str::from_utf8(&data[4..8]).ok().and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
+    let segments = if version > 20 {
+        let mut tail = Reader::new(data);
+        tail.pos = r.pos;
+        read_ranges(&mut tail, index_count).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
     Ok(Mesh {
         material,
         vertices,
         indices,
+        segments,
         end: r.pos,
         skinned: attributes.skinned(),
     })
+}
+
+/// The tail of a version > 20 mesh after its indices: the flat positions (skipped), then the
+/// index range table.
+fn read_ranges(r: &mut Reader<'_>, index_count: usize) -> Result<Vec<Segment>, Error> {
+    if r.bytes(1)?[0] != 0 {
+        let _ = r.u32()?;
+        let bytes = r.u32()? as usize;
+        let _ = r.bytes(bytes)?;
+    }
+    if r.bytes(1)?[0] == 0 {
+        return Ok(Vec::new());
+    }
+    let bytes = r.u32()? as usize;
+    if !bytes.is_multiple_of(16) {
+        return Err(bad(format!("index range table of {bytes} bytes")));
+    }
+    let mut segments = Vec::with_capacity(bytes / 16);
+    for _ in 0..bytes / 16 {
+        let bone = r.u32()?;
+        let order = r.i32()?;
+        let first_index = r.u32()?;
+        let index_count_here = r.u32()?;
+        if first_index as usize + index_count_here as usize > index_count {
+            return Err(bad(format!("index range {first_index}+{index_count_here} is past the indices")));
+        }
+        segments.push(Segment { first_index, index_count: index_count_here, bone, order });
+    }
+    Ok(segments)
 }
 
 fn parse_skeleton(data: &[u8], off: usize) -> Result<(Vec<Bone>, usize), Error> {
@@ -576,14 +596,10 @@ fn parse_skeleton(data: &[u8], off: usize) -> Result<(Vec<Bone>, usize), Error> 
         return Err(bad(format!("bone count {bone_count} is too large")));
     }
 
-    let pad_at = r.pos;
-    if r.bytes(1)?[0] != 0 {
-        return Err(bad(format!("skeleton padding at 0x{pad_at:x} is not 0")));
-    }
-
     let mut bones = Vec::with_capacity(bone_count);
     for index in 0..bone_count {
         let bone_at = r.pos;
+        let name = String::from_utf8_lossy(cstring(&mut r, MAX_STRING, "bone name")?).into_owned();
         let flags = r.u32()?;
         let parent_raw = r.u32()?;
         let parent = if parent_raw == u32::MAX {
@@ -606,15 +622,9 @@ fn parse_skeleton(data: &[u8], off: usize) -> Result<(Vec<Bone>, usize), Error> 
         }
         let local = read_matrix(&mut r)?;
 
-        let metadata = if r.data.get(r.pos) == Some(&b'{') {
-            let bytes = cstring(&mut r, MAX_STRING, "bone metadata")?;
-            let text = String::from_utf8_lossy(bytes).into_owned();
-            read_zeros(&mut r, 1, "after bone metadata")?;
-            Some(text)
-        } else {
-            read_zeros(&mut r, 2, "after a bone without metadata")?;
-            None
-        };
+        let metadata = cstring(&mut r, MAX_STRING, "bone metadata")?;
+        let metadata =
+            (!metadata.is_empty()).then(|| String::from_utf8_lossy(metadata).into_owned());
 
         if r.pos > next {
             return Err(bad(format!(
@@ -622,6 +632,7 @@ fn parse_skeleton(data: &[u8], off: usize) -> Result<(Vec<Bone>, usize), Error> 
             )));
         }
         bones.push(Bone {
+            name,
             flags,
             parent,
             local,
@@ -790,8 +801,9 @@ fn parse_animation_at(data: &[u8], at: usize, bone_count: usize) -> Result<RawAn
     }
 
     let duration_frames = r.u32()?;
-    if r.u32()? != 0 {
-        return Err(bad(format!("animation at 0x{at:x}: padding is not 0")));
+    // The animation's flags; only small values occur, which keeps a wrong position from parsing.
+    if r.u32()? > 0xff {
+        return Err(bad(format!("animation at 0x{at:x}: unexpected flags")));
     }
     let track_count = r.u32()? as usize;
     if track_count != bone_count {
@@ -799,41 +811,23 @@ fn parse_animation_at(data: &[u8], at: usize, bone_count: usize) -> Result<RawAn
             "animation at 0x{at:x} has {track_count} tracks, but the skeleton has {bone_count} bones"
         )));
     }
-    if r.u32()? != 0 {
-        return Err(bad(format!("animation at 0x{at:x}: padding is not 0")));
-    }
-
-    let first_track_bytes = r.u32()? as usize;
     let mut tracks = Vec::with_capacity(track_count);
     for track_index in 0..track_count {
-        let size = if track_index == 0 {
-            first_track_bytes
-        } else {
-            let at = r.pos;
-            let size = r.u32()? as usize;
-            if size == 0 {
-                return Err(bad(format!(
-                    "animation track {track_index} at 0x{at:x} has size 0"
-                )));
-            }
-            size
-        };
+        let at = r.pos;
+        let flags = r.u32()?;
+        if flags > 0xff {
+            return Err(bad(format!("animation track {track_index} at 0x{at:x}: unexpected flags")));
+        }
+        let size = r.u32()? as usize;
         let frame_count = keyframe_count(size, "track")?;
-
         let mut keyframes = Vec::with_capacity(frame_count);
         for _ in 0..frame_count {
             keyframes.push(read_transform(&mut r)?);
         }
-
-        let pad_at = r.pos;
-        if r.u32()? != 0 {
-            return Err(bad(format!(
-                "animation track {track_index} padding at 0x{pad_at:x} is not 0"
-            )));
-        }
         tracks.push(Track {
             bone: track_index,
             keyframes,
+            excluded: flags & 1 != 0,
         });
     }
 
@@ -846,93 +840,6 @@ fn parse_animation_at(data: &[u8], at: usize, bone_count: usize) -> Result<RawAn
         tracks,
         end: r.pos,
     })
-}
-
-fn find_segments(
-    data: &[u8],
-    from: usize,
-    to: usize,
-    bone_count: usize,
-    index_count: usize,
-) -> Vec<Segment> {
-    if index_count == 0 || bone_count == 0 {
-        return Vec::new();
-    }
-
-    let mut best: Option<Vec<Segment>> = None;
-    let Some(last_start) = to.checked_sub(12) else {
-        return Vec::new();
-    };
-    for start in from..=last_start {
-        if let Some(segments) = try_segments(data, start, to, bone_count, index_count) {
-            if best
-                .as_ref()
-                .is_none_or(|current| segments.len() > current.len())
-            {
-                best = Some(segments);
-            }
-        }
-    }
-    best.unwrap_or_default()
-}
-
-fn try_segments(
-    data: &[u8],
-    start: usize,
-    end: usize,
-    bone_count: usize,
-    index_count: usize,
-) -> Option<Vec<Segment>> {
-    let mut pos = start;
-    let mut expected = 0usize;
-    let mut segments = Vec::new();
-
-    loop {
-        if expected == index_count && pos == end {
-            return Some(segments);
-        }
-
-        let remaining = end.checked_sub(pos)?;
-        if remaining < 12 {
-            return None;
-        }
-
-        let first = u32_at(data, pos)? as usize;
-        let count = u32_at(data, pos + 4)? as usize;
-        let bone = u32_at(data, pos + 8)? as usize;
-
-        if first != expected || bone >= bone_count || expected > index_count {
-            return None;
-        }
-        if count > index_count - expected {
-            return None;
-        }
-
-        if remaining >= 16 {
-            if u32_at(data, pos + 12)? != 0 {
-                return None;
-            }
-            pos += 16;
-        } else if remaining == 12 {
-            pos += 12;
-        } else {
-            return None;
-        }
-
-        if count == 0 {
-            return (first == index_count && pos == end).then_some(segments);
-        }
-
-        expected += count;
-        segments.push(Segment {
-            first_index: first as u32,
-            index_count: count as u32,
-            bone: bone as u32,
-        });
-        if segments.len() > bone_count + 1 {
-            return None;
-        }
-    }
 }
 
 fn keyframe_count(bytes: usize, what: &str) -> Result<usize, Error> {
@@ -994,14 +901,6 @@ pub(crate) fn read_vec4(r: &mut Reader<'_>, what: &str) -> Result<[f32; 4], Erro
     Ok(values)
 }
 
-fn lerp3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
-    [
-        a[0] + (b[0] - a[0]) * t,
-        a[1] + (b[1] - a[1]) * t,
-        a[2] + (b[2] - a[2]) * t,
-    ]
-}
-
 pub(crate) fn finite_f32(r: &mut Reader<'_>, what: &str) -> Result<f32, Error> {
     let at = r.pos;
     let value = r.f32()?;
@@ -1029,17 +928,6 @@ pub(crate) fn cstring<'a>(r: &mut Reader<'a>, max: usize, what: &str) -> Result<
         .ok_or_else(|| bad(format!("unterminated {what} at 0x{start:x}")))?;
     r.pos = start + length + 1;
     Ok(&rest[..length])
-}
-
-fn read_zeros(r: &mut Reader<'_>, count: usize, what: &str) -> Result<(), Error> {
-    let at = r.pos;
-    let bytes = r.bytes(count)?;
-    if bytes.iter().any(|&b| b != 0) {
-        return Err(bad(format!(
-            "expected {count} zero bytes {what} at 0x{at:x}"
-        )));
-    }
-    Ok(())
 }
 
 /// Whether `data[off..]` starts a chunk of this kind: four letters and a four-digit version.
@@ -1121,6 +1009,11 @@ mod tests {
     /// One vertex, one triangle, one bone and one two-frame animation. `third_index` lets a test
     /// put an out-of-range value in the index buffer.
     fn build_minimal(third_index: u16) -> Vec<u8> {
+        build_model(third_index, "", "")
+    }
+
+    /// A one-triangle model whose single bone has `bone_name` and `metadata`.
+    fn build_model(third_index: u16, bone_name: &str, metadata: &str) -> Vec<u8> {
         let mut buf = Vec::new();
         buf.extend_from_slice(b"MDLV0023");
         push_u32(&mut buf, 0x8000_0900);
@@ -1149,20 +1042,24 @@ mod tests {
         push_u16(&mut buf, 1);
         push_u16(&mut buf, third_index);
 
-        push_u32(&mut buf, 0);
-        push_u32(&mut buf, 3);
-        push_u32(&mut buf, 0);
-        push_u32(&mut buf, 0);
+        // No flat positions; one index range for bone 0.
+        buf.push(0);
+        buf.push(1);
+        for word in [16, 0, 0, 0, 3] {
+            push_u32(&mut buf, word);
+        }
 
         let skeleton_at = buf.len();
         buf.extend_from_slice(b"MDLS0004\0");
         push_u32(&mut buf, 0);
         push_u32(&mut buf, 1);
+        buf.extend_from_slice(bone_name.as_bytes());
         buf.push(0);
         push_u32(&mut buf, 1);
         push_u32(&mut buf, u32::MAX);
         push_u32(&mut buf, 64);
         push_matrix(&mut buf, [0.0, 0.0]);
+        buf.extend_from_slice(metadata.as_bytes());
         buf.extend_from_slice(&[0u8; 2]);
 
         let animation_at = buf.len();
@@ -1208,7 +1105,8 @@ mod tests {
             Segment {
                 first_index: 0,
                 index_count: 3,
-                bone: 0
+                bone: 0,
+                order: 0,
             }
         );
         assert_eq!(model.bones.len(), 1);
@@ -1219,6 +1117,15 @@ mod tests {
         assert_eq!(model.animations[0].id, 100);
         assert_eq!(model.animations[0].tracks.len(), 1);
         assert_eq!(model.animations[0].tracks[0].keyframes.len(), 2);
+    }
+
+    #[test]
+    fn a_bone_keeps_its_name_and_metadata() {
+        let model =
+            Puppet::parse(&build_model(2, "skirt", "{\"tm\":1}")).expect("named bone parses");
+        assert_eq!(model.bones[0].name, "skirt");
+        assert_eq!(model.bones[0].metadata.as_deref(), Some("{\"tm\":1}"));
+        assert_eq!(model.animations.len(), 1);
     }
 
     #[test]
@@ -1244,48 +1151,6 @@ mod tests {
                 "truncating to {length} bytes should fail"
             );
         }
-    }
-
-    #[test]
-    fn finds_segments_after_unknown_bytes_and_a_sentinel() {
-        let mut data = vec![0xaa; 14];
-        push_u32(&mut data, 0);
-        push_u32(&mut data, 1);
-        push_u32(&mut data, 0);
-        push_u32(&mut data, 0);
-        push_u32(&mut data, 1);
-        push_u32(&mut data, 0);
-        push_u32(&mut data, 0);
-        push_u32(&mut data, 0);
-
-        let segments = find_segments(&data, 0, data.len(), 1, 1);
-        assert_eq!(segments.len(), 1);
-        assert_eq!(segments[0].first_index, 0);
-        assert_eq!(segments[0].index_count, 1);
-    }
-
-    #[test]
-    fn samples_a_track() {
-        let track = Track {
-            bone: 0,
-            keyframes: vec![
-                Transform {
-                    translation: [0.0, 0.0, 0.0],
-                    rotation: [0.0, 0.0, 0.0],
-                    scale: [1.0, 1.0, 1.0],
-                },
-                Transform {
-                    translation: [10.0, 0.0, 0.0],
-                    rotation: [0.0, 0.0, 1.0],
-                    scale: [1.0, 1.0, 1.0],
-                },
-            ],
-        };
-
-        let middle = track.sample(0.5);
-        assert!((middle.translation[0] - 5.0).abs() < 1e-6);
-        assert!((middle.rotation[2] - 0.5).abs() < 1e-6);
-        assert!((track.sample(99.0).translation[0] - 10.0).abs() < 1e-6);
     }
 
     fn library() -> Option<std::path::PathBuf> {

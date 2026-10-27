@@ -123,7 +123,8 @@ fragment float4 wm_grade_fs(VOut i [[stage_in]], constant G& u [[buffer(0)]],
 }
 "#;
 
-/// Blur for the background of the blurred-fit mode. Five taps along one axis, using the
+/// Full-screen passes on whole buffers: the blurs of the blurred-fit background, bloom and the
+/// volumetric light glow, and the glow itself. The blur takes five taps along one axis, using the
 /// hardware's bilinear filtering to reach twice as far.
 const BLUR_MSL: &str = r#"
 #include <metal_stdlib>
@@ -154,6 +155,67 @@ fragment float4 wm_bright_fs(VOut i [[stage_in]], constant U& u [[buffer(0)]],
               + t.sample(s, c + float2(-u.dir.x, u.dir.y)).rgb) * 0.25;
     float b = max(max(x.r, x.g), x.b);
     return float4(x * (max(b - u.tp.x, 0.0) / max(b, 1e-4)) * u.tp.y, 1.0);
+}
+// Wallpaper Engine's `blur_k3`: weights 0.25, 0.5, 0.25 one texel (`dir`) apart.
+fragment float4 wm_k3_fs(VOut i [[stage_in]], constant U& u [[buffer(0)]],
+                         texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]]) {
+    float2 c = u.rect.xy + i.uv * u.rect.zw;
+    float3 sum = t.sample(s, c).rgb * 0.5 + (t.sample(s, c + u.dir).rgb + t.sample(s, c - u.dir).rgb) * 0.25;
+    return float4(sum, 1.0);
+}
+// Volumetric light glow (`light::Haze`), the steps of `volumetricsfront.frag` for point lights.
+// Each pixel's ray runs from the near plane (depth 0) to the far plane (depth 1) of the scene's
+// view-projection; the light's sphere is solved analytically where the engine rasterises a mesh.
+// Per light: `sphere` = centre, 0.99 radius; `color` = colour, intensity; `params` = density,
+// exponent, radius; `mode` = shadow (24 jittered samples, else 3), eye inside the sphere.
+struct HazeLight { float4 sphere; float4 color; float4 params; float4 mode; };
+struct H { float4x4 inv; float4 info; HazeLight lights[8]; };
+float wm_hash12(float2 p) {
+    float3 p3 = fract(float3(p.xyx) * 43758.5453);
+    p3 += dot(p3, p3.yzx + 19.19);
+    return fract((p3.x + p3.y) * p3.z);
+}
+fragment float4 wm_haze_fs(VOut i [[stage_in]], constant H& u [[buffer(0)]]) {
+    float2 ndc = float2(i.uv.x * 2.0 - 1.0, 1.0 - i.uv.y * 2.0);
+    float4 n = u.inv * float4(ndc, 0.0, 1.0);
+    float4 f = u.inv * float4(ndc, 1.0, 1.0);
+    float3 o = n.xyz / n.w;
+    float3 d = f.xyz / f.w - o;
+    float3 sum = float3(0.0);
+    for (int k = 0; k < int(u.info.x); k++) {
+        HazeLight l = u.lights[k];
+        float3 oc = o - l.sphere.xyz;
+        float a = max(dot(d, d), 1e-12);
+        float b = dot(oc, d);
+        float disc = b * b - a * (dot(oc, oc) - l.params.z * l.params.z);
+        bool hit = disc > 0.0;
+        float root = sqrt(max(disc, 0.0));
+        float t0 = (-b - root) / a;
+        float t1 = (-b + root) / a;
+        // The back face, or the far plane where it is clipped away.
+        float end = (hit && t1 >= 0.0 && t1 <= 1.0) ? t1 : 1.0;
+        float start = 0.0;
+        if (l.mode.y < 0.5) {
+            // Only the front face's own pixels march.
+            if (!hit || t0 < 0.0 || t0 > 1.0) continue;
+            start = t0;
+        }
+        if (end <= start) continue;
+        float3 p = o + d * start;
+        float3 span = d * (end - start);
+        float count = l.mode.x > 0.5 ? 24.0 : 3.0;
+        float3 step = span / (count + 1.0);
+        float inv_r = 1.0 / l.sphere.w;
+        float scale = l.color.w * length(span) * inv_r * 0.5;
+        if (l.mode.x > 0.5) p += step * wm_hash12(i.uv);
+        float acc = 0.0;
+        for (int s = 0; s < int(count); s++) {
+            p += step;
+            acc += pow(saturate(1.0 - length(p - l.sphere.xyz) * inv_r), l.params.y);
+        }
+        sum += l.params.x * scale * (acc / count) * l.color.rgb * 0.1;
+    }
+    return float4(sum, 1.0);
 }
 "#;
 
@@ -564,7 +626,7 @@ impl Gpu {
         Ok(texture)
     }
 
-    /// Pipeline for a blur-library pass (`wm_blur_fs` or `wm_bright_fs`), without blending.
+    /// Pipeline for a blur-library pass (a `wm_*_fs` of `BLUR_MSL`); its output is opaque.
     pub fn blur_pipeline(&mut self, fragment: &'static str, samples: usize) -> Result<Retained<Pipeline>, Error> {
         if let Some(p) = self.blur.get(&(fragment, samples)) {
             return Ok(p.clone());

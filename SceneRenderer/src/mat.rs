@@ -22,7 +22,8 @@ pub fn mul(a: &M4, b: &M4) -> M4 {
     out
 }
 
-/// `S * Rz * Ry * Rx * T`: the local transform a bone track describes.
+/// The local transform a bone track describes, in row-vector order: scale, then rotation about
+/// x, y and z, then translation (`S * Rx * Ry * Rz * T`).
 pub fn from_trs(t: [f32; 3], r: [f32; 3], s: [f32; 3]) -> M4 {
     let (sx, cx) = r[0].sin_cos();
     let (sy, cy) = r[1].sin_cos();
@@ -36,7 +37,7 @@ pub fn from_trs(t: [f32; 3], r: [f32; 3], s: [f32; 3]) -> M4 {
     m
 }
 
-/// Translation (row 3), Euler angles (Rz*Ry*Rx order) and scale of an affine matrix.
+/// Translation (row 3), Euler angles (as `from_trs` applies them) and scale of an affine matrix.
 pub fn decompose(m: &M4) -> ([f32; 3], [f32; 3], [f32; 3]) {
     let len = |row: &[f32; 4]| (row[0] * row[0] + row[1] * row[1] + row[2] * row[2]).sqrt();
     let (sx, sy, sz) = (len(&m[0]), len(&m[1]), len(&m[2]));

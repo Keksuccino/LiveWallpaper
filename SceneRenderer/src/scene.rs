@@ -1,19 +1,23 @@
 //! `scene.json` and the model/material/effect files it points to, reduced to what the renderer draws.
 
 use std::collections::{BTreeMap, HashMap};
+use std::rc::Rc;
 
 use serde_json::Value;
 
+use crate::timeline::Timeline;
 use crate::vfs::Vfs;
 use crate::Error;
 
 /// A value that a user property may override: `{"user": "name", "value": v}` or
 /// `{"user": {"name": "name", "condition": "1"}, "value": v}` (a combo-property comparison).
+/// A keyframed value (`{"animation": {...}, "value": v}`) also carries its timeline.
 #[derive(Debug, Clone)]
 pub struct Bound {
     pub value: Value,
     pub user: Option<String>,
     pub condition: Option<String>,
+    pub timeline: Option<Rc<Timeline>>,
 }
 
 /// A JSON object whose fields may be user bindings (`{"user": .., "value": ..}`), with each one
@@ -38,23 +42,20 @@ pub fn resolve_user_values(value: &Value, props: &HashMap<String, Value>) -> Val
 }
 
 impl Bound {
+    /// A plain value.
+    pub fn fixed(value: Value) -> Self {
+        Self { value, user: None, condition: None, timeline: None }
+    }
+
     pub(crate) fn parse(v: Option<&Value>, default: Value) -> Self {
         let Some(v) = v else {
-            return Self {
-                value: default,
-                user: None,
-                condition: None,
-            };
+            return Self::fixed(default);
         };
         let Some(obj) = v
             .as_object()
             .filter(|o| o.contains_key("user") || o.contains_key("value") || o.contains_key("script"))
         else {
-            return Self {
-                value: v.clone(),
-                user: None,
-                condition: None,
-            };
+            return Self::fixed(v.clone());
         };
         let value = obj.get("value").cloned().unwrap_or(default);
         let (user, condition) = match obj.get("user") {
@@ -70,7 +71,22 @@ impl Bound {
             value,
             user,
             condition,
+            timeline: obj.get("animation").and_then(Timeline::parse).map(Rc::new),
         }
+    }
+
+    /// The effective value at scene time `time`: `get`, then the timeline if there is one.
+    pub fn at(&self, props: &HashMap<String, Value>, time: f32) -> Value {
+        let value = self.get(props);
+        match &self.timeline {
+            Some(t) => Value::from(t.apply(&floats(&value), time)),
+            None => value,
+        }
+    }
+
+    /// The value no longer changes after `time`.
+    pub fn settled(&self, time: f32) -> bool {
+        self.timeline.as_ref().is_none_or(|t| t.settled(time))
     }
 
     /// The effective value given the current user property values.
@@ -299,6 +315,10 @@ pub struct PuppetAnimation {
     pub blend: Bound,
     pub additive: bool,
     pub visible: Bound,
+    /// `blendin`, `blendout` and `blendtime`: fades of the weight at the start and the end.
+    pub blend_in: bool,
+    pub blend_out: bool,
+    pub blend_time: f32,
 }
 
 /// A puppet object: the model file and the animations that move it.
@@ -448,6 +468,8 @@ pub struct Scene {
     pub width: f32,
     pub height: f32,
     pub clear_color: Bound,
+    /// `general.zoom`: how far the 2D view is zoomed in (1 shows the whole design).
+    pub zoom: Bound,
     pub parallax: Parallax,
     pub shake: CameraShake,
     pub layers: Vec<Layer>,
@@ -465,7 +487,22 @@ pub struct Scene {
     pub skipped: BTreeMap<String, usize>,
 }
 
+impl Layer {
+    /// The keyframed values of the layer's placement and colour.
+    pub fn timelines(&self) -> impl Iterator<Item = &Timeline> {
+        [&self.origin, &self.scale, &self.angles, &self.alpha, &self.color]
+            .into_iter()
+            .filter_map(|b| b.timeline.as_deref())
+    }
+}
+
 impl Scene {
+    /// No keyframed value changes after `time`.
+    pub fn settled(&self, time: f32) -> bool {
+        self.zoom.settled(time)
+            && self.layers.iter().all(|l| l.timelines().all(|t| t.settled(time)))
+    }
+
     pub fn load(vfs: &Vfs, warnings: &mut Vec<String>) -> Result<Self, Error> {
         let json = vfs.json("scene.json")?;
         let general = &json["general"];
@@ -484,6 +521,7 @@ impl Scene {
             width,
             height,
             clear_color: Bound::parse(general.get("clearcolor"), Value::from("0 0 0")),
+            zoom: Bound::parse(general.get("zoom"), Value::from(1.0)),
             parallax,
             shake: CameraShake {
                 enabled: Bound::parse(general.get("camerashake"), Value::Bool(false)),
@@ -507,6 +545,8 @@ impl Scene {
                 tint: Bound::parse(general.get("bloomtint"), Value::from("1 1 1")),
             },
         };
+        // Each light with the number of layers before it, to find the layer it is drawn before.
+        let mut light_places = Vec::new();
         for obj in json["objects"].as_array().into_iter().flatten() {
             find_scripts(obj["id"].as_i64().unwrap_or(-1), "", obj, &mut scene.scripts);
             let kind = ["image", "particle", "text", "sound", "light", "model"]
@@ -524,7 +564,10 @@ impl Scene {
                 }
                 Some("sound") => scene.sounds.extend(crate::sound::SoundSpec::parse(obj)),
                 Some("light") => match crate::light::LightSpec::parse(obj) {
-                    Some(light) => scene.lights.push(light),
+                    Some(light) => {
+                        light_places.push(scene.layers.len());
+                        scene.lights.push(light);
+                    }
                     None => {
                         let kind = obj["light"].as_str().unwrap_or("?");
                         *scene.skipped.entry(format!("{kind} light")).or_default() += 1;
@@ -540,6 +583,9 @@ impl Scene {
                 },
                 Some(other) => *scene.skipped.entry(other.to_string()).or_default() += 1,
             }
+        }
+        for (light, place) in scene.lights.iter_mut().zip(light_places) {
+            light.before = scene.layers.get(place).map(|l| l.id);
         }
         // An auto projection is as big as the largest image (the reference renderer's rule); the
         // fixed 1920x1080 would crop or letterbox such a scene.
@@ -604,6 +650,9 @@ impl Scene {
                         blend: Bound::parse(a.get("blend"), Value::from(1.0)),
                         additive: a["additive"].as_bool().unwrap_or(false),
                         visible: Bound::parse(a.get("visible"), Value::Bool(true)),
+                        blend_in: a["blendin"].as_bool().unwrap_or(false),
+                        blend_out: a["blendout"].as_bool().unwrap_or(false),
+                        blend_time: a["blendtime"].as_f64().unwrap_or(0.5) as f32,
                     })
                     .collect();
                 puppet = Some(PuppetLayer {
@@ -621,6 +670,7 @@ impl Scene {
             }
             Some(material)
         };
+        let id = obj["id"].as_i64().unwrap_or(-1);
         let mut effects = Vec::new();
         for e in obj["effects"].as_array().into_iter().flatten() {
             match Self::effect(vfs, e) {
@@ -630,8 +680,21 @@ impl Scene {
                 }
             }
         }
+        // The editor may store the effect chain buffer a pass read when the scene was authored,
+        // `_rt_imageLayerComposite_<own id>_a` or `_b`: Wallpaper Engine ping-pongs the chain
+        // between the two, so that name is the output of the effect before. It reads the same
+        // image as `previous` here, where the chain has no named buffers.
+        let own = format!("_rt_imageLayerComposite_{id}_");
+        for pass in effects.iter_mut().flat_map(|e| e.passes.iter_mut()) {
+            for (slot, texture) in pass.material.textures.iter_mut().enumerate() {
+                if texture.as_deref().is_some_and(|t| t.starts_with(&own)) {
+                    *texture = None;
+                    pass.binds.push(("previous".into(), slot));
+                }
+            }
+        }
         Ok(Layer {
-            id: obj["id"].as_i64().unwrap_or(-1),
+            id,
             name,
             parent: obj["parent"].as_i64(),
             attachment: obj["attachment"].as_str().filter(|a| !a.is_empty()).map(str::to_string),
@@ -639,7 +702,9 @@ impl Scene {
             scale: Bound::parse(obj.get("scale"), Value::String("1 1 1".into())),
             angles: Bound::parse(obj.get("angles"), Value::String("0 0 0".into())),
             size: vec_n(obj.get("size"), [0.0, 0.0]),
-            parallax_depth: Bound::parse(obj.get("parallaxDepth"), Value::from("0 0")),
+            // Wallpaper Engine's default: a layer moves fully with camera parallax unless its
+            // depth says otherwise (scenes store "0 0" for the layers that stay).
+            parallax_depth: Bound::parse(obj.get("parallaxDepth"), Value::from("1 1")),
             alpha: Bound::parse(obj.get("alpha"), Value::from(1.0)),
             color: Bound::parse(obj.get("color"), Value::String("1 1 1".into())),
             brightness: floats(obj.get("brightness").unwrap_or(&Value::from(1.0)))

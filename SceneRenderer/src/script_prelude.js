@@ -147,6 +147,32 @@ function __noopAnimation() {
 	};
 }
 
+// IAnimation: a keyframed value of a layer, by the name given in the editor. Commands queue up
+// within a frame (`stop(); play();` restarts) and reach the renderer with the frame's changes.
+const __animationQueue = new Map(); // `${layer id}|${name}` -> commands
+class Animation {
+	constructor(layer, a) { this._layer = layer; this._a = a; }
+	get name() { return this._a.name; }
+	get fps() { return this._a.fps; }
+	get frameCount() { return this._a.frameCount; }
+	get duration() { return this._a.frameCount / this._a.fps; }
+	get rate() { return __num(this._a.rate, 1); }
+	set rate(v) { this._a.rate = __num(v, 1); this.__send(`rate:${this._a.rate}`); }
+	play() { this._a.playing = true; this.__send('play'); }
+	pause() { this._a.playing = false; this.__send('pause'); }
+	stop() { this._a.playing = false; this._a.frame = 0; this.__send('stop'); }
+	isPlaying() { return !!this._a.playing; }
+	getFrame() { return __num(this._a.frame, 0); }
+	setFrame(f) { this._a.frame = __num(f, 0); this.__send(`frame:${this._a.frame}`); }
+	__send(command) {
+		const key = `${this._layer.id}|${this._a.name}`;
+		const queue = __animationQueue.get(key) || [];
+		queue.push(command);
+		__animationQueue.set(key, queue);
+		__mark(this._layer, `animation:${this._a.name}`, queue.join(';'));
+	}
+}
+
 class Layer {
 	constructor(s) { this._s = s; }
 	get id() { return this._s.id; }
@@ -179,9 +205,16 @@ class Layer {
 		return index >= 0 && index < list.length ? new Effect(this, index, list[index]) : null;
 	}
 	getParent() { return this._s.parent === undefined || this._s.parent === null ? null : (__layers.get(this._s.parent) || null); }
-	// Animation playback is not driven from scripts yet; the stubs keep scripts that call them from
-	// throwing.
-	getAnimation() { return __noopAnimation(); }
+	// A keyframed value's animation by its editor name; a name the layer does not have gets a
+	// stand-in, so scripts that ask for it keep running.
+	getAnimation(name) {
+		const a = (this._s.animations || []).find((x) => x.name === name);
+		if (!a) return __noopAnimation();
+		this.__animations = this.__animations || new Map();
+		if (!this.__animations.has(name)) this.__animations.set(name, new Animation(this, a));
+		return this.__animations.get(name);
+	}
+	// Texture sheet playback is not driven from scripts.
 	getTextureAnimation() { return __noopAnimation(); }
 	getVideoTexture() { return null; }
 	// ISoundLayer: a sound object plays, pauses and stops; other layers ignore these.
@@ -495,6 +528,7 @@ function __takeEvents(out) {
 	out.dirty = {};
 	for (const [id, d] of __dirty) out.dirty[id] = d;
 	__dirty.clear();
+	__animationQueue.clear();
 	out.scene = { ...__sceneDirty };
 	for (const k of Object.keys(__sceneDirty)) delete __sceneDirty[k];
 	out.created = __created.splice(0);

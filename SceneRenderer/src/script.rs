@@ -310,6 +310,30 @@ mod tests {
     }
 
     #[test]
+    fn scripts_drive_a_layers_keyframed_animation_in_order() {
+        let mut h = Host::new().expect("runtime");
+        h.set_layers(&json!([{ "id": 7, "name": "eye", "origin": "0 0 0", "scale": "1 1 1",
+            "angles": "0 0 0", "color": "1 1 1", "alpha": 1.0, "visible": true, "text": "",
+            "animations": [{ "name": "click", "fps": 30, "frameCount": 90, "rate": 1, "playing": false, "frame": 0 }] }]))
+            .expect("layers");
+        let src = "'use strict';\n\
+            export function update(value) {\n\
+              const a = thisLayer.getAnimation('click');\n\
+              if (!a.isPlaying()) { a.stop(); a.play(); }\n\
+              thisLayer.getAnimation('missing').play();\n\
+              return value;\n\
+            }";
+        let _ = h.add(0, 7, "alpha", src, &json!({}), &json!(1.0)).expect("add");
+        let e = frame(&mut h, 1.0);
+        let commands = e.dirty.iter().find(|(id, _)| *id == 7).map(|(_, f)| f.clone());
+        let commands = commands.expect("the layer has changes");
+        assert!(commands.iter().any(|(k, v)| k == "animation:click" && v == &json!("stop;play")), "{commands:?}");
+        // The next frame starts a new queue; the animation now plays.
+        let e = frame(&mut h, 1.1);
+        assert!(e.dirty.iter().all(|(_, f)| f.iter().all(|(k, _)| k != "animation:click")));
+    }
+
+    #[test]
     fn sound_layers_obey_scripts_and_user_properties_reach_them() {
         let mut h = Host::new().expect("runtime");
         h.set_layers(&json!([

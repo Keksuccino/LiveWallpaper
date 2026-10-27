@@ -18,7 +18,7 @@ struct Changes {
 }
 
 fn fixed(value: Value) -> Bound {
-    Bound { value, user: None, condition: None }
+    Bound::fixed(value)
 }
 
 impl Engine {
@@ -148,13 +148,21 @@ impl Engine {
                     "parent": l.parent,
                     "origin": text3(&l.origin.get(&self.props)),
                     "scale": text3(&l.scale.get(&self.props)),
-                    "angles": text3(&l.angles.get(&self.props)),
+                    "angles": angles_to_script(&l.angles.get(&self.props)),
                     "color": text3(&l.color.get(&self.props)),
                     "alpha": floats(&l.alpha.get(&self.props)).first().copied().unwrap_or(1.0),
                     "visible": l.visible.truthy(&self.props),
                     "text": l.text.as_ref().map(|t| t.value.clone()).unwrap_or_default(),
                     "size": format!("{} {}", l.size[0], l.size[1]),
                     "parallaxDepth": text3(&l.parallax_depth.get(&self.props)),
+                    "animations": l.timelines().map(|t| json!({
+                        "name": t.name,
+                        "fps": t.fps,
+                        "frameCount": t.length,
+                        "rate": t.rate(),
+                        "playing": t.playing(self.time),
+                        "frame": t.frame_at(self.time),
+                    })).collect::<Vec<_>>(),
                     "effects": l.effects.iter().map(|e| json!({
                         "name": e.name,
                         "visible": e.visible.truthy(&self.props),
@@ -181,11 +189,21 @@ impl Engine {
         Some(match field {
             "origin" => l.origin.get(&self.props),
             "scale" => l.scale.get(&self.props),
-            "angles" => l.angles.get(&self.props),
+            "angles" => Value::String(angles_to_script(&l.angles.get(&self.props))),
             "color" => l.color.get(&self.props),
             "alpha" => l.alpha.get(&self.props),
             "visible" => Value::Bool(l.visible.truthy(&self.props)),
             "text" => Value::String(l.text.as_ref()?.value.clone()),
+            _ if field.starts_with("animationlayers[") => {
+                let (n, key) = animation_field(field)?;
+                let a = l.puppet.as_ref()?.animations.get(n)?;
+                match key {
+                    "rate" => a.rate.get(&self.props),
+                    "blend" => a.blend.get(&self.props),
+                    "visible" => Value::Bool(a.visible.truthy(&self.props)),
+                    _ => return None,
+                }
+            }
             _ if field.starts_with("effects[") => {
                 let (n, constant) = effect_field(field)?;
                 let effect = l.effects.get(n)?;
@@ -249,7 +267,6 @@ impl Engine {
 
     /// Applies a scene setting a script wrote. Fields the renderer does not read yet are ignored.
     fn set_scene_field(&mut self, field: &str, value: Value) {
-        let fixed = |value: Value| Bound { value, user: None, condition: None };
         match field {
             "bloom" => self.scene.bloom.enabled = fixed(value),
             "bloomstrength" => self.scene.bloom.strength = fixed(value),
@@ -270,15 +287,41 @@ impl Engine {
             return;
         }
         let Some(index) = self.layer_index(layer_id) else { return };
+        // `animation:<name>` carries an IAnimation's commands of this frame, in order.
+        if let Some(name) = field.strip_prefix("animation:") {
+            let commands = value.as_str().unwrap_or("");
+            for t in self.scene.layers[index].timelines().filter(|t| t.name == name) {
+                for command in commands.split(';') {
+                    t.command(command, self.time);
+                }
+            }
+            self.timelines_settled = false;
+            return;
+        }
         // `effect:<n>:visible` comes from an IEffect; the renderer checks it every frame.
         if let Some(rest) = field.strip_prefix("effect:") {
             if let Some((n, "visible")) = rest.split_once(':') {
                 if let Ok(n) = n.parse::<usize>() {
                     if let Some(effect) = self.scene.layers[index].effects.get_mut(n) {
-                        effect.visible = Bound { value, user: None, condition: None };
+                        effect.visible = fixed(value);
                     }
                 }
             }
+            return;
+        }
+        // A puppet's animation layer: the change applies in place, the animation plays on.
+        if let Some((n, key)) = animation_field(field) {
+            let puppet = self.scene.layers[index].puppet.as_mut();
+            let Some(a) = puppet.and_then(|p| p.animations.get_mut(n)) else {
+                return;
+            };
+            match key {
+                "rate" => a.rate = fixed(value),
+                "blend" => a.blend = fixed(value),
+                "visible" => a.visible = fixed(Value::Bool(crate::scene::truthy(&value))),
+                _ => return,
+            }
+            self.refresh_puppet_animations(index);
             return;
         }
         if let Some((n, constant)) = effect_field(field) {
@@ -307,6 +350,7 @@ impl Engine {
         }
         let props = &self.props;
         let layer = &mut self.scene.layers[index];
+        let value = if field == "angles" { angles_from_script(&value) } else { value };
         match field {
             "origin" | "scale" | "angles" | "color" | "alpha" => {
                 let slot = match field {
@@ -362,7 +406,7 @@ impl Engine {
     }
 
     /// Re-places every layer after scripts moved, scaled, tinted or faded some of them.
-    fn replace_layers(&mut self) {
+    pub(super) fn replace_layers(&mut self) {
         for i in 0..self.layers.len().min(self.scene.layers.len()) {
             if self.layers[i].placed.is_none() {
                 continue;
@@ -449,7 +493,6 @@ impl Engine {
     }
 }
 
-/// A scene vector value as the "x y z" text scripts parse.
 /// Splits `effects[n].visible` into `(n, None)` and
 /// `effects[n].passes[m].constantshadervalues.<key>` into `(n, Some((m, key)))`.
 fn effect_field(field: &str) -> Option<(usize, Option<(usize, &str)>)> {
@@ -462,6 +505,13 @@ fn effect_field(field: &str) -> Option<(usize, Option<(usize, &str)>)> {
     Some((n, Some((m.parse().ok()?, key))))
 }
 
+/// Splits `animationlayers[n].<field>` into `(n, field)`.
+fn animation_field(field: &str) -> Option<(usize, &str)> {
+    let (n, rest) = field.strip_prefix("animationlayers[")?.split_once("].")?;
+    Some((n.parse().ok()?, rest))
+}
+
+/// A scene vector value as the "x y z" text scripts parse.
 fn text3(v: &Value) -> String {
     let f = floats(v);
     match f.len() {
@@ -472,9 +522,21 @@ fn text3(v: &Value) -> String {
     }
 }
 
+/// Scene files store a layer's angles in radians; SceneScript reads and writes them in degrees.
+fn angles_to_script(v: &Value) -> String {
+    let f: Vec<f32> = floats(v).iter().map(|a| a.to_degrees()).collect();
+    text3(&Value::from(f))
+}
+
+/// A script's angles (degrees, as a vector text or array) in the scene file's radians.
+fn angles_from_script(v: &Value) -> Value {
+    let f: Vec<f32> = floats(v).iter().map(|a| a.to_radians()).collect();
+    Value::String(text3(&Value::from(f)))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::effect_field;
+    use super::{angles_from_script, angles_to_script, animation_field, effect_field};
 
     #[test]
     fn effect_script_paths_are_split() {
@@ -485,5 +547,19 @@ mod tests {
         );
         assert_eq!(effect_field("effects[1].passes[0].combos.X"), None);
         assert_eq!(effect_field("origin"), None);
+    }
+
+    #[test]
+    fn animation_layer_script_paths_are_split() {
+        assert_eq!(animation_field("animationlayers[1].rate"), Some((1, "rate")));
+        assert_eq!(animation_field("effects[1].visible"), None);
+    }
+
+    #[test]
+    fn scripts_see_angles_in_degrees() {
+        let script = angles_to_script(&serde_json::json!("0 0 3.1415927"));
+        assert!((crate::scene::floats(&serde_json::json!(script))[2] - 180.0).abs() < 1e-3);
+        let back = crate::scene::floats(&angles_from_script(&serde_json::json!(script)));
+        assert!((back[2] - std::f32::consts::PI).abs() < 1e-5);
     }
 }

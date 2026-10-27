@@ -8,6 +8,8 @@
 //! `WM_AA=4` turns on multisampling with that many samples.
 //! `WM_AUDIO=0.6` feeds a test spectrum.
 //! `WM_PROPS="name=json,name=json"` sets user properties first, e.g. `WM_PROPS=clock=1`.
+//! `WM_WARMUP=n` renders n frames at 60 per second before `time`, for motion that depends on the
+//! frames before (eased parallax, bone springs).
 use scene_renderer::{Alignment, ColorGrade, Framing};
 
 fn main() {
@@ -85,6 +87,10 @@ fn main() {
         r.set_pointer(x, y);
     }
     r.set_frame_size(w, h);
+    let warmup: u32 = std::env::var("WM_WARMUP").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    for k in (1..=warmup).rev() {
+        r.render_frame(time - f64::from(k) / 60.0).expect("render");
+    }
     let started = std::time::Instant::now();
     let mut px = r.render_frame(time).expect("render");
     println!("frame in {:?}", started.elapsed());

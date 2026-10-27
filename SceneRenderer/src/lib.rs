@@ -10,6 +10,7 @@ pub mod light;
 pub mod mat;
 pub mod model;
 pub mod particles;
+pub mod pose;
 pub mod puppet;
 pub mod scene;
 pub mod script;
@@ -17,6 +18,7 @@ pub mod shader;
 pub mod sound;
 pub mod tex;
 pub mod text;
+pub mod timeline;
 pub mod vfs;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error, uniffi::Error)]

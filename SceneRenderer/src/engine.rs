@@ -17,8 +17,10 @@ use serde_json::Value;
 use crate::gpu::{self, Gpu, Pool, Texture, TARGET_FORMAT};
 use crate::mat;
 use crate::particles;
+use crate::pose;
 use crate::puppet;
-use crate::scene::{self, floats, Blend, Layer, Material, ParticleLayer, PuppetLayer, Scene};
+use crate::light::Haze;
+use crate::scene::{self, floats, Blend, Bound, Layer, Material, ParticleLayer, PuppetLayer, Scene};
 use crate::shader::{self, Program, Uniform};
 use crate::tex::Frame;
 use crate::text::{self, TextRenderer, TextSpec};
@@ -348,16 +350,59 @@ struct PuppetGpu {
     /// Scene layer index.
     layer: usize,
     model: Rc<puppet::Puppet>,
-    /// Bind-pose local transform decomposed to translation, Euler rotation and scale.
-    bind: Vec<([f32; 3], [f32; 3], [f32; 3])>,
+    /// Each bone's bind-pose local transform.
+    bind: Vec<pose::Local>,
     /// Inverse of each bone's bind-pose world matrix.
     bind_inverse: Vec<mat::M4>,
-    /// Enabled animation layers: animation index, rate, blend weight, additive.
-    animations: Vec<(usize, f32, f32, bool)>,
+    /// The scene's animation layers for it, in order.
+    animations: Vec<PuppetAnim>,
+    /// The bones' springs, when the skeleton has any.
+    springs: Option<pose::Springs>,
+    /// World matrix of every bone in the current pose (model space, row-vector).
+    world: Vec<mat::M4>,
+    /// Scene time the animations have played to.
+    clock: f32,
     /// The mesh's index buffer, built once.
     indices: Retained<ProtocolObject<dyn MTLBuffer>>,
     texture: Option<Rc<TexEntry>>,
     blend: Blend,
+}
+
+/// One animation layer of a puppet as it plays.
+#[derive(Debug, Clone, Copy)]
+struct PuppetAnim {
+    /// Index into the model's animations; `None` when the model has none with the layer's id.
+    animation: Option<usize>,
+    rate: f32,
+    blend: f32,
+    additive: bool,
+    visible: bool,
+    /// Fade the weight in at the start and out before the end, over `blend_time` seconds (at
+    /// most half the animation).
+    blend_in: bool,
+    blend_out: bool,
+    blend_time: f32,
+    /// How far it has played, in seconds of its own time: the elapsed time times the rate,
+    /// summed frame by frame (and not while hidden), so a rate a script changes every frame does
+    /// not make it jump.
+    phase: f32,
+}
+
+impl PuppetAnim {
+    /// The weight at `time` seconds into an animation of `duration` seconds.
+    fn weight(&self, time: f32, duration: f32) -> f32 {
+        let ramp = (duration * 0.5).min(self.blend_time);
+        let mut weight = self.blend;
+        if ramp > 0.0 {
+            if self.blend_in {
+                weight *= (self.phase / ramp).clamp(0.0, 1.0);
+            }
+            if self.blend_out {
+                weight *= ((duration - time) / ramp).clamp(0.0, 1.0);
+            }
+        }
+        weight
+    }
 }
 
 /// Values a frame needs.
@@ -367,8 +412,6 @@ pub struct FrameInput {
     pub frame_time: f32,
     pub pointer: [f32; 2],
     pub pointer_down: bool,
-    /// The pointer eased over time (0...1, centre 0.5): `g_ParallaxPosition`.
-    pub parallax: [f32; 2],
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -376,6 +419,8 @@ struct DrawCtx {
     mvp: Mat4,
     model: Mat4,
     view_projection: Mat4,
+    /// The scene's output size in pixels. Wallpaper Engine gives `g_Screen`, `g_TexelSize` and
+    /// `g_TexelSizeHalf` from it in every pass, effect passes into scaled buffers included.
     target: [f32; 2],
     color: [f32; 3],
     alpha: f32,
@@ -536,7 +581,8 @@ pub struct Engine {
     pub framing: Framing,
     /// Wallpaper Engine's colour options and image filter, applied by the final pass.
     grade: Grade,
-    /// Off: the scene's camera parallax stays still (Wallpaper Engine's "mouse parallax" option).
+    /// Off: camera parallax no longer follows the pointer (Wallpaper Engine's "mouse parallax"
+    /// option); its point settles in the centre and the layers keep their offsets from it.
     pub parallax_enabled: bool,
     /// Text bitmaps, keyed by font, size and string.
     text: TextRenderer,
@@ -554,10 +600,13 @@ pub struct Engine {
     puppets: Vec<PuppetGpu>,
     /// Model layers, the camera and the lights.
     models: models::Models,
-    /// Time the puppet poses are sampled at; attached layers read it through `world`.
-    pose_time: f32,
-    /// Camera parallax this frame: how far a layer of depth 1 moves, in design units.
-    parallax_shift: [f32; 2],
+    /// Camera parallax: the point the camera eases towards the pointer, in design units (y up),
+    /// and the scene time it was eased to; `None` before the first frame.
+    parallax_point: Option<([f32; 2], f32)>,
+    /// Scene time of the frame being drawn; keyframed values are sampled at it.
+    time: f32,
+    /// Every keyframed value has stopped changing, so layers need no placing every frame.
+    timelines_settled: bool,
     /// Camera shake this frame: the view's offset, in design units.
     shake_offset: [f32; 2],
     /// The scene's SceneScript runtime; `None` when the scene has no scripts.
@@ -629,8 +678,9 @@ impl Engine {
             particles: Vec::new(),
             puppets: Vec::new(),
             models: models::Models::default(),
-            pose_time: 0.0,
-            parallax_shift: [0.0; 2],
+            parallax_point: None,
+            time: 0.0,
+            timelines_settled: false,
             shake_offset: [0.0; 2],
             script_host: None,
             color_properties,
@@ -701,7 +751,7 @@ impl Engine {
             if let Some(i) = old_puppets.iter().position(|p| p.layer == index) {
                 let mut kept = old_puppets.swap_remove(i);
                 // A property may have toggled one of its animation layers.
-                kept.animations = self.puppet_animations(&kept.model, &layer);
+                kept.animations = self.puppet_animations(&kept.model, &layer, &kept.animations);
                 puppets.push(kept);
                 continue;
             }
@@ -1102,18 +1152,46 @@ impl Engine {
     }
 
     /// Loads a puppet model, its index buffer and the bind-pose data skinning needs.
-    /// The puppet's enabled animation layers with the user's property values applied.
-    fn puppet_animations(&self, model: &puppet::Puppet, layer: &PuppetLayer) -> Vec<(usize, f32, f32, bool)> {
+    /// The puppet's animation layers with the user's property values applied; each keeps the
+    /// play position it has in `playing`.
+    fn puppet_animations(
+        &self,
+        model: &puppet::Puppet,
+        layer: &PuppetLayer,
+        playing: &[PuppetAnim],
+    ) -> Vec<PuppetAnim> {
         let num = |b: &scene::Bound, d: f32| floats(&b.get(&self.props)).first().copied().unwrap_or(d);
         layer
             .animations
             .iter()
-            .filter(|a| a.visible.truthy(&self.props))
-            .filter_map(|a| {
-                let found = model.animations.iter().position(|anim| anim.id as i64 == a.id)?;
-                Some((found, num(&a.rate, 1.0), num(&a.blend, 1.0).clamp(0.0, 1.0), a.additive))
+            .enumerate()
+            .map(|(i, a)| PuppetAnim {
+                animation: model.animations.iter().position(|anim| anim.id as i64 == a.id),
+                rate: num(&a.rate, 1.0),
+                blend: num(&a.blend, 1.0).clamp(0.0, 1.0),
+                additive: a.additive,
+                visible: a.visible.truthy(&self.props),
+                blend_in: a.blend_in,
+                blend_out: a.blend_out,
+                blend_time: a.blend_time,
+                phase: playing.get(i).map_or(0.0, |p| p.phase),
             })
             .collect()
+    }
+
+    /// Applies a changed rate, blend or visibility of a layer's animation layers (a script sets
+    /// them) without restarting the animations.
+    pub(super) fn refresh_puppet_animations(&mut self, index: usize) {
+        let Some(layer) = self.scene.layers.get(index).and_then(|l| l.puppet.clone()) else {
+            return;
+        };
+        for i in 0..self.puppets.len() {
+            if self.puppets[i].layer == index {
+                let p = &self.puppets[i];
+                let animations = self.puppet_animations(&p.model, &layer, &p.animations);
+                self.puppets[i].animations = animations;
+            }
+        }
     }
 
     fn puppet_mesh(&mut self, index: usize, layer: &PuppetLayer) -> Result<PuppetGpu, Error> {
@@ -1122,7 +1200,7 @@ impl Engine {
             .read(&layer.model)
             .ok_or_else(|| Error::Missing(layer.model.clone()))?;
         let model = Rc::new(puppet::Puppet::parse(&data)?);
-        let bind: Vec<_> = model.bones.iter().map(|b| mat::decompose(&b.local)).collect();
+        let bind = model.bones.iter().map(pose::Local::of_bone).collect();
         // Bind-pose world matrices, then their inverses for the skinning transform.
         let mut world = vec![mat::IDENTITY; model.bones.len()];
         for (i, bone) in model.bones.iter().enumerate() {
@@ -1132,7 +1210,7 @@ impl Engine {
             };
         }
         let bind_inverse = world.iter().map(mat::invert).collect();
-        let animations = self.puppet_animations(&model, layer);
+        let animations = self.puppet_animations(&model, layer, &[]);
         let (texture_name, blend) = self
             .scene
             .layers
@@ -1159,26 +1237,35 @@ impl Engine {
                 )
                 .ok_or_else(|| Error::Metal("puppet index buffer".into()))?
         };
-        Ok(PuppetGpu {
+        let mut puppet = PuppetGpu {
             layer: index,
+            springs: pose::Springs::of(&model.bones),
             model,
             bind,
             bind_inverse,
             animations,
+            world: Vec::new(),
+            clock: 0.0,
             indices,
             texture,
             blend,
-        })
+        };
+        puppet.pose_bones(None);
+        Ok(puppet)
     }
 
     /// Draws one puppet: sample its animation layers, walk the skeleton and skin on the CPU.
+    ///
+    /// `skin` replaces the puppet's own texture with a layer-sized buffer: the result of the
+    /// layer's effects, which run on the flat image (as Wallpaper Engine runs them) so their masks
+    /// stay on the parts they were painted on while the mesh moves.
     fn draw_puppet(
         &mut self,
         enc: &gpu::Encoder,
         index: usize,
         ctx: &DrawCtx,
-        input: FrameInput,
         samples: usize,
+        skin: Option<&Texture>,
     ) -> Result<(), Error> {
         let Some(pi) = self.puppets.iter().position(|p| p.layer == index) else {
             return Ok(());
@@ -1192,7 +1279,13 @@ impl Engine {
                 p.indices.clone(),
             )
         };
-        let bones = self.puppets[pi].bones_at(input.time);
+        let bones = self.puppets[pi].bones();
+        // Mesh uvs address the image, which a texture padded to a block size does not fill; an
+        // effect buffer is the image alone.
+        let uv_scale = match (skin, &texture) {
+            (None, Some(t)) => [t.res[2] / t.res[0].max(1.0), t.res[3] / t.res[1].max(1.0)],
+            _ => [1.0, 1.0],
+        };
         let mut verts = Vec::with_capacity(model.vertices.len() * 8);
         for v in &model.vertices {
             let mut pos = [0.0f32; 3];
@@ -1211,8 +1304,8 @@ impl Engine {
             for f in [
                 pos[0],
                 pos[1],
-                v.uv[0],
-                v.uv[1],
+                v.uv[0] * uv_scale[0],
+                v.uv[1] * uv_scale[1],
                 ctx.color[0],
                 ctx.color[1],
                 ctx.color[2],
@@ -1243,9 +1336,10 @@ impl Engine {
         unsafe {
             enc.setVertexBuffer_offset_atIndex(Some(&vb), 0, shader::VERTEX_BUFFER_SLOT as usize)
         };
-        let (tex, sampler) = match &texture {
-            Some(t) => (&t.images[0], t.sampler),
-            None => (&self.white.images[0], 0),
+        let (tex, sampler) = match (skin, &texture) {
+            (Some(buffer), _) => (buffer, 0),
+            (None, Some(t)) => (&*t.images[0], t.sampler),
+            (None, None) => (&*self.white.images[0], 0),
         };
         // SAFETY: slot 0 exists in the mesh shader; the index buffer and texture outlive the
         // draw.
@@ -1693,6 +1787,37 @@ impl Engine {
         Ok((program, source))
     }
 
+    /// The render pipeline for `program`, made once per program, blend, format and sample count.
+    fn pipeline(
+        &mut self,
+        program: &Rc<Program>,
+        blend: Blend,
+        format: MTLPixelFormat,
+        samples: usize,
+        mesh: bool,
+        layout: Option<&'static particles::VertexLayout>,
+    ) -> Result<Retained<gpu::Pipeline>, Error> {
+        if let Some(layout) = layout {
+            return self.gpu.particle_program_pipeline(program, blend, format, samples, layout);
+        }
+        let key = (
+            Rc::as_ptr(program) as usize,
+            blend,
+            samples * 1000 + format.0 + usize::from(mesh) * 1_000_000,
+        );
+        if let Some(p) = self.pipelines.get(&key) {
+            return Ok(p.clone());
+        }
+        let p = if mesh {
+            let inputs = models::mesh_inputs(program);
+            self.gpu.mesh_pipeline(program, blend, format, samples, &inputs)?
+        } else {
+            self.gpu.pipeline(program, blend, format, samples)?
+        };
+        let _ = self.pipelines.insert(key, p.clone());
+        Ok(p)
+    }
+
     /// `mesh`: the item draws a model mesh in a model pass (see `engine_models.rs`).
     #[allow(clippy::too_many_arguments)]
     fn draw_item(
@@ -1765,7 +1890,23 @@ impl Engine {
                 let _ = combos.insert("SPRITESHEET".into(), 1);
             }
         }
-        let (program, _) = self.program(&shader_name, &combos)?;
+        let (mut program, _) = self.program(&shader_name, &combos)?;
+        let pipeline = match self.pipeline(&program, blend, format, samples, mesh, layout) {
+            Ok(p) => p,
+            // Some shaders carry a leaner branch for Wallpaper Engine's OpenGL builds
+            // (`#ifdef GLSL`), written for GPUs with fewer interpolators than Direct3D's 32.
+            // Metal allows fewer still, and its compiler fails on the Direct3D branch, so that
+            // branch is the fallback.
+            Err(e)
+                if !combos.contains_key("GLSL")
+                    && (source.vert.contains("GLSL") || source.frag.contains("GLSL")) =>
+            {
+                let _ = combos.insert("GLSL".into(), 1);
+                program = self.program(&shader_name, &combos)?.0;
+                self.pipeline(&program, blend, format, samples, mesh, layout).map_err(|_| e)?
+            }
+            Err(e) => return Err(e),
+        };
 
         // Shader-declared textures with nothing bound get their annotated default.
         let mut textures = Vec::new();
@@ -1796,29 +1937,6 @@ impl Engine {
             };
             textures.push((slot, index, src));
         }
-
-        let pkey = (
-            Rc::as_ptr(&program) as usize,
-            blend,
-            samples * 1000 + format.0 + usize::from(mesh) * 1_000_000,
-        );
-        let pipeline = match (layout, self.pipelines.get(&pkey)) {
-            (Some(layout), _) => {
-                self.gpu
-                    .particle_program_pipeline(&program, blend, format, samples, layout)?
-            }
-            (None, Some(p)) => p.clone(),
-            (None, None) => {
-                let p = if mesh {
-                    let inputs = models::mesh_inputs(&program);
-                    self.gpu.mesh_pipeline(&program, blend, format, samples, &inputs)?
-                } else {
-                    self.gpu.pipeline(&program, blend, format, samples)?
-                };
-                let _ = self.pipelines.insert(pkey, p.clone());
-                p
-            }
-        };
 
         let mut dynamic = Vec::new();
         let mut stage_bytes = |code: &shader::StageCode, vertex: bool| -> Vec<u8> {
@@ -1882,14 +2000,14 @@ impl Engine {
         let plain = layer.text.is_some() && !self.scene.hdr;
         let brightness = if plain { 1.0 } else { layer.brightness };
         let mut color = [1.0f32; 3];
-        for (o, v) in color.iter_mut().zip(floats(&layer.color.get(&self.props))) {
+        for (o, v) in color.iter_mut().zip(floats(&layer.color.at(&self.props, self.time))) {
             *o = v * brightness;
         }
         Some(Placed {
             world: self.world(index, 0),
             size,
             color,
-            alpha: floats(&layer.alpha.get(&self.props))
+            alpha: floats(&layer.alpha.at(&self.props, self.time))
                 .first()
                 .copied()
                 .unwrap_or(1.0),
@@ -1903,12 +2021,23 @@ impl Engine {
     /// Re-places layers that move every frame: those hanging off a puppet attachment (the bones
     /// move) and, with camera parallax, all of them (the pointer moves).
     fn follow_motion(&mut self, input: FrameInput) {
-        self.pose_time = input.time;
+        self.time = input.time;
         let now = self.parallax_now();
-        self.parallax_shift = match now {
-            Some(p) => camera_shift(&p, input.parallax, self.scene.width),
-            None => [0.0; 2],
-        };
+        self.parallax_point = now.map(|p| self.ease_parallax(&p, input));
+        // Springs lag behind where their puppet is placed this frame.
+        let objects: Vec<Option<Mat4>> = self
+            .puppets
+            .iter()
+            .map(|p| p.springs.is_some().then(|| self.world(p.layer, 0)))
+            .collect();
+        for (puppet, object) in self.puppets.iter_mut().zip(&objects) {
+            puppet.advance(input.time, object.as_ref());
+        }
+        // Keyframed values move layers and fade them; once they all hold, placing stops.
+        if !self.timelines_settled {
+            self.timelines_settled = self.scene.settled(input.time);
+            self.replace_layers();
+        }
         let all = now.is_some();
         self.shake_offset = match self.scene.shake.now(&self.props) {
             Some(shake) => camera_shake(shake, input.time, self.scene.height),
@@ -1931,27 +2060,45 @@ impl Engine {
         }
     }
 
-    /// Camera parallax with the user's properties applied; `None` while it is off.
+    /// The scene's camera parallax with the user's property values applied; `None` when the
+    /// scene has none or is seen through a perspective camera (its layers never move).
     pub fn parallax_now(&self) -> Option<scene::ParallaxNow> {
-        self.scene.parallax.now(&self.props).filter(|_| self.parallax_enabled)
+        self.scene.parallax.now(&self.props).filter(|_| !self.perspective())
     }
 
-    /// How far, in design units, a layer may move with the pointer: the band the parallax zoom
-    /// hides at each edge. The alignments that fill the target zoom in to hide it; the others do
-    /// not (a zoom would cut what they show), so a layer moved that far can show the clear colour
-    /// at an edge.
-    fn parallax_margin(&self) -> [f32; 2] {
-        let hidden = (1.0 - 1.0 / PARALLAX_ZOOM) / 2.0;
-        [self.scene.width * hidden, self.scene.height * hidden]
-    }
-
-    fn parallax_zoom(&self) -> f32 {
-        let fills = matches!(self.framing.alignment, Alignment::Cover | Alignment::Stretch);
-        if fills && self.parallax_now().is_some() {
-            PARALLAX_ZOOM
-        } else {
-            1.0
+    /// The parallax point for this frame. Wallpaper Engine mixes the pointer (clamped to the
+    /// screen, y up, mirrored with the picture) with the centre by the mouse influence, and eases
+    /// towards it by `min((1 - delay / 3) * 10 * dt, 1)`; with the "mouse parallax" option off
+    /// the influence is 0, so the point settles in the centre and layers keep their offsets.
+    fn ease_parallax(&self, p: &scene::ParallaxNow, input: FrameInput) -> ([f32; 2], f32) {
+        let (w, h) = (self.scene.width, self.scene.height);
+        let influence = if self.parallax_enabled { p.mouse_influence } else { 0.0 };
+        let mut mx = input.pointer[0].clamp(0.0, 1.0);
+        let my = 1.0 - input.pointer[1].clamp(0.0, 1.0);
+        if self.framing.flip {
+            mx = 1.0 - mx;
         }
+        let target = [
+            w * 0.5 * (1.0 - influence) + w * mx * influence,
+            h * 0.5 * (1.0 - influence) + h * my * influence,
+        ];
+        // Every display draws the same frame: a time already reached moves nothing. The first
+        // frame starts at the target instead of sliding in.
+        let Some((point, clock)) = self.parallax_point else {
+            return (target, input.time);
+        };
+        let dt = (input.time - clock).max(0.0);
+        let k = if p.delay > 0.0 { ((1.0 - p.delay / 3.0) * 10.0 * dt).min(1.0) } else { 1.0 };
+        ([0, 1].map(|i| point[i] + (target[i] - point[i]) * k), input.time.max(clock))
+    }
+
+    /// `g_ParallaxPosition`: the parallax point in 0...1 of the scene (y up, mirrored back with
+    /// the picture), or 0 without camera parallax.
+    fn parallax_position(&self) -> [f32; 2] {
+        let Some((point, _)) = self.parallax_point else { return [0.0; 2] };
+        let x = (point[0] / self.scene.width.max(1.0)).clamp(0.0, 1.0);
+        let y = (point[1] / self.scene.height.max(1.0)).clamp(0.0, 1.0);
+        [if self.framing.flip { 1.0 - x } else { x }, y]
     }
 
     /// The layer or one of its parents follows a puppet attachment.
@@ -1974,9 +2121,9 @@ impl Engine {
             return self.perspective_world(index);
         }
         let layer = &self.scene.layers[index];
-        let o = floats(&layer.origin.get(&self.props));
-        let s = floats(&layer.scale.get(&self.props));
-        let a = floats(&layer.angles.get(&self.props));
+        let o = floats(&layer.origin.at(&self.props, self.time));
+        let s = floats(&layer.scale.at(&self.props, self.time));
+        let a = floats(&layer.angles.at(&self.props, self.time));
         let get = |v: &[f32], i: usize, d: f32| v.get(i).copied().unwrap_or(d);
         let parent = layer
             .parent
@@ -1995,7 +2142,7 @@ impl Engine {
         // A layer attached to a puppet follows the attachment point as the bones move.
         let attached = parent.zip(layer.attachment.as_deref()).and_then(|(p, name)| {
             let puppet = self.puppets.iter().find(|g| g.layer == p)?;
-            puppet.attachment_at(name, self.pose_time)
+            puppet.attachment(name)
         });
         let local = match attached {
             Some(a) => mul(&a, &local),
@@ -2005,15 +2152,28 @@ impl Engine {
             Some(p) if depth < 32 => mul(&self.world(p, depth + 1), &local),
             _ => local,
         };
-        // Applied after the parent, in design units: a child moves with its parent's shift plus
-        // its own, and a parent's scale does not stretch it.
-        let depth = floats(&layer.parallax_depth.get(&self.props));
-        let depth = [depth.first().copied().unwrap_or(0.0), depth.get(1).copied().unwrap_or(0.0)];
-        let [dx, dy] = parallax_offset(depth, self.parallax_shift, self.parallax_margin());
+        // Camera parallax moves a whole tree by its root's offset, in design units after every
+        // transform; a child moves with its parent and its own depth plays no part.
+        if parent.is_some() {
+            return world;
+        }
+        let [dx, dy] = self.parallax_shift([get(&o, 0, 0.0), get(&o, 1, 0.0)], &layer.parallax_depth);
         if dx == 0.0 && dy == 0.0 {
             return world;
         }
-        mul(&translate(dx, dy, 0.0), &world)
+        // The offset is y up, like the file; the renderer is y down.
+        mul(&translate(dx, -dy, 0.0), &world)
+    }
+
+    /// Camera parallax's offset this frame (design units, y up) of a tree whose root is at
+    /// `origin` (y up) with parallax depth `depth`.
+    pub(super) fn parallax_shift(&self, origin: [f32; 2], depth: &Bound) -> [f32; 2] {
+        let (Some((point, _)), Some(p)) = (self.parallax_point, self.parallax_now()) else {
+            return [0.0; 2];
+        };
+        let depth = floats(&depth.get(&self.props));
+        let depth = [depth.first().copied().unwrap_or(1.0), depth.get(1).copied().unwrap_or(1.0)];
+        parallax_offset(origin, point, p.amount, depth)
     }
 
     /// Whether the layer is text whose string a script sets, so it changes between frames.
@@ -2052,7 +2212,11 @@ impl Engine {
         }
         let [mut l, mut r, mut t, mut b] =
             framed_view(&self.framing, [self.scene.width, self.scene.height], [tw, th]);
-        let z = self.parallax_zoom();
+        // The scene's own zoom (keyframed in some intros) narrows the view like the parallax
+        // margin does.
+        let zoom = floats(&self.scene.zoom.at(&self.props, self.time));
+        let zoom = zoom.first().copied().unwrap_or(1.0);
+        let z = zoom.max(0.01);
         if z != 1.0 {
             let (cx, cy) = ((l + r) / 2.0, (t + b) / 2.0);
             let (hw, hh) = ((r - l) / (2.0 * z), (b - t) / (2.0 * z));
@@ -2084,6 +2248,8 @@ impl Engine {
             // A perspective scene has no design size of its own: its 2D parts span the target.
             (self.scene.width, self.scene.height) = (tw, th);
         }
+        // Scripts may start keyframed animations, at this frame's time.
+        self.time = input.time;
         self.run_scripts(input, [tw, th]);
         self.follow_motion(input);
         if self.samples > 1
@@ -2156,8 +2322,21 @@ impl Engine {
         // Effect outputs other layers sample, by `_rt_imageLayerComposite_<id>_a` name. Those
         // layers run their chain first, off screen; hidden ones never reach the screen.
         let mut composites: HashMap<String, Retained<Texture>> = HashMap::new();
+        // Volumetric light glows, each added just before the layer that follows its light.
+        let (hazes, haze_inverse) = self.hazes();
+        let mut haze_next = 0;
 
         for (li, composite) in order {
+            while composite.is_none() {
+                let Some(batch) = due_hazes(&hazes, &mut haze_next, li) else { break };
+                if let Some(enc) = model_pass.take() {
+                    enc.endEncoding();
+                }
+                if let Some(enc) = main.take() {
+                    enc.endEncoding();
+                }
+                main = Some(self.draw_haze(cb, &batch, &haze_inverse, scene_target, msaa.as_deref(), clear.take())?);
+            }
             if composite.is_none() && !self.layers[li].shown {
                 continue;
             }
@@ -2285,6 +2464,12 @@ impl Engine {
             if !is_puppet && !perspective && off_target(&ctx.mvp) {
                 continue;
             }
+            // Puppet vertices are in design units, y up: the layer transform without the box
+            // scale, flipped into the y-down design space.
+            let puppet_ctx = DrawCtx {
+                mvp: mul(&view_projection, &mul(&world, &scale(1.0, -1.0, 1.0))),
+                ..ctx
+            };
             let uv = image.as_ref().map_or([1.0, 1.0], |t| {
                 [t.res[2] / t.res[0].max(1.0), t.res[3] / t.res[1].max(1.0)]
             });
@@ -2329,11 +2514,7 @@ impl Engine {
                     .ok_or_else(|| Error::Metal("main pass".into()))?;
                 match &self.layers[li].base {
                     _ if is_puppet => {
-                        // Puppet vertices are in design units, y up: the layer transform without the
-                        // box scale, flipped into the y-down design space.
-                        let flip = mul(&world, &scale(1.0, -1.0, 1.0));
-                        let pctx = DrawCtx { mvp: mul(&view_projection, &flip), ..ctx };
-                        self.draw_puppet(enc, li, &pctx, input, self.samples)?;
+                        self.draw_puppet(enc, li, &puppet_ctx, self.samples, None)?;
                     }
                     Some(item) if visible_effects.is_empty() => {
                         self.draw(enc, item, &ctx, uv, input, None, &frame_copy, None);
@@ -2371,7 +2552,11 @@ impl Engine {
                 let enc = main
                     .as_ref()
                     .ok_or_else(|| Error::Metal("main pass".into()))?;
-                self.composite(enc, &cached, 0, self.layers[li].blend, &ctx, [1.0, 1.0])?;
+                if is_puppet {
+                    self.draw_puppet(enc, li, &puppet_ctx, self.samples, Some(&cached))?;
+                } else {
+                    self.composite(enc, &cached, 0, self.layers[li].blend, &ctx, [1.0, 1.0])?;
+                }
                 continue;
             }
 
@@ -2404,7 +2589,6 @@ impl Engine {
                 mvp: FBO_MVP,
                 model: IDENTITY,
                 view_projection: IDENTITY,
-                target: size,
                 color,
                 alpha: 1.0,
                 buffer_scale: k,
@@ -2414,12 +2598,7 @@ impl Engine {
             {
                 let enc = gpu::begin(cb, &prev, None, Some([0.0; 4]))?;
                 scissor(&enc, &prev, clip);
-                if is_puppet {
-                    // The buffer spans the layer box, so map design units (y up) onto the unit quad (y down).
-                    let inv = scale(1.0 / size[0].max(1.0), -1.0 / size[1].max(1.0), 1.0);
-                    let pctx = DrawCtx { mvp: mul(&FBO_MVP, &inv), color: [1.0; 3], alpha: 1.0, ..ctx };
-                    self.draw_puppet(&enc, li, &pctx, input, 1)?;
-                } else if let Some(item) = &self.layers[li].base_fx {
+                if let Some(item) = &self.layers[li].base_fx {
                     // A compose layer samples the screen behind it, so it keeps its real placement.
                     let base_ctx = if compose {
                         DrawCtx {
@@ -2455,26 +2634,19 @@ impl Engine {
                 }
                 let fbo_ctx = DrawCtx { fbo_scale: fk, ..fbo_ctx };
                 for pass in &effect.passes {
-                    let (out, ok) = match &pass.target {
-                        Some(name) => (
-                            named
-                                .get(name)
-                                .cloned()
-                                .ok_or_else(|| Error::Format(format!("unknown buffer {name}")))?,
-                            fk,
-                        ),
-                        None => (self.pool.take(&self.gpu, fw, fh)?, k),
+                    let out = match &pass.target {
+                        Some(name) => named
+                            .get(name)
+                            .cloned()
+                            .ok_or_else(|| Error::Format(format!("unknown buffer {name}")))?,
+                        None => self.pool.take(&self.gpu, fw, fh)?,
                     };
                     let enc = gpu::begin(cb, &out, None, Some([0.0; 4]))?;
                     scissor(&enc, &out, clip);
-                    let pctx = DrawCtx {
-                        target: [out.width() as f32 / ok[0], out.height() as f32 / ok[1]],
-                        ..fbo_ctx
-                    };
                     self.draw(
                         &enc,
                         &pass.item,
-                        &pctx,
+                        &fbo_ctx,
                         [1.0, 1.0],
                         input,
                         Some(&prev),
@@ -2521,6 +2693,9 @@ impl Engine {
                 None => gpu::begin(cb, scene_target, msaa.as_deref(), None)?,
             };
             match &self.layers[li].base {
+                _ if is_puppet => {
+                    self.draw_puppet(&enc, li, &puppet_ctx, self.samples, Some(&prev))?;
+                }
                 Some(item) if item.reads_frame && !compose => {
                     self.draw(
                         &enc,
@@ -2540,6 +2715,15 @@ impl Engine {
             }
             self.pool.give(prev);
             main = Some(enc);
+        }
+        while let Some(batch) = due_hazes(&hazes, &mut haze_next, usize::MAX) {
+            if let Some(enc) = model_pass.take() {
+                enc.endEncoding();
+            }
+            if let Some(enc) = main.take() {
+                enc.endEncoding();
+            }
+            main = Some(self.draw_haze(cb, &batch, &haze_inverse, scene_target, msaa.as_deref(), clear.take())?);
         }
         if let Some(enc) = model_pass {
             enc.endEncoding();
@@ -2833,8 +3017,6 @@ impl Engine {
         dir: (f32, f32),
         tp: [f32; 2],
     ) -> Result<(), Error> {
-        let pipeline = self.gpu.blur_pipeline(fragment, 1)?;
-        enc.setRenderPipelineState(&pipeline);
         let mut u = [0f32; 24];
         u[..16].copy_from_slice(&FBO_MVP);
         u[16..20].copy_from_slice(&rect);
@@ -2843,21 +3025,75 @@ impl Engine {
         u[22] = tp[0];
         u[23] = tp[1];
         let bytes: Vec<u8> = u.iter().flat_map(|f| f.to_le_bytes()).collect();
-        gpu::set_bytes(enc, true, &bytes, 0);
-        gpu::set_bytes(enc, false, &bytes, 0);
+        self.blur_library_draw(enc, fragment, &bytes, &bytes, Some(src))
+    }
+
+    /// Draws a blur-library fragment function over the whole target, with its vertex and fragment
+    /// uniforms; the vertex shader reads the full-target transform from the start of `vertex`.
+    fn blur_library_draw(
+        &mut self,
+        enc: &gpu::Encoder,
+        fragment: &'static str,
+        vertex: &[u8],
+        uniforms: &[u8],
+        src: Option<&Texture>,
+    ) -> Result<(), Error> {
+        let pipeline = self.gpu.blur_pipeline(fragment, 1)?;
+        enc.setRenderPipelineState(&pipeline);
+        gpu::set_bytes(enc, true, vertex, 0);
+        gpu::set_bytes(enc, false, uniforms, 0);
         gpu::set_bytes(
             enc,
             true,
             &quad_rect([0.0, 0.0, 1.0, 1.0]),
             shader::VERTEX_BUFFER_SLOT as usize,
         );
-        // SAFETY: slot 0 exists in the blur shader; the texture outlives the encoder's use.
+        // SAFETY: slot 0 exists in the blur shaders; the texture outlives the encoder's use.
         unsafe {
-            enc.setFragmentTexture_atIndex(Some(src), 0);
-            enc.setFragmentSamplerState_atIndex(Some(&self.gpu.samplers[0]), 0);
+            if let Some(src) = src {
+                enc.setFragmentTexture_atIndex(Some(src), 0);
+                enc.setFragmentSamplerState_atIndex(Some(&self.gpu.samplers[0]), 0);
+            }
             enc.drawPrimitives_vertexStart_vertexCount(MTLPrimitiveType::TriangleStrip, 0, 4);
         }
         Ok(())
+    }
+
+    /// Adds the glow of up to `Haze::BATCH` volumetric lights onto `target` (see `light::Haze`):
+    /// marched at an eighth of the size, blurred with `blur_k3` across and then down, and drawn
+    /// back up additively. Returns the open pass on `target`, which starts with `clear` if given.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_haze(
+        &mut self,
+        cb: &gpu::CommandBuffer,
+        lights: &[Haze],
+        inverse_view_projection: &Mat4,
+        target: &Texture,
+        msaa: Option<&Texture>,
+        clear: Option<[f64; 4]>,
+    ) -> Result<Retained<gpu::Encoder>, Error> {
+        let (w, h) = ((target.width() / 8).max(1), (target.height() / 8).max(1));
+        let glow = self.pool.take(&self.gpu, w, h)?;
+        let tmp = self.pool.take(&self.gpu, w, h)?;
+        let mut vertex = [0f32; 24];
+        vertex[..16].copy_from_slice(&FBO_MVP);
+        let vertex: Vec<u8> = vertex.iter().flat_map(|f| f.to_le_bytes()).collect();
+        let enc = gpu::begin(cb, &glow, None, Some([0.0, 0.0, 0.0, 1.0]))?;
+        let uniforms = Haze::uniforms(lights, inverse_view_projection);
+        self.blur_library_draw(&enc, "wm_haze_fs", &vertex, &uniforms, None)?;
+        enc.endEncoding();
+        let whole = [0.0, 0.0, 1.0, 1.0];
+        let enc = gpu::begin(cb, &tmp, None, None)?;
+        self.blur_library_pass(&enc, "wm_k3_fs", &glow, whole, (1.0 / w as f32, 0.0), [0.0; 2])?;
+        enc.endEncoding();
+        let enc = gpu::begin(cb, &glow, None, None)?;
+        self.blur_library_pass(&enc, "wm_k3_fs", &tmp, whole, (0.0, 1.0 / h as f32), [0.0; 2])?;
+        enc.endEncoding();
+        let enc = gpu::begin(cb, target, msaa, clear)?;
+        self.composite_rect(&enc, &glow, 0, Blend::Additive, self.samples, FBO_MVP, whole, [1.0; 3], 1.0)?;
+        self.pool.give(glow);
+        self.pool.give(tmp);
+        Ok(enc)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2979,7 +3215,7 @@ impl Engine {
                     ctx.target[0] / ctx.target[1].max(1.0),
                 ],
                 Dyn::Pointer => input.pointer.to_vec(),
-                Dyn::Parallax => input.parallax.to_vec(),
+                Dyn::Parallax => self.parallax_position().to_vec(),
                 Dyn::TexResolution(n) => res(*n).to_vec(),
                 Dyn::TexTexel(n) => {
                     let r = res(*n);
@@ -3048,7 +3284,11 @@ impl Engine {
             .any(|t| t.frames.len() > 1);
         sprites
             || !self.particles.is_empty()
-            || self.puppets.iter().any(|p| !p.animations.is_empty())
+            || self
+                .puppets
+                .iter()
+                .any(|p| p.animations.iter().any(|a| a.visible && a.animation.is_some()))
+            || !self.timelines_settled
             || self.scripts_animated()
             || self.parallax_now().is_some()
             || self.models_animated()
@@ -3258,20 +3498,6 @@ fn leaves_gaps(rect: (f32, f32, f32, f32), tw: f32, th: f32) -> bool {
     x > 0.5 || y > 0.5 || x + w < tw - 0.5 || y + h < th - 0.5
 }
 
-/// Magnification while camera parallax is on. It hides a band at each edge for moved layers to
-/// travel into; 1.06 leaves 3% of the scene per side.
-const PARALLAX_ZOOM: f32 = 1.06;
-
-/// How far a layer of depth 1 moves for this pointer, in design units: the pointer's offset from
-/// the centre times amount and influence times the scene width (the scale scene authors tune
-/// `amount` against; e.g. 0.1 x 0.1 is a few pixels, 0.5 x 1 is a hundred or more). Layers move
-/// against the pointer, as if the camera followed it; a negative influence reverses that.
-// shortcut: direction and scale follow the formula the format's authors use, not measured against
-// Wallpaper Engine; compare side by side with a parallax scene there and adjust if they differ.
-fn camera_shift(p: &scene::ParallaxNow, pointer: [f32; 2], reference: f32) -> [f32; 2] {
-    let k = p.amount * p.mouse_influence;
-    [0, 1].map(|i| -(pointer[i] - 0.5) * k * reference)
-}
 
 /// The 2D camera's offset at `time` for a scene's shake settings (amplitude, roughness, speed), in
 /// design units: Wallpaper Engine's shake loop (`camera::shake`) in the image plane, a hundredth of
@@ -3283,9 +3509,23 @@ fn camera_shake([amplitude, roughness, speed]: [f32; 3], time: f32, height: f32)
     [v[0] * k, v[1] * k]
 }
 
-/// One layer's own parallax offset: its depth times the camera shift, kept inside the margin.
-fn parallax_offset(depth: [f32; 2], shift: [f32; 2], margin: [f32; 2]) -> [f32; 2] {
-    [0, 1].map(|i| (depth[i] * shift[i]).clamp(-margin[i], margin[i]))
+/// A root layer's camera parallax offset, as Wallpaper Engine computes it: its origin's distance
+/// from the parallax point times the amount and its depth, in design units (y up). Nothing
+/// clamps it and the view does not zoom, so a far layer can uncover an edge, as there.
+/// The next volumetric lights, at most a pass's worth, that are due before layer `layer`.
+fn due_hazes(hazes: &[(usize, Haze)], next: &mut usize, layer: usize) -> Option<Vec<Haze>> {
+    let batch: Vec<Haze> = hazes[*next..]
+        .iter()
+        .take_while(|(place, _)| *place <= layer)
+        .take(Haze::BATCH)
+        .map(|(_, h)| *h)
+        .collect();
+    *next += batch.len();
+    (!batch.is_empty()).then_some(batch)
+}
+
+fn parallax_offset(origin: [f32; 2], point: [f32; 2], amount: f32, depth: [f32; 2]) -> [f32; 2] {
+    [0, 1].map(|i| (origin[i] - point[i]) * amount * depth[i])
 }
 
 fn day_time() -> f32 {
@@ -3361,20 +3601,66 @@ fn anim_seconds(mode: &str, t: f32, duration: f32) -> f32 {
 }
 
 impl PuppetGpu {
-    /// Skinning matrices for `time`: each animation layer samples its bone tracks, the layers
-    /// combine in order (additive ones as deltas from the bind pose), then the skeleton is walked
-    /// and the bind-pose world is undone with `bind_inverse`.
-    fn bones_at(&self, time: f32) -> Vec<mat::M4> {
-        let world = self.pose_at(time);
-        (0..world.len())
-            .map(|i| mat::mul(&self.bind_inverse[i], &world[i]))
+    /// Plays the animations on to scene time `time` and poses the skeleton; `object` is the
+    /// layer's placement, which the bones' springs follow. Every display draws the same frame, so
+    /// a time already reached plays nothing; a time before it (the scene restarted) starts over.
+    /// A hidden animation layer holds its place.
+    fn advance(&mut self, time: f32, object: Option<&Mat4>) {
+        let dt = time - self.clock;
+        self.clock = time;
+        for a in self.animations.iter_mut().filter(|a| a.visible) {
+            a.phase = if dt >= 0.0 { a.phase + dt * a.rate } else { time * a.rate };
+        }
+        if dt < 0.0 {
+            if let Some(springs) = &mut self.springs {
+                springs.reset();
+            }
+        }
+        self.pose_bones(object.map(|o| (dt.max(0.0), o)));
+    }
+
+    /// Poses the skeleton for the animation layers' current places (see `pose`), stepping the
+    /// springs by `step` (seconds and the layer's placement).
+    fn pose_bones(&mut self, step: Option<(f32, &Mat4)>) {
+        let model = Rc::clone(&self.model);
+        let layers: Vec<pose::Layer<'_>> = self
+            .animations
+            .iter()
+            .filter(|a| a.visible)
+            .filter_map(|a| {
+                let animation = model.animations.get(a.animation?)?;
+                let duration = animation.duration_seconds();
+                let time = anim_seconds(&animation.flag, a.phase, duration);
+                Some(pose::Layer {
+                    animation,
+                    time,
+                    weight: a.weight(time, duration),
+                    additive: a.additive,
+                })
+            })
+            .collect();
+        let local = pose::blend(&self.bind, &layers);
+        // Puppet space is y up; the layer's placement is y down, like the draw's.
+        let flip = [[1.0, 0.0, 0.0, 0.0], [0.0, -1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]];
+        let object = step.map(|(_, o)| mat::mul(&flip, &std::array::from_fn(|r| std::array::from_fn(|c| o[r * 4 + c]))));
+        let step = step.zip(object.as_ref()).map(|((dt, _), object)| pose::Step { dt, object });
+        self.world = pose::walk(&model.bones, &local, self.springs.as_mut(), step);
+    }
+
+    /// Skinning matrices for the current pose: each bone's world matrix after undoing its
+    /// bind-pose world with `bind_inverse`.
+    fn bones(&self) -> Vec<mat::M4> {
+        self.world
+            .iter()
+            .zip(&self.bind_inverse)
+            .map(|(world, inverse)| mat::mul(inverse, world))
             .collect()
     }
 
     /// Animated world matrix of a named attachment point, in the puppet's design units.
-    fn attachment_at(&self, name: &str, time: f32) -> Option<Mat4> {
+    fn attachment(&self, name: &str) -> Option<Mat4> {
         let att = self.model.attachments.iter().find(|a| a.name == name)?;
-        let bone = self.pose_at(time).get(att.bone).copied().unwrap_or(mat::IDENTITY);
+        let bone = self.world.get(att.bone).copied().unwrap_or(mat::IDENTITY);
         let m = mat::mul(&att.matrix, &bone);
         // Row-vector rows laid end to end are the column-major array the engine uses.
         let mut out = [0.0f32; 16];
@@ -3386,48 +3672,6 @@ impl PuppetGpu {
         out[4] = -out[4];
         out[13] = -out[13];
         Some(out)
-    }
-
-    /// World matrix of every bone at `time`, animation layers applied.
-    fn pose_at(&self, time: f32) -> Vec<mat::M4> {
-        let n = self.model.bones.len();
-        let mut local = Vec::with_capacity(n);
-        for (i, (bt, br, bs)) in self.bind.iter().copied().enumerate() {
-            let (mut t, mut r, mut s) = (bt, br, bs);
-            let mut replaced = false;
-            for &(ai, rate, blend, additive) in &self.animations {
-                let Some(anim) = self.model.animations.get(ai) else {
-                    continue;
-                };
-                let Some(track) = anim.tracks.iter().find(|t| t.bone == i) else {
-                    continue;
-                };
-                let frame = anim_seconds(&anim.flag, time * rate, anim.duration_seconds()) * anim.fps;
-                let sample = track.sample(frame);
-                if additive {
-                    for k in 0..3 {
-                        t[k] += (sample.translation[k] - bt[k]) * blend;
-                        r[k] += (sample.rotation[k] - br[k]) * blend;
-                    }
-                    for k in 0..3 {
-                        let base = bs[k].abs().max(1e-6);
-                        s[k] *= (sample.scale[k] / base).max(1e-6).powf(blend);
-                    }
-                } else if !replaced {
-                    (t, r, s) = (sample.translation, sample.rotation, sample.scale);
-                    replaced = true;
-                }
-            }
-            local.push(mat::from_trs(t, r, s));
-        }
-        let mut world = vec![mat::IDENTITY; n];
-        for (i, bone) in self.model.bones.iter().enumerate() {
-            world[i] = match bone.parent {
-                Some(p) if p < i => mat::mul(&local[i], &world[p]),
-                _ => local[i],
-            };
-        }
-        world
     }
 }
 
@@ -3523,22 +3767,15 @@ mod tests {
     }
 
     #[test]
-    fn parallax_moves_layers_against_the_pointer_within_the_margin() {
-        let p = scene::ParallaxNow { amount: 0.5, delay: 0.1, mouse_influence: 1.0 };
-        let (w, margin) = (1920.0, [54.4, 30.6]);
-        // Centred pointer: nothing moves.
-        assert_eq!(camera_shift(&p, [0.5, 0.5], w), [0.0, 0.0]);
-        // Pointer at the right edge: against it, by 0.5 * amount * width.
-        let shift = camera_shift(&p, [1.0, 0.5], w);
-        assert!((shift[0] + 480.0).abs() < 1e-3 && shift[1] == 0.0, "{shift:?}");
-        // A layer's offset is depth times that, kept inside the margin; depth 0 stays fixed.
-        assert_eq!(parallax_offset([0.0, 0.0], shift, margin), [0.0, 0.0]);
-        assert!((parallax_offset([1.0, 1.0], shift, margin)[0] + 54.4).abs() < 1e-3);
-        // A weak scene (0.1 x -0.1, like a scene that barely moves) is small and reversed.
-        let weak = scene::ParallaxNow { amount: 0.1, delay: 1.1, mouse_influence: -0.1 };
-        let s = camera_shift(&weak, [1.0, 0.5], w);
-        assert!((s[0] - 9.6).abs() < 1e-3, "{s:?}");
-        assert!((parallax_offset([1.2, 1.2], s, margin)[0] - 11.52).abs() < 1e-3);
+    fn parallax_moves_layers_by_their_distance_from_the_point() {
+        // A centred layer and a centred point: nothing moves.
+        assert_eq!(parallax_offset([960.0, 540.0], [960.0, 540.0], 0.5, [1.0, 1.0]), [0.0, 0.0]);
+        // The point at the right edge: the layer moves against it by amount * depth * distance.
+        let o = parallax_offset([960.0, 540.0], [1920.0, 540.0], 0.21, [1.0, 1.0]);
+        assert!((o[0] + 201.6).abs() < 1e-3 && o[1] == 0.0, "{o:?}");
+        // Depth 0 stays; a layer left of the centre spreads outward even with the point centred.
+        assert_eq!(parallax_offset([0.0, 540.0], [1920.0, 540.0], 0.21, [0.0, 0.0]), [0.0, 0.0]);
+        assert!(parallax_offset([100.0, 540.0], [960.0, 540.0], 0.5, [1.0, 1.0])[0] < 0.0);
     }
 
     #[test]

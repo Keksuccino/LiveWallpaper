@@ -387,8 +387,6 @@ struct Loop {
     visible: bool,
     fps: f32,
     pointer: Arc<Mutex<Pointer>>,
-    /// The pointer eased toward its latest position, for parallax.
-    parallax: [f32; 2],
     /// Scene clock while playing.
     time: f32,
     /// How fast the scene clock runs.
@@ -422,7 +420,6 @@ fn run(engine: Engine, rx: Receiver<Command>, counters: Arc<Counters>, pointer: 
         visible: true,
         fps: 30.0,
         pointer,
-        parallax: [0.5, 0.5],
         time: 0.0,
         rate: 1.0,
         last: Instant::now(),
@@ -608,18 +605,11 @@ impl Loop {
             return;
         }
         let pointer = self.pointer.lock().map(|p| *p).unwrap_or_default();
-        // Parallax follows the pointer with the scene's delay instead of jumping with it.
-        let delay = self.engine.parallax_now().map_or(0.1, |p| p.delay);
-        let ease = if delay > 0.0 { (dt / delay).min(1.0) } else { 1.0 };
-        for i in 0..2 {
-            self.parallax[i] += (pointer.pos[i] - self.parallax[i]) * ease;
-        }
         let input = FrameInput {
             time: self.time,
             frame_time: scene_dt,
             pointer: pointer.pos,
             pointer_down: pointer.down,
-            parallax: self.parallax,
         };
         objc2::rc::autoreleasepool(|_| {
             // All displays share one command buffer per frame. Transient targets come from a
@@ -712,7 +702,6 @@ impl Loop {
                 // Centred unless someone set a pointer.
                 pointer,
                 pointer_down: false,
-                parallax: pointer,
             };
             self.engine.encode(&cb, &target, input)?;
             cb.commit();

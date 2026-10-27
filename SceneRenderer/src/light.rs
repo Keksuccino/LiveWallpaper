@@ -63,11 +63,24 @@ pub struct LightSpec {
     pub outer_cone: Bound,
     /// A tube's second end, in the light's own space (its first end is the origin).
     pub control_point: Bound,
+    /// `castvolumetrics`: the light also lights the air (see `Haze`).
+    pub volumetrics: Bound,
+    /// `castshadow`; for the haze, it means more samples along each ray.
+    pub shadow: Bound,
+    /// How thick the lit air is, and the falloff exponent of its glow.
+    pub density: Bound,
+    pub volumetrics_exponent: Bound,
+    /// Camera parallax of a light without a parent; a child moves with its root.
+    pub parallax_depth: Bound,
+    /// The id of the first layer after the light in the scene's object order (`None`: none). The
+    /// haze is added to the picture just before that layer draws.
+    pub before: Option<i64>,
 }
 
 impl LightSpec {
     /// The light of a scene object, or `None` for a light kind we do not know. Missing values take
-    /// the engine's defaults (black, intensity 0, radius 1, exponent 2, cones 20 and 30 degrees).
+    /// the engine's defaults (black, intensity 0, radius 1, exponent 2, cones 20 and 30 degrees,
+    /// density 2, volumetrics exponent 1, no volumetrics or shadow).
     pub fn parse(obj: &Value) -> Option<Self> {
         let kind = Kind::parse(obj["light"].as_str()?)?;
         let bound = |key: &str, default: Value| Bound::parse(obj.get(key), default);
@@ -86,7 +99,54 @@ impl LightSpec {
             inner_cone: bound("innercone", Value::from(20.0)),
             outer_cone: bound("outercone", Value::from(30.0)),
             control_point: bound("controlpoint", Value::from("2 0 0")),
+            volumetrics: bound("castvolumetrics", Value::Bool(false)),
+            shadow: bound("castshadow", Value::Bool(false)),
+            density: bound("density", Value::from(2.0)),
+            volumetrics_exponent: bound("volumetricsexponent", Value::from(1.0)),
+            parallax_depth: bound("parallaxDepth", Value::from("1 1")),
+            before: None,
         })
+    }
+}
+
+/// One light's volumetric glow for a frame. Wallpaper Engine ray-marches the light's sphere at an
+/// eighth of the screen size: from the near plane when the eye is inside the sphere, else from its
+/// front face, to its back face; each of `samples` points adds `pow(saturate(1 - d / r), exponent)`
+/// with `r` 0.99 of the radius, and the mean is scaled by `density * intensity * 0.05 * length / r`
+/// and the colour (`volumetricsfront.frag`). With `castshadow` it takes 24 jittered samples, else
+/// 3 (the "medium" quality). The result is blurred and added onto the picture at the light's place
+/// in the object order, so only what is drawn before the light is hazed.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Haze {
+    pub center: [f32; 3],
+    pub radius: f32,
+    pub color: [f32; 3],
+    pub intensity: f32,
+    pub density: f32,
+    pub exponent: f32,
+    pub shadow: bool,
+    /// The eye (moved a fifth of a unit forward) is inside the sphere: rays start at the near plane.
+    pub fullscreen: bool,
+}
+
+impl Haze {
+    /// The most lights one haze pass sums.
+    pub const BATCH: usize = 8;
+
+    /// The fragment uniforms of the haze pass (`wm_haze_fs`): the inverse view-projection, the
+    /// light count, then four `float4` per light.
+    pub fn uniforms(lights: &[Haze], inverse_view_projection: &[f32; 16]) -> Vec<u8> {
+        let mut u: Vec<f32> = inverse_view_projection.to_vec();
+        u.extend([lights.len().min(Self::BATCH) as f32, 0.0, 0.0, 0.0]);
+        for l in lights.iter().take(Self::BATCH) {
+            u.extend(l.center);
+            u.push(0.99 * l.radius);
+            u.extend(l.color);
+            u.push(l.intensity);
+            u.extend([l.density, l.exponent, l.radius, 0.0]);
+            u.extend([l.shadow as u8 as f32, l.fullscreen as u8 as f32, 0.0, 0.0]);
+        }
+        u.iter().flat_map(|f| f.to_le_bytes()).collect()
     }
 }
 

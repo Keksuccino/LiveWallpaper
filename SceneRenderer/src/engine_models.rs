@@ -21,7 +21,7 @@ use objc2_metal::*;
 use super::{mul, scale, DrawCtx, DrawItem, Engine, FrameInput, Mat4, IDENTITY};
 use crate::camera;
 use crate::gpu::{self, Texture, TARGET_FORMAT};
-use crate::light::{LightSpec, Lights};
+use crate::light::{Haze, Kind, LightSpec, Lights};
 use crate::mat;
 use crate::model;
 use crate::scene::{floats, Blend, Bound, Cull, Material};
@@ -384,6 +384,85 @@ impl Engine {
     fn light_world(&self, light: &LightSpec) -> Mat4 {
         let local = self.local3d(&light.origin, &light.angles, &light.scale);
         mul(&self.parent_world3d(light.parent, 0), &local)
+    }
+
+    /// Where a light is this frame: its world position, moved with its tree by camera parallax.
+    fn light_position(&self, light: &LightSpec) -> [f32; 3] {
+        let m = self.light_world(light);
+        let mut root = None;
+        let mut parent = light.parent;
+        for _ in 0..32 {
+            let Some(i) = parent.and_then(|p| self.scene.layers.iter().position(|l| l.id == p)) else {
+                break;
+            };
+            root = Some(i);
+            parent = self.scene.layers[i].parent;
+        }
+        let (origin, depth) = match root {
+            Some(i) => (&self.scene.layers[i].origin, &self.scene.layers[i].parallax_depth),
+            None => (&light.origin, &light.parallax_depth),
+        };
+        let o = floats(&origin.at(&self.props, self.time));
+        let o = [o.first().copied().unwrap_or(0.0), o.get(1).copied().unwrap_or(0.0)];
+        let [dx, dy] = self.parallax_shift(o, depth);
+        [m[12] + dx, m[13] + dy, m[14]]
+    }
+
+    /// The world-space point on the camera's axis at normalised depth `z` (0 near, 1 far), through
+    /// the inverse view-projection `inv`.
+    fn unproject_axis(inv: &Mat4, z: f32) -> [f32; 3] {
+        let v: [f32; 4] = std::array::from_fn(|r| inv[8 + r] * z + inv[12 + r]);
+        [v[0] / v[3], v[1] / v[3], v[2] / v[3]]
+    }
+
+    /// This frame's volumetric point lights, each with the index of the layer it is added before
+    /// (the layer count: after every layer), in that order; and the inverse view-projection the
+    /// haze pass casts its rays through.
+    pub(super) fn hazes(&self) -> (Vec<(usize, Haze)>, Mat4) {
+        let props = &self.props;
+        let lights: Vec<&LightSpec> = self
+            .scene
+            .lights
+            .iter()
+            .filter(|l| l.kind == Kind::Point && l.volumetrics.truthy(props) && l.visible.truthy(props))
+            .collect();
+        if lights.is_empty() {
+            return (Vec::new(), IDENTITY);
+        }
+        let inv = inverse(&self.models.view.view_projection);
+        // The engine's test of whether the eye is inside a light: a fifth of a unit forward.
+        let (near, far) = (Self::unproject_axis(&inv, 0.0), Self::unproject_axis(&inv, 1.0));
+        let axis: [f32; 3] = std::array::from_fn(|i| far[i] - near[i]);
+        let len = axis.iter().map(|v| v * v).sum::<f32>().sqrt().max(1e-6);
+        let eye = self.models.view.eye;
+        let probe: [f32; 3] = std::array::from_fn(|i| eye[i] + 0.2 * axis[i] / len);
+        let mut out: Vec<(usize, Haze)> = Vec::with_capacity(lights.len());
+        for light in lights {
+            let num = |b: &Bound, d: f32| floats(&b.get(props)).first().copied().unwrap_or(d);
+            let rgb = floats(&light.color.get(props));
+            let center = self.light_position(light);
+            let radius = num(&light.radius, 1.0);
+            let inside = (0..3).map(|i| (probe[i] - center[i]).powi(2)).sum::<f32>();
+            let place = light
+                .before
+                .and_then(|id| self.scene.layers.iter().position(|l| l.id == id))
+                .unwrap_or(self.scene.layers.len());
+            out.push((
+                place,
+                Haze {
+                    center,
+                    radius,
+                    color: [0, 1, 2].map(|i| rgb.get(i).copied().unwrap_or(0.0)),
+                    intensity: num(&light.intensity, 0.0),
+                    density: num(&light.density, 2.0),
+                    exponent: num(&light.volumetrics_exponent, 1.0),
+                    shadow: light.shadow.truthy(props),
+                    fullscreen: inside < radius * radius,
+                },
+            ));
+        }
+        out.sort_by_key(|(place, _)| *place);
+        (out, inv)
     }
 
     /// The model drawn for scene layer `layer`, if it is one.
