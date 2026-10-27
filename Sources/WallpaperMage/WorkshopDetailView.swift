@@ -4,7 +4,8 @@ import Core
 
 // The Workshop detail pane: opens when a result is clicked. Large preview that animates when it is an animation
 // (WorkshopPreviews, shared with the result cards; also once the item is in the library), title, the Info box
-// (WallpaperInfoView.swift), description, Download; a downloaded scene adds the way to Wallpaper Engine's shared files.
+// (WallpaperInfoView.swift), description, Download; a downloaded scene adds the way to Wallpaper Engine's shared files
+// while they are missing.
 
 @MainActor
 struct WorkshopDetailView: View {
@@ -78,7 +79,7 @@ struct WorkshopDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             previewImage
                 .shadow(color: .black.opacity(0.16), radius: 20, y: 10)
-            if let info = libraryItem?.scene { SharedFilesHint(info: info, openSteamSetup: openSteamSetup) }
+            if libraryItem?.scene != nil { SharedFilesHint(setup: .shared, openSteamSetup: openSteamSetup) }
         }
     }
 
@@ -164,19 +165,17 @@ struct WorkshopDetailView: View {
     }
 }
 
-/// Below a downloaded scene's preview: the way to Wallpaper Engine's shared files while they are missing or the scene
-/// uses them.
+/// Below a downloaded scene's preview while Wallpaper Engine's shared files are missing: the way to get them.
 @MainActor
 private struct SharedFilesHint: View {
-    let info: SceneInfo
+    /// Observed only to redraw when the wizard installs or removes the shared files; their folder is the truth.
+    @ObservedObject var setup: SteamSetupModel
     let openSteamSetup: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if !SceneImporter.hasSharedAssets {
+        if !SceneImporter.hasSharedAssets {
+            VStack(alignment: .leading, spacing: 4) {
                 Text("Scenes need Wallpaper Engine’s shared files to play.").font(.callout).foregroundStyle(.secondary)
-            }
-            if info.needsSharedAssets || !SceneImporter.hasSharedAssets {
                 Button("Get Wallpaper Engine’s shared files", action: openSteamSetup).buttonStyle(.link)
             }
         }
