@@ -25,8 +25,9 @@ use objc2_core_text::{kCTFontAttributeName, kCTForegroundColorAttributeName, CTF
 use crate::vfs::Vfs;
 use crate::Error;
 
-/// The largest bitmap edge we will allocate, in pixels. A 32 pt line at 300 % is far below this.
-const MAX_EDGE: usize = 16_384;
+/// The largest bitmap edge we will allocate, in pixels; a text that would be larger is
+/// rasterised at a coarser scale instead.
+const MAX_EDGE: f32 = 16_384.0;
 /// Keep a handful of recent strings: clocks tick once a second at most.
 const MAX_CACHE: usize = 64;
 
@@ -38,11 +39,12 @@ pub enum HAlign {
 }
 
 impl HAlign {
+    /// Wallpaper Engine's names; anything else keeps its default, centred.
     pub fn from_scene(s: Option<&str>) -> Self {
-        match s.unwrap_or("left") {
-            "center" => Self::Center,
+        match s.unwrap_or("center") {
+            "left" => Self::Left,
             "right" => Self::Right,
-            _ => Self::Left,
+            _ => Self::Center,
         }
     }
 }
@@ -55,13 +57,21 @@ pub enum VAlign {
 }
 
 impl VAlign {
+    /// Wallpaper Engine's names; anything else keeps its default, centred.
     pub fn from_scene(s: Option<&str>) -> Self {
-        match s.unwrap_or("top") {
-            "center" => Self::Center,
+        match s.unwrap_or("center") {
+            "top" => Self::Top,
             "bottom" => Self::Bottom,
-            _ => Self::Top,
+            _ => Self::Center,
         }
     }
+}
+
+/// The em size, in design units, of a text layer's font at `point_size`. Wallpaper Engine clamps
+/// the point size to 1...256, sets that many points at 300 dpi on the FreeType face and lays the
+/// text out in the resulting pixels, which are the layer's own units.
+pub fn em_size(point_size: f32) -> f32 {
+    point_size.clamp(1.0, 256.0) * 300.0 / 72.0
 }
 
 /// Where a font comes from: bytes shipped inside the scene package, or a system family name.
@@ -209,18 +219,20 @@ pub struct TextSpec {
     pub text: String,
     /// Straight sRGB colour; the fourth component is alpha and is multiplied by `opacity`.
     pub color: [f32; 4],
+    /// Which edge of the text block sits on the anchor (the layer origin): left, the middle or
+    /// right.
     pub h_align: HAlign,
+    /// Top puts the first line's ascender on the anchor, bottom the last line's descender;
+    /// center centres the first line's ascender band on it, moved up by half the extra lines.
     pub v_align: VAlign,
     /// Multiplier on CoreText's natural line height (1.0 keeps the font's spacing).
     pub line_spacing: f32,
-    /// Transparent margin around the glyphs, in design points.
-    pub padding: f32,
+    /// Transparent margin around the glyphs (x, y), in design points.
+    pub padding: [f32; 2],
     /// Multiplied into the colour alpha.
     pub opacity: f32,
     /// On-screen pixels per design point. Rasterise at the scale the layer is drawn at.
     pub pixels_per_point: f32,
-    /// The layer's box in design units. `None` makes a tight bitmap and places it at (0, 0).
-    pub box_size: Option<[f32; 2]>,
 }
 
 impl Default for TextSpec {
@@ -231,10 +243,9 @@ impl Default for TextSpec {
             h_align: HAlign::Left,
             v_align: VAlign::Top,
             line_spacing: 1.0,
-            padding: 0.0,
+            padding: [0.0; 2],
             opacity: 1.0,
             pixels_per_point: 1.0,
-            box_size: None,
         }
     }
 }
@@ -245,7 +256,7 @@ pub struct TextBitmap {
     pub pixels: Vec<u8>,
     pub width: u32,
     pub height: u32,
-    /// `x, y, width, height` inside the layer box, in design units, origin top-left, y down.
+    /// `x, y, width, height` in design units from the anchor (the layer origin), y down.
     pub rect: [f32; 4],
 }
 
@@ -284,10 +295,9 @@ struct CacheKey {
     h_align: HAlign,
     v_align: VAlign,
     line_spacing: u32,
-    padding: u32,
+    padding: [u32; 2],
     opacity: u32,
     scale: u32,
-    box_size: Option<[u32; 2]>,
 }
 
 impl CacheKey {
@@ -300,10 +310,9 @@ impl CacheKey {
             h_align: spec.h_align,
             v_align: spec.v_align,
             line_spacing: spec.line_spacing.to_bits(),
-            padding: spec.padding.to_bits(),
+            padding: spec.padding.map(f32::to_bits),
             opacity: spec.opacity.to_bits(),
             scale: spec.pixels_per_point.to_bits(),
-            box_size: spec.box_size.map(|[w, h]| [w.to_bits(), h.to_bits()]),
         }
     }
 }
@@ -350,7 +359,7 @@ impl TextRenderer {
             return Ok(TextBitmap::empty());
         }
 
-        let pad = spec.padding.max(0.0);
+        let pad = spec.padding.map(|p| p.max(0.0));
         let spacing = if spec.line_spacing.is_finite() {
             spec.line_spacing.max(0.01)
         } else {
@@ -393,24 +402,23 @@ impl TextRenderer {
 
         let content_w = line_widths.iter().copied().fold(0.0f32, f32::max);
         let content_h: f32 = line_heights.iter().sum();
-        let points_w = content_w + 2.0 * pad;
-        let points_h = content_h + 2.0 * pad;
+        let below: f32 = line_heights.iter().skip(1).sum();
+        let (left, baseline) = anchor(font.metrics(), below, content_w, spec.h_align, spec.v_align);
+        let top = baseline - line_ascents[0];
+        let points_w = content_w + 2.0 * pad[0];
+        let points_h = content_h + 2.0 * pad[1];
+        // A text too large for one texture is rasterised coarser rather than not at all.
+        let scale = scale.min(MAX_EDGE / points_w.max(points_h).max(1.0));
         let pixel_w = (points_w * scale).ceil().max(1.0) as usize;
         let pixel_h = (points_h * scale).ceil().max(1.0) as usize;
-        if pixel_w > MAX_EDGE || pixel_h > MAX_EDGE {
-            return Err(Error::Unsupported(format!(
-                "text bitmap {pixel_w}x{pixel_h} exceeds {MAX_EDGE} px"
-            )));
-        }
 
         // The bitmap is a little larger than the layout because of the ceil above; use its real
         // size so the engine maps one texture pixel to one device pixel.
         let rect_w = pixel_w as f32 / scale;
         let rect_h = pixel_h as f32 / scale;
-        let (x, y) = placement(rect_w, rect_h, spec.box_size, spec.h_align, spec.v_align);
         // Snap the quad to the raster grid. Without this a half-pixel offset blurs the text.
-        let x = (x * scale).round() / scale;
-        let y = (y * scale).round() / scale;
+        let x = ((left - pad[0]) * scale).round() / scale;
+        let y = ((top - pad[1]) * scale).round() / scale;
 
         // SAFETY: `kCGColorSpaceSRGB` is a framework static that lives for the whole process.
         let srgb = unsafe { kCGColorSpaceSRGB };
@@ -519,7 +527,7 @@ fn draw(
     heights: &[f32],
     content_w: f32,
     bitmap_h: f32,
-    pad: f32,
+    pad: [f32; 2],
     scale: f32,
     h_align: HAlign,
 ) {
@@ -537,11 +545,11 @@ fn draw(
     };
     CGContext::set_text_matrix(Some(context), identity);
 
-    let mut top = pad;
+    let mut top = pad[1];
     for (((line, width), ascent), height) in lines.iter().zip(widths).zip(ascents).zip(heights) {
         // Baseline from the top of the bitmap.
         let baseline_from_top = top + *ascent;
-        let x = pad + line_offset(content_w, *width, h_align);
+        let x = pad[0] + line_offset(content_w, *width, h_align);
         let y = bitmap_h - baseline_from_top;
         CGContext::set_text_position(Some(context), x as CGFloat, y as CGFloat);
         // SAFETY: the bitmap context is live and allocated for this draw; the line outlives it.
@@ -559,28 +567,28 @@ fn line_offset(content_w: f32, line_w: f32, h_align: HAlign) -> f32 {
     }
 }
 
-/// Top-left of the bitmap inside the layer box, snapped later to the raster grid.
-fn placement(
-    w: f32,
-    h: f32,
-    box_size: Option<[f32; 2]>,
+/// The text block's left edge and its first baseline, from the anchor (y down), the way
+/// Wallpaper Engine places a text layer around its origin: the block's edge or middle on it
+/// horizontally, and vertically by the font's ascent and descent rather than the glyphs' own
+/// extent. `below` is the height of the lines after the first.
+fn anchor(
+    (ascent, descent, _): (f32, f32, f32),
+    below: f32,
+    width: f32,
     h_align: HAlign,
     v_align: VAlign,
 ) -> (f32, f32) {
-    let Some([bw, bh]) = box_size else {
-        return (0.0, 0.0);
-    };
     let x = match h_align {
         HAlign::Left => 0.0,
-        HAlign::Center => (bw - w) / 2.0,
-        HAlign::Right => bw - w,
+        HAlign::Center => -width / 2.0,
+        HAlign::Right => -width,
     };
-    let y = match v_align {
-        VAlign::Top => 0.0,
-        VAlign::Center => (bh - h) / 2.0,
-        VAlign::Bottom => bh - h,
+    let baseline = match v_align {
+        VAlign::Top => ascent,
+        VAlign::Center => (ascent - below) / 2.0,
+        VAlign::Bottom => -(descent + below),
     };
-    (x, y)
+    (x, baseline)
 }
 
 /// `1 0.5 0` / `1, 0.5, 0` / `#ff8000` / `#ff8000ff` to straight sRGB plus alpha.
@@ -662,35 +670,43 @@ mod tests {
     }
 
     #[test]
-    fn alignment_offset_in_box() {
-        assert_eq!(
-            placement(20.0, 10.0, Some([100.0, 50.0]), HAlign::Left, VAlign::Top),
-            (0.0, 0.0)
-        );
-        assert_eq!(
-            placement(
-                20.0,
-                10.0,
-                Some([100.0, 50.0]),
-                HAlign::Center,
-                VAlign::Center
-            ),
-            (40.0, 20.0)
-        );
-        assert_eq!(
-            placement(
-                20.0,
-                10.0,
-                Some([100.0, 50.0]),
-                HAlign::Right,
-                VAlign::Bottom
-            ),
-            (80.0, 40.0)
-        );
-        assert_eq!(
-            placement(20.0, 10.0, None, HAlign::Center, VAlign::Center),
-            (0.0, 0.0)
-        );
+    fn text_block_sits_on_the_anchor() {
+        // Ascent 80, descent 20, one extra line of 100 below the first; a block 200 wide.
+        let m = (80.0, 20.0, 0.0);
+        assert_eq!(anchor(m, 0.0, 200.0, HAlign::Left, VAlign::Top), (0.0, 80.0));
+        assert_eq!(anchor(m, 0.0, 200.0, HAlign::Center, VAlign::Center), (-100.0, 40.0));
+        assert_eq!(anchor(m, 0.0, 200.0, HAlign::Right, VAlign::Bottom), (-200.0, -20.0));
+        // Extra lines lift a centred block by half their height, a bottom one by all of it.
+        assert_eq!(anchor(m, 100.0, 200.0, HAlign::Center, VAlign::Center).1, -10.0);
+        assert_eq!(anchor(m, 100.0, 200.0, HAlign::Center, VAlign::Bottom).1, -120.0);
+    }
+
+    #[test]
+    fn wallpaper_engine_point_size() {
+        // 300 dpi: 72 pt is 300 units; the size is clamped to 1...256 pt first.
+        assert_eq!(em_size(72.0), 300.0);
+        assert_eq!(em_size(0.2), em_size(1.0));
+        assert_eq!(em_size(1000.0), em_size(256.0));
+    }
+
+    #[test]
+    fn centred_text_is_centred_on_the_anchor() {
+        let font = Font::from_name("Helvetica", 40.0);
+        let spec = TextSpec {
+            text: "Hello".into(),
+            padding: [8.0, 4.0],
+            h_align: HAlign::Center,
+            v_align: VAlign::Center,
+            ..TextSpec::default()
+        };
+        let b = TextRenderer::new().render(&font, &spec).unwrap();
+        let [x, y, w, h] = b.rect;
+        // Horizontally the padded block is centred to within the one-pixel snap and ceil.
+        assert!((x + w / 2.0).abs() <= 1.0, "{:?}", b.rect);
+        // Vertically the ascender band is centred, so the block reaches further down than up.
+        let (ascent, ..) = font.metrics();
+        assert!((y + 4.0 + ascent / 2.0).abs() <= 1.0, "{:?}", b.rect);
+        assert!(y + h > -y);
     }
 
     #[test]
@@ -751,9 +767,11 @@ mod tests {
     fn scene_alignment_names() {
         assert_eq!(HAlign::from_scene(Some("center")), HAlign::Center);
         assert_eq!(HAlign::from_scene(Some("right")), HAlign::Right);
-        assert_eq!(HAlign::from_scene(None), HAlign::Left);
+        assert_eq!(HAlign::from_scene(Some("left")), HAlign::Left);
+        assert_eq!(HAlign::from_scene(None), HAlign::Center);
+        assert_eq!(VAlign::from_scene(Some("top")), VAlign::Top);
         assert_eq!(VAlign::from_scene(Some("bottom")), VAlign::Bottom);
-        assert_eq!(VAlign::from_scene(Some("nonsense")), VAlign::Top);
+        assert_eq!(VAlign::from_scene(Some("nonsense")), VAlign::Center);
     }
 
     #[test]
@@ -804,8 +822,7 @@ mod tests {
             text: "Hello".into(),
             color: [0.9, 0.15, 0.1, 1.0],
             pixels_per_point: 2.0,
-            padding: 4.0,
-            box_size: Some([300.0, 80.0]),
+            padding: [4.0, 4.0],
             h_align: HAlign::Center,
             v_align: VAlign::Center,
             ..TextSpec::default()

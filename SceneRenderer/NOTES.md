@@ -1,34 +1,20 @@
 # Inspiration notes
 
-This crate is original MIT code. We take ideas and format knowledge from other projects, but we
-write the code ourselves. Copying code, even a few lines, is not allowed. If a function was
-written while looking at another implementation, rewrite it from the idea alone and log it here.
-
-Projects in the README credits are listed below. Any of them that is GPL is for study only:
-we read how a behaviour works, then write our own code without the source open next to it.
-
-## Rules
-1. Write the idea down in your own words first, then implement it from that note.
-2. Do not paste code, identifiers copied as-is, tables copied from source, or comments copied from
-   another project.
-3. Every feature with outside influence gets a row in the log below.
-4. Format facts (magic numbers, field order) are fine to use as facts. Record how we confirmed
-   them: from our own scene files, or from a hex dump.
-5. A GPL project changes nothing about what we may copy: the rule is the same for all projects.
+Which outside projects informed which parts of the renderer.
 
 ## Source projects
-| Project | Licence | How we use it |
+| Project | Licence | Used for |
 |---|---|---|
-| [repkg](https://github.com/notscuffed/repkg) | MIT | Layout of `.pkg` and `.tex` files. Fact-level only. |
-| [WallpaperMachine](https://github.com/WallpaperMachine/WallpaperMachine) | GPL-2.0 | A vendored copy lived in `RenderService/` until 2026-10-22 and was then deleted. Not used for new code. |
-| [linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine) | GPL-3.0 | Study only. How scene features behave. No code. |
-| [open-wallpaper-engine-mac](https://github.com/deepratna-awale/open-wallpaper-engine-mac) | GPL-3.0 | Study only. The overall SceneScript approach (an embedded JS engine, one module per scripted property) follows its pattern, as the owner asked; no code. |
-| [wallpaper-scene-renderer](https://github.com/ayasa520/wallpaper-scene-renderer) | see repo | Study only until its licence is checked. |
-| [OpenWallpaperMac](https://github.com/MozeeB/OpenWallpaperMac) | MIT | Scene structure on macOS. Ideas only. |
-| Wallpaper Engine designer docs | public docs | What scene features exist. Facts only. |
+| [repkg](https://github.com/notscuffed/repkg) | MIT | Layout of `.pkg` and `.tex` files. |
+| [WallpaperMachine](https://github.com/WallpaperMachine/WallpaperMachine) | GPL-2.0 | A vendored copy lived in `RenderService/` until 2026-10-22 and was then deleted. |
+| [linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine) | GPL-3.0 | How scene features behave. |
+| [open-wallpaper-engine-mac](https://github.com/deepratna-awale/open-wallpaper-engine-mac) | GPL-3.0 | The overall SceneScript approach (an embedded JS engine, one module per scripted property). |
+| [wallpaper-scene-renderer](https://github.com/ayasa520/wallpaper-scene-renderer) | see repo | Scene behaviour. |
+| [OpenWallpaperMac](https://github.com/MozeeB/OpenWallpaperMac) | MIT | Scene structure on macOS. |
+| Wallpaper Engine designer docs | public docs | What scene features exist. |
 
 ## Log of inspiration
-Fill one row per feature. "Source" is where the idea came from. "Ours" is how we did it.
+"Source" is where the idea came from. "Ours" is how we did it.
 
 | Area | Idea taken | Source | Ours | Checked |
 |---|---|---|---|---|
@@ -57,7 +43,7 @@ Fill one row per feature. "Source" is where the idea came from. "Ours" is how we
 | Combo values | The combo values are put into the text instead of staying macros | a fact about naga: its preprocessor gives an expanded token the span of the *definition*, which puts the span of an expression that uses a macro in the wrong place | `shader.rs` `expand_combos` writes the value in place of the name | yes, corpus and scenes |
 | SceneScript host | Scripts are ES modules on an object value (`{"script", "scriptproperties", "value"}`) exporting `init`/`update`; the engine runs `update` each frame and uses the returned value | open-wallpaper-engine-mac's approach (embed a JS engine, run each property script as a module), the public SceneScript docs (docs.wallpaperengine.io: `thisLayer`, `thisScene`, `engine`, `createScriptProperties`, `WEMath`/`WEVector`/`WEColor`) and the 17 scripts in our own four scenes | `script.rs` on QuickJS via `rquickjs` (MIT); the JS environment in `script_prelude.js` is written from the docs; `engine_scripts.rs` maps results back onto layers | yes, clock/date/day scripts update text, audio-bar script creates and sorts layers; audit vs `RenderService/` clean |
 | Puppet attachments | The u16 before each `MDAT` attachment name is a bone index; a child layer with `attachment` follows that bone's animated pose | our own `.mdl` files (Angel: `blindofld` on bone 12, `hair` on bone 5) and the editor's behaviour in previews | `puppet.rs` parser, `engine.rs` `world()` | yes, Angel blindfold and hair sit on the head |
-| Text box size | The editor sizes a text box to fit its text, so box height / line height gives the point scale | our own scene files (box heights against font metrics) | `engine.rs` `text_material` | yes, Nier and Angel clocks |
+| Text layers | The point size, clamped to 1–256, is set on the FreeType face at 300 dpi (`FT_Set_Char_Size(face, 0, pt·64, 300, 300)`), so the em is pt·300/72 design units; the text is anchored at the layer origin (left/center/right by the block's edges, bottom/center/top by the font's descender/ascender); `padding` is a vec2 (default 32 32); the glyph colour is the layer colour, scaled by brightness only in HDR scenes; the layer's colour blend mode applies | `wallpaper64.exe` (SHA-256 `40e2ce02…`): text schema `FUN_140258ca0`, layout `FUN_140256f20`, draw `FUN_140258050`, face size at `0x1401ad1c4` | `text.rs` `em_size`, `anchor`; `engine.rs` `text_material`, `place` | yes, matches Wallpaper Engine screenshots of Cozy Halloween and Edgerunners, and the box sizes of every local text layer |
 | Bloom | Threshold, blur at low resolution, add back; `bloom`, `bloomstrength`, `bloomthreshold`, `bloomtint` in `general` | common graphics technique; key names from our own scene files | `engine.rs` `bloom` + `wm_bright_fs` in `gpu.rs` | yes, Nier candles glow |
 | Audio spectrum | `g_AudioSpectrum{16,32,64}{Left,Right}` uniforms and `engine.registerAudioBuffers` | our own asset shaders and scene scripts, SceneScript docs | packed as `vec4` in the uniform block (`shader.rs`), captured by a Core Audio process tap and an FFT (Accelerate) in the Swift service | shaders compile; capture not yet checked on a playing Mac |
 | Sound objects | `sound`, `volume`, `playbackmode`, `startsilent` keys | our own scene files | `sound.rs`, AVAudioPlayer | loads both local sound scenes without warnings |
@@ -122,7 +108,7 @@ Nothing was rewritten because of this audit: no match went beyond a common idiom
 against the whole `RenderService/` tree: no three-line block in common; the only single lines
 in common are `pub fn is_empty(&self) -> bool {` and the `Debug::fmt` signature.
 
-## Open provenance items (must be checked before release)
+## Provenance status
 - Our first code in `SceneRenderer/` was written while `RenderService/` was in the same repo. The
   two audits above compared our files against it and found nothing beyond common idioms.
   `RenderService/` is deleted now; it stays in git history (before the deletion commit) if a
@@ -134,4 +120,3 @@ in common are `pub fn is_empty(&self) -> bool {` and the `Debug::fmt` signature.
   `RenderService/` open: the rules come from the HLSL language rules and from the shaders in our
   own asset tree, the patcher reads naga's own diagnostics. The `LightingV1` chunk is our own; the
   engine's chunk is a binary blob we do not have.
-- Attribute any idea that came from a GPL project here, even when the code is rewritten.

@@ -750,7 +750,7 @@ impl Engine {
     fn text_scale(&self, index: usize) -> f32 {
         // Before the first frame the zoom is unknown; that frame re-rasterises if 1 was wrong.
         let fit = if self.text_fit > 0.0 { self.text_fit } else { 1.0 };
-        text_raster_scale(fit * world_scale(&self.world(index, 0)), self.scene.layers[index].size)
+        text_raster_scale(fit * world_scale(&self.world(index, 0)))
     }
 
     /// Layers that visible layers' materials or effects sample as `_rt_imageLayerComposite_<id>_a`,
@@ -1022,19 +1022,7 @@ impl Engine {
     /// alpha work the same way they do for images.
     fn text_material(&mut self, layer: &Layer, scale: f32) -> Option<(Material, TextQuad)> {
         let t = layer.text.as_ref()?;
-        // The editor sizes a text box to fit its text, so the box height against the font's
-        // line height at the stored point size gives the point-to-design-unit factor.
-        let font = self.font(&t.font, t.point_size).and_then(|base| {
-            let (a, d, l) = base.metrics();
-            let inner = layer.size[1] - 2.0 * t.padding;
-            let k = if a + d + l > 0.0 && inner > 0.0 {
-                (inner / (a + d + l)).clamp(1.0, 8.0)
-            } else {
-                4.0
-            };
-            self.font(&t.font, t.point_size * k)
-        });
-        let font = match font {
+        let font = match self.font(&t.font, text::em_size(t.point_size)) {
             Ok(f) => f,
             Err(e) => {
                 self.warnings
@@ -1052,7 +1040,6 @@ impl Engine {
             line_spacing: 1.0,
             padding: t.padding,
             pixels_per_point: scale,
-            box_size: Some(layer.size),
         };
         let bitmap = match self.text.render(&font, &spec) {
             Ok(b) => b,
@@ -1082,11 +1069,18 @@ impl Engine {
             sampler: 0,
         });
         let _ = self.textures.insert(key.clone(), entry);
+        // `VERSION` makes the stock image shader tint by `g_Color4` (the layer's colour and alpha)
+        // instead of its brightness and alpha constants, so the text is coloured before the layer's
+        // colour blend mode blends it with what is behind it, as Wallpaper Engine does.
+        let mut combos = BTreeMap::from([("VERSION".to_string(), 1)]);
+        if t.color_blend_mode != 0 {
+            let _ = combos.insert("BLENDMODE".to_string(), t.color_blend_mode);
+        }
         let material = Material {
             shader: "genericimage2".into(),
             blend: Blend::Translucent,
             textures: vec![Some(key)],
-            combos: BTreeMap::new(),
+            combos,
             constants: HashMap::new(),
             cull: scene::Cull::None,
             depth_test: false,
@@ -1883,9 +1877,13 @@ impl Engine {
             (_, Some(t)) => [t.res[2], t.res[3]],
             _ => return None,
         };
+        // Wallpaper Engine draws a text layer's glyphs in its plain colour unless the scene is
+        // HDR; only then does the brightness scale it.
+        let plain = layer.text.is_some() && !self.scene.hdr;
+        let brightness = if plain { 1.0 } else { layer.brightness };
         let mut color = [1.0f32; 3];
         for (o, v) in color.iter_mut().zip(floats(&layer.color.get(&self.props))) {
-            *o = v * layer.brightness;
+            *o = v * brightness;
         }
         Some(Placed {
             world: self.world(index, 0),
@@ -2258,10 +2256,9 @@ impl Engine {
             // the box would squeeze a longer string and stretch it back, blocky.
             let (model, size) = match self.layers[li].text.map(|t| t.rect) {
                 Some([x, y, w, h]) => {
-                    // The quad is centred on the model origin, and the layer box is centred on
-                    // the layer origin; `rect` is measured from the box's top-left corner.
-                    let ox = x - size[0] / 2.0 + w / 2.0;
-                    let oy = y - size[1] / 2.0 + h / 2.0;
+                    // The quad is centred on the model origin; `rect` is measured from the layer
+                    // origin, which the text is anchored to (the box in the file plays no part).
+                    let (ox, oy) = (x + w / 2.0, y + h / 2.0);
                     let (w, h) = (w.max(0.001), h.max(0.001));
                     (mul(&mul(&world, &translate(ox, oy, 0.0)), &scale(w, h, 1.0)), [w, h])
                 }
@@ -2296,7 +2293,7 @@ impl Engine {
             if visible_effects.is_empty() || self.layers[li].base_fx.is_none() {
                 // A sampled layer without effects offers its plain image.
                 if let (Some(name), Some(t)) = (composite.as_ref(), image.as_ref()) {
-                    let k = self.buffer_scale(li, &world, fit);
+                    let k = self.buffer_scale(li, &world, fit, size);
                     let (fw, fh) = (
                         (size[0] * k[0]).round().max(1.0) as usize,
                         (size[1] * k[1]).round().max(1.0) as usize,
@@ -2361,7 +2358,7 @@ impl Engine {
                 continue;
             }
 
-            let k = self.buffer_scale(li, &world, fit);
+            let k = self.buffer_scale(li, &world, fit, size);
             let (fw, fh) = (
                 (size[0] * k[0]).round().max(1.0) as usize,
                 (size[1] * k[1]).round().max(1.0) as usize,
@@ -2597,10 +2594,12 @@ impl Engine {
 
     /// Effect buffer pixels per layer pixel, per axis, so a layer stretched in one direction gets
     /// a buffer of its screen shape. Effects never need more detail than the screen shows, nor
-    /// more than the layer has: one buffer pixel per image pixel, or the text bitmap's scale.
-    fn buffer_scale(&self, li: usize, world: &Mat4, fit: f32) -> [f32; 2] {
+    /// more than the layer has: one buffer pixel per image pixel, or the text bitmap's scale. A
+    /// buffer of a layer `size` units large also stays within the GPU's texture size.
+    fn buffer_scale(&self, li: usize, world: &Mat4, fit: f32, size: [f32; 2]) -> [f32; 2] {
         let finest = self.layers[li].text.map_or(1.0, |t| t.scale);
-        axis_scale(world).map(|s| (fit * s).min(finest).max(0.05))
+        let fits = MAX_BUFFER_EDGE / size[0].max(size[1]).max(1.0);
+        axis_scale(world).map(|s| (fit * s).min(finest).min(fits).max(0.05))
     }
 
     /// Ends the main pass, copies the target into `_rt_FullFrameBuffer` and reopens the pass.
@@ -3106,23 +3105,23 @@ fn text_fbo_scale(k: [f32; 2], fbos: &[(String, f32)]) -> [f32; 2] {
 
 /// Text raster scales are powers of 2^(1/8), about 9 % apart.
 const TEXT_SCALE_STEPS_PER_OCTAVE: f32 = 8.0;
-/// The longest edge, in pixels, a text layer's box may take at its raster scale; this bounds its
-/// bitmap and effect buffers when the view zooms far in.
-const TEXT_MAX_EDGE: f32 = 8192.0;
+/// The finest text raster scale, for a view zoomed far in. The text module also keeps a bitmap
+/// within the texture size, so a long string is not lost at this scale.
+const TEXT_MAX_SCALE: f32 = 16.0;
+/// The longest edge, in pixels, of an effect buffer: the GPU's texture size limit.
+const MAX_BUFFER_EDGE: f32 = 16_384.0;
 
-/// Bitmap pixels per design unit for a text layer of `size` design units that shows at
-/// `on_screen` screen pixels per design unit. Rounding up to the next step means the bitmap is
-/// never magnified (blurry) and never shrunk by more than one step (bilinear sampling without
-/// mipmaps aliases when it shrinks much more), and a layer whose scale animates rasterises once
-/// per step instead of every frame.
-fn text_raster_scale(on_screen: f32, size: [f32; 2]) -> f32 {
-    let cap = TEXT_MAX_EDGE / size[0].max(size[1]).max(1.0);
+/// Bitmap pixels per design unit for a text layer that shows at `on_screen` screen pixels per
+/// design unit. Rounding up to the next step means the bitmap is never magnified (blurry) and
+/// never shrunk by more than one step (bilinear sampling without mipmaps aliases when it shrinks
+/// much more), and a layer whose scale animates rasterises once per step instead of every frame.
+fn text_raster_scale(on_screen: f32) -> f32 {
     if !(on_screen.is_finite() && on_screen > 0.0) {
-        return cap.min(1.0);
+        return 1.0;
     }
     // The bias keeps a scale that sits on a step (1, 2) from rounding up through float error.
     let step = (on_screen.log2() * TEXT_SCALE_STEPS_PER_OCTAVE - 1e-3).ceil();
-    (step / TEXT_SCALE_STEPS_PER_OCTAVE).exp2().min(cap)
+    (step / TEXT_SCALE_STEPS_PER_OCTAVE).exp2().min(TEXT_MAX_SCALE)
 }
 
 /// The part of the centred unit quad that `mvp` puts inside clip space grown to `reach` (1 is the
@@ -3545,22 +3544,21 @@ mod tests {
     #[test]
     fn text_rasterises_at_the_next_step_above_its_screen_scale() {
         let step = 2f32.powf(1.0 / TEXT_SCALE_STEPS_PER_OCTAVE);
-        let size = [688.0, 205.0];
         for on_screen in [0.05, 0.42, 0.75, 1.0, 1.5, 1.72, 2.0, 3.0, 4.0] {
-            let s = text_raster_scale(on_screen, size);
+            let s = text_raster_scale(on_screen);
             // Never magnified, never shrunk by more than one step.
             let ratio = s / on_screen;
             assert!((0.9999..=step * 1.0001).contains(&ratio), "{on_screen} -> {s}");
         }
         // A scale on a step keeps it; one just above takes the next.
-        assert_eq!(text_raster_scale(2.0, size), 2.0);
-        assert!(text_raster_scale(2.01, size) > 2.0);
+        assert_eq!(text_raster_scale(2.0), 2.0);
+        assert!(text_raster_scale(2.01) > 2.0);
         // Nearby scales share a step, so a slowly scaling layer reuses its bitmap.
-        assert_eq!(text_raster_scale(1.45, size), text_raster_scale(1.5, size));
-        // A huge zoom stops at the edge limit; a broken scale falls back to 1.
-        assert_eq!(text_raster_scale(100.0, size), TEXT_MAX_EDGE / 688.0);
-        assert_eq!(text_raster_scale(f32::NAN, size), 1.0);
-        assert_eq!(text_raster_scale(0.0, size), 1.0);
+        assert_eq!(text_raster_scale(1.45), text_raster_scale(1.5));
+        // A huge zoom stops at the limit; a broken scale falls back to 1.
+        assert_eq!(text_raster_scale(100.0), TEXT_MAX_SCALE);
+        assert_eq!(text_raster_scale(f32::NAN), 1.0);
+        assert_eq!(text_raster_scale(0.0), 1.0);
     }
 
     #[test]

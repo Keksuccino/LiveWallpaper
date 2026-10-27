@@ -275,7 +275,10 @@ pub struct TextLayer {
     pub point_size: f32,
     pub horizontal_align: String,
     pub vertical_align: String,
-    pub padding: f32,
+    /// Margin around the glyphs, in design units: `"x y"`, or one number for both in older files.
+    pub padding: [f32; 2],
+    /// The layer's `colorBlendMode` (0 draws normally), which blends the text with what is behind.
+    pub color_blend_mode: i64,
     /// The static value; scripts would replace it every tick.
     pub value: String,
 }
@@ -456,6 +459,8 @@ pub struct Scene {
     /// much a surface faces up.
     pub ambient: Bound,
     pub skylight: Bound,
+    /// `general.hdr`: colours may exceed 1, so a text layer's brightness scales its colour.
+    pub hdr: bool,
     /// Object kinds this renderer does not draw yet, with counts (reported as load warnings).
     pub skipped: BTreeMap<String, usize>,
 }
@@ -491,6 +496,7 @@ impl Scene {
             lights: Vec::new(),
             ambient: Bound::parse(general.get("ambientcolor"), Value::from("0 0 0")),
             skylight: Bound::parse(general.get("skylightcolor"), Value::from("0 0 0")),
+            hdr: general["hdr"].as_bool() == Some(true),
             skipped: BTreeMap::new(),
             scripts: Vec::new(),
             sounds: Vec::new(),
@@ -557,15 +563,17 @@ impl Scene {
         let text = obj
             .get("text")
             .filter(|v| !v.is_null())
+            // Missing keys take Wallpaper Engine's defaults: 32 pt, centred both ways, padding 32.
             .map(|t| TextLayer {
                 font: obj["font"].as_str().unwrap_or("Helvetica").to_string(),
                 point_size: obj["pointsize"].as_f64().unwrap_or(32.0) as f32,
                 horizontal_align: obj["horizontalalign"]
                     .as_str()
-                    .unwrap_or("left")
+                    .unwrap_or("center")
                     .to_string(),
-                vertical_align: obj["verticalalign"].as_str().unwrap_or("top").to_string(),
-                padding: obj["padding"].as_f64().unwrap_or(0.0) as f32,
+                vertical_align: obj["verticalalign"].as_str().unwrap_or("center").to_string(),
+                padding: vec_n(obj.get("padding"), [32.0, 32.0]),
+                color_blend_mode: obj["colorBlendMode"].as_i64().unwrap_or(0),
                 value: t["value"].as_str().unwrap_or("").to_string(),
             });
         let particles = obj
