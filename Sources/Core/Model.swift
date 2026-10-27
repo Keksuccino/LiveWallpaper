@@ -21,9 +21,12 @@ public struct VideoItem: Identifiable, Codable, Hashable, Sendable {
     /// Non-nil = a Wallpaper Engine scene (schema v2). `path` is then the scene package (`scene.pkg`) or
     /// the folder's `scene.json`, `previewPath` the preview image shown when the scene cannot be rendered.
     public var scene: SceneInfo?
-    /// When the wallpaper itself was made: a Workshop item's publication, the creation of the user's own file. nil
-    /// while unknown.
+    /// When the user's own wallpaper was made: the creation of its file or folder. nil for a Workshop item (see
+    /// `workshopUpdated`) and while unknown.
     public var created: Date?
+    /// When a Workshop item was last updated on the Workshop, as of its download (Steam's `time_updated`). nil for the
+    /// user's own wallpapers and while unknown.
+    public var workshopUpdated: Date?
     /// When the wallpaper came into the library or was last downloaded again (a Workshop update). nil for one added
     /// before the library kept this.
     public var updated: Date?
@@ -35,7 +38,7 @@ public struct VideoItem: Identifiable, Codable, Hashable, Sendable {
     // New fields are optional so phase-1 records ({"id","path"}) still decode.
     public init(id: UUID = UUID(), path: String, title: String? = nil, author: String? = nil,
                 workshopID: String? = nil, previewPath: String? = nil, tags: [String]? = nil,
-                scene: SceneInfo? = nil, created: Date? = nil, updated: Date? = nil) {
+                scene: SceneInfo? = nil, created: Date? = nil, workshopUpdated: Date? = nil, updated: Date? = nil) {
         self.id = id
         self.path = path
         self.title = title
@@ -45,6 +48,7 @@ public struct VideoItem: Identifiable, Codable, Hashable, Sendable {
         self.tags = tags
         self.scene = scene
         self.created = created
+        self.workshopUpdated = workshopUpdated
         self.updated = updated
     }
 

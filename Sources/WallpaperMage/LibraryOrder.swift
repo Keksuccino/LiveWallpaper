@@ -9,7 +9,7 @@ enum LibrarySort: String, CaseIterable, Identifiable {
     case updated
     /// Playlists, then scenes, then videos (LibraryKind's order), or the other way round.
     case kind
-    /// When an entry itself was made (VideoItem.created, Playlist.created).
+    /// When an entry itself was made, a Workshop item last updated on the Workshop (LibraryEntry.created).
     case created
 
     var id: Self { self }

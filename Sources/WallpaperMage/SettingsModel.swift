@@ -534,13 +534,14 @@ import SceneFormat
         }
     }
 
-    /// Looks up the creation dates the library does not know yet (VideoItem.created), off the main actor: the user's
-    /// own wallpapers' from their files, Workshop items' from Steam in one request. Items Steam no longer has stay
-    /// unknown. Once per launch (again after Steam could not be reached), when Home first sorts by creation date.
+    /// Looks up the dates Home's creation date sort needs that the library does not know yet (LibraryEntry.created),
+    /// off the main actor: the user's own wallpapers' creation from their files (VideoItem.created), Workshop items'
+    /// last update from Steam in one request (VideoItem.workshopUpdated). Items Steam no longer has stay unknown. Once
+    /// per launch (again after Steam could not be reached), when Home first sorts by creation date.
     func fillCreationDates() {
         guard !creationDatesRequested else { return }
         creationDatesRequested = true
-        let missing = videos.filter { $0.created == nil }
+        let missing = videos.filter { ($0.isWorkshop ? $0.workshopUpdated : $0.created) == nil }
         guard !missing.isEmpty else { return }
         Task { @MainActor [weak self] in
             let own = await Task.detached(priority: .utility) {
@@ -548,25 +549,29 @@ import SceneFormat
                     item.url.creationDate.map { (item.id, $0) }
                 }, uniquingKeysWith: { first, _ in first })
             }.value
-            var published: [String: Date] = [:]
+            var workshop: [String: Date] = [:]
             let workshopIDs = Array(Set(missing.compactMap(\.workshopID)))
             if !workshopIDs.isEmpty {
                 do {
-                    published = try await WorkshopKit.API.creationDates(ids: workshopIDs)
+                    workshop = try await WorkshopKit.API.updateDates(ids: workshopIDs)
                 } catch {
                     self?.creationDatesRequested = false
                 }
             }
-            self?.setCreationDates(own: own, published: published)
+            self?.setCreationDates(own: own, workshop: workshop)
         }
     }
 
     /// One change of `videos`, so the library is published and committed once.
-    private func setCreationDates(own: [UUID: Date], published: [String: Date]) {
+    private func setCreationDates(own: [UUID: Date], workshop: [String: Date]) {
         var dated = videos
-        for index in dated.indices where dated[index].created == nil {
+        for index in dated.indices {
             let item = dated[index]
-            dated[index].created = item.workshopID.flatMap { published[$0] } ?? own[item.id]
+            if let workshopID = item.workshopID {
+                if item.workshopUpdated == nil { dated[index].workshopUpdated = workshop[workshopID] }
+            } else if item.created == nil {
+                dated[index].created = own[item.id]
+            }
         }
         if dated != videos { videos = dated }
     }

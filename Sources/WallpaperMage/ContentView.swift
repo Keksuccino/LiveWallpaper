@@ -66,11 +66,12 @@ enum LibraryEntry: Identifiable, Equatable {
         }
     }
 
-    /// When the entry itself was made (VideoItem.created, Playlist.created).
+    /// When the entry itself was made (Playlist.created, VideoItem.created), for a Workshop item when it was last
+    /// updated on the Workshop (VideoItem.workshopUpdated).
     var created: Date? {
         switch self {
         case .playlist(let playlist, _): return playlist.created
-        case .wallpaper(let item): return item.created
+        case .wallpaper(let item): return item.isWorkshop ? item.workshopUpdated : item.created
         }
     }
 

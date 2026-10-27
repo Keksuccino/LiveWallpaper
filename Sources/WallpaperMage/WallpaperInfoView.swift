@@ -133,8 +133,9 @@ struct WallpaperInfoBox: View {
     }
 }
 
-/// A library wallpaper's Info box: its type, resolution, length, size, age rating, author, when it was made and added
-/// (VideoItem.created, VideoItem.updated) and topic tags. Its Workshop page is linked in the InspectorHeader above it.
+/// A library wallpaper's Info box: its type, resolution, length, size, age rating, author, when it was made or, from the
+/// Workshop, last updated there (VideoItem.created, VideoItem.workshopUpdated), when it was added (VideoItem.updated)
+/// and topic tags. Its Workshop page is linked in the InspectorHeader above it.
 @MainActor
 struct WallpaperInfoSection: View {
     let item: VideoItem
@@ -180,7 +181,13 @@ struct WallpaperInfoSection: View {
             rows.append(InfoRow(title: "Rating", value: WallpaperInfoBox.rating(rating)))
         }
         if let author = item.author { rows.append(InfoRow(title: "Author", value: author)) }
-        if let created = item.created { rows.append(InfoRow(title: "Created", value: WallpaperInfoBox.date(created))) }
+        if item.isWorkshop {
+            if let updated = item.workshopUpdated {
+                rows.append(InfoRow(title: "Last Updated", value: WallpaperInfoBox.date(updated)))
+            }
+        } else if let created = item.created {
+            rows.append(InfoRow(title: "Created", value: WallpaperInfoBox.date(created)))
+        }
         if let added = item.updated { rows.append(InfoRow(title: "Added", value: WallpaperInfoBox.date(added))) }
         return rows
     }

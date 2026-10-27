@@ -1080,14 +1080,14 @@ extension WorkshopKit {
             return request
         }
 
-        /// E1 for many items, `detailsBatch` per request: when each was published. Items Steam has no date for are
+        /// E1 for many items, `detailsBatch` per request: when each was last updated. Items Steam has no date for are
         /// left out.
-        static func creationDates(ids: [String]) async throws -> [String: Date] {
+        static func updateDates(ids: [String]) async throws -> [String: Date] {
             var dates: [String: Date] = [:]
             for start in stride(from: 0, to: ids.count, by: detailsBatch) {
                 let batch = Array(ids[start..<min(start + detailsBatch, ids.count)])
                 for file in try await send(detailsRequest(ids: batch), keyed: false).files {
-                    if let created = file.created { dates[file.id] = Date(timeIntervalSince1970: TimeInterval(created)) }
+                    if let updated = file.updated { dates[file.id] = Date(timeIntervalSince1970: TimeInterval(updated)) }
                 }
             }
             return dates
@@ -1690,7 +1690,7 @@ extension WorkshopKit {
             let project = parseProject((try? Data(contentsOf: projectFile)) ?? Data())
             if (project.type ?? item.kind.rawValue) == "scene" {
                 var scene = try await importScene(item, project: project, content: content)
-                scene.created = item.created
+                scene.workshopUpdated = item.updated
                 return scene
             }
             if let type = project.type, type != "video" {
@@ -1721,7 +1721,7 @@ extension WorkshopKit {
                 path: folder.appendingPathComponent("video." + ext).standardizedFileURL.path,
                 title: project.title ?? item.title, author: item.author, workshopID: item.id,
                 previewPath: previewName.map { folder.appendingPathComponent($0).standardizedFileURL.path },
-                tags: item.tags.isEmpty ? nil : item.tags, created: item.created)
+                tags: item.tags.isEmpty ? nil : item.tags, workshopUpdated: item.updated)
         }
 
         /// AVFoundation must be able to play it (no VP9/AV1 surprises); nothing is ever converted.

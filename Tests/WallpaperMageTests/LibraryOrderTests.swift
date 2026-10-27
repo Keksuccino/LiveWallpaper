@@ -60,6 +60,17 @@ final class LibraryOrderTests: XCTestCase {
                        [early.id, tie.id, playlist.id, late.id, unknownNew.id, unknownOld.id])
     }
 
+    func testCreationDateSortsWorkshopItemsByTheirLastUpdate() {
+        let older = VideoItem(path: "/older.mp4", created: day(2))
+        let newer = VideoItem(path: "/newer.mp4", created: day(4))
+        let workshop = VideoItem(path: "/L/1/video.mp4", workshopID: "1", workshopUpdated: day(3), updated: day(1))
+        let unknown = VideoItem(path: "/L/2/video.mp4", workshopID: "2", updated: day(9))
+        let entries = LibraryEntry.library(videos: [older, newer, workshop, unknown], playlists: [], search: "",
+                                           hiding: [])
+
+        XCTAssertEqual(order(.created).sorted(entries).map(\.id), [newer.id, workshop.id, older.id, unknown.id])
+    }
+
     func testSortingKeepsTheFilters() {
         let video = VideoItem(path: "/v.mp4", title: "Ocean", updated: day(1))
         let scene = VideoItem(path: "/s.pkg", title: "Ocean City", scene: SceneInfo(), updated: day(2))
@@ -87,10 +98,10 @@ final class LibraryOrderTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(try XCTUnwrap(video.updated), start)
         XCTAssertEqual(video.created, file.creationDate)
 
-        let downloaded = VideoItem(path: "/L/1/video.mp4", workshopID: "1", created: day(2))
+        let downloaded = VideoItem(path: "/L/1/video.mp4", workshopID: "1", workshopUpdated: day(2))
         model.addImported(downloaded)
         let imported = try XCTUnwrap(model.videos.first { $0.id == downloaded.id })
-        XCTAssertEqual(imported.created, day(2))
+        XCTAssertEqual(imported.workshopUpdated, day(2))
         XCTAssertGreaterThanOrEqual(try XCTUnwrap(imported.updated), start)
     }
 
@@ -127,10 +138,11 @@ final class LibraryOrderTests: XCTestCase {
 
     func testLibraryDatesSurviveTheStateFile() throws {
         let item = VideoItem(path: "/v.mp4", created: day(1), updated: day(2))
+        let workshop = VideoItem(path: "/L/1/video.mp4", workshopID: "1", workshopUpdated: day(5), updated: day(6))
         let playlist = Playlist(name: "P", created: day(3), updated: day(4))
-        let state = LibraryState(videos: [item], playlists: [playlist])
+        let state = LibraryState(videos: [item, workshop], playlists: [playlist])
         let decoded = try JSONDecoder().decode(LibraryState.self, from: JSONEncoder().encode(state))
-        XCTAssertEqual(decoded.videos, [item])
+        XCTAssertEqual(decoded.videos, [item, workshop])
         XCTAssertEqual(decoded.playlists, [playlist])
 
         let legacy = try JSONDecoder().decode(Playlist.self, from: Data(#"{"id":"\#(UUID())","name":"Old"}"#.utf8))
@@ -140,7 +152,7 @@ final class LibraryOrderTests: XCTestCase {
 
     // MARK: Workshop
 
-    func testAWorkshopItemKnowsWhenItWasPublished() throws {
+    func testAWorkshopItemKnowsWhenItWasPublishedAndUpdated() throws {
         let json = #"""
         {"response":{"publishedfiledetails":[{"publishedfileid":"2961836571","result":1,"consumer_app_id":431960,
         "title":"T","file_size":"1","time_created":"1700000000","time_updated":1700000500,"visibility":0,
@@ -149,9 +161,10 @@ final class LibraryOrderTests: XCTestCase {
         let response = try JSONDecoder().decode(WorkshopKit.Wire.Envelope.self, from: Data(json.utf8)).response
         let item = try XCTUnwrap(response.files.first).workshopItem()
         XCTAssertEqual(item.created, Date(timeIntervalSince1970: 1_700_000_000))
+        XCTAssertEqual(item.updated, Date(timeIntervalSince1970: 1_700_000_500))
     }
 
-    func testCreationDatesAreAskedForManyItemsAtOnce() throws {
+    func testWorkshopDatesAreAskedForManyItemsAtOnce() throws {
         let request = WorkshopKit.API.detailsRequest(ids: ["11", "22"])
         let body = String(decoding: try XCTUnwrap(request.httpBody), as: UTF8.self)
         let pairs = Set(body.split(separator: "&").map(String.init))
