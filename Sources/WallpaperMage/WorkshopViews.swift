@@ -386,15 +386,13 @@ private struct CompactCard<Actions: View>: View {
 
 // MARK: - Workshop tab
 
-/// Workshop tab: paste field + result card, topic/tag browse grid (needs an API key), setup banner,
-/// and a live strip for running downloads.
+/// Workshop tab: paste field + result card, topic/tag browse grid (needs an API key) and setup banner.
 @MainActor
 struct WorkshopView: View {
     @ObservedObject var model: SettingsModel
     @ObservedObject var workshop: WorkshopModel
     let openSteamSetup: () -> Void
     let openLibrary: () -> Void
-    let openDownloads: () -> Void
     @State private var browsed = false
     @State private var detail: WorkshopItem?   // the result whose detail pane is open
     @State private var resultsScrolledDown = false   // folds the top part away (see `foldingPart`)
@@ -402,13 +400,11 @@ struct WorkshopView: View {
 
     // RootView (another file) builds this view; spelling the init out keeps the private @State from affecting it.
     init(model: SettingsModel, workshop: WorkshopModel,
-         openSteamSetup: @escaping () -> Void, openLibrary: @escaping () -> Void,
-         openDownloads: @escaping () -> Void) {
+         openSteamSetup: @escaping () -> Void, openLibrary: @escaping () -> Void) {
         self._model = ObservedObject(wrappedValue: model)
         self._workshop = ObservedObject(wrappedValue: workshop)
         self.openSteamSetup = openSteamSetup
         self.openLibrary = openLibrary
-        self.openDownloads = openDownloads
     }
 
     // Wide windows show the detail pane next to the results; narrow ones cover the results with it.
@@ -458,8 +454,7 @@ struct WorkshopView: View {
         VStack(alignment: .leading, spacing: 0) {
             WMPageHeader(
                 title: "Workshop",
-                subtitle: "Video and scene wallpapers from Steam, downloaded with your own account.",
-                trailing: { downloadsStrip })
+                subtitle: "Video and scene wallpapers from Steam, downloaded with your own account.")
                 .padding(.horizontal, WMTheme.contentPadding)
                 .padding(.top, WMTheme.pageTopPadding)
             foldingPart
@@ -537,32 +532,6 @@ struct WorkshopView: View {
         if offset < 1 { return false }
         let scrollRange = geometry.contentSize.height - geometry.containerSize.height
         return offset > 12 && scrollRange > foldingHeight ? true : nil
-    }
-
-    /// Live "N downloads in progress" strip in the header; jumps to the Downloads page.
-    @ViewBuilder private var downloadsStrip: some View {
-        if workshop.hasActiveDownloads {
-            Button(action: openDownloads) {
-                HStack(spacing: 8) {
-                    ProgressRing(progress: workshop.overallDownloadProgress ?? 0,
-                                 size: 22, lineWidth: 2.5)
-                        .opacity(workshop.overallDownloadProgress == nil ? 0.35 : 1)
-                    Text("\(workshop.activeDownloadCount) downloading")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.primary)
-                }
-                .padding(.horizontal, 11)
-                .padding(.vertical, 6)
-                .background {
-                    Capsule()
-                        .fill(.regularMaterial)
-                        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 1))
-                }
-            }
-            .buttonStyle(.plain)
-            .help("Open Downloads")
-            .accessibilityLabel("Open Downloads")
-        }
     }
 
     private var setupBanner: some View {

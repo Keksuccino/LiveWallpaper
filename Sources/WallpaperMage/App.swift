@@ -267,8 +267,7 @@ struct RootView: View {
         case .workshop:
             WorkshopView(model: model, workshop: workshop,
                          openSteamSetup: openSteamSettings,
-                         openLibrary: { selection = .home },
-                         openDownloads: { selection = .downloads })
+                         openLibrary: { selection = .home })
         case .downloads:
             DownloadsView(model: model, workshop: workshop,
                           openLibrary: { selection = .home },

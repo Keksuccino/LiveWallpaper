@@ -56,7 +56,6 @@ struct DownloadsView: View {
                     Button("Clear Finished") {
                         for entry in settled where entry.phase.isDone { workshop.dismissDownload(entry.id) }
                     }
-                    .controlSize(.small)
                 }
             })
     }

@@ -326,6 +326,16 @@ struct WrappingRows: Layout {
     }
 }
 
+/// The glass capsule behind the app's own small controls (chips, pickers, the sort menu, search fields): a material
+/// with a hairline edge.
+struct WMControlCapsule: View {
+    var body: some View {
+        Capsule()
+            .fill(.regularMaterial)
+            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 1))
+    }
+}
+
 /// A tappable capsule used for topic chips and filter segments. Text only, system accent when selected.
 struct WMTopicChip: View {
     let title: String
@@ -343,9 +353,7 @@ struct WMTopicChip: View {
                     if selected {
                         Capsule().fill(WMTheme.accent)
                     } else {
-                        Capsule()
-                            .fill(.regularMaterial)
-                            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 1))
+                        WMControlCapsule()
                     }
                 }
                 .contentShape(Capsule())
@@ -381,11 +389,7 @@ struct WMIconPicker<Value: Hashable>: View {
             }
         }
         .padding(2)
-        .background {
-            Capsule()
-                .fill(.regularMaterial)
-                .overlay(Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 1))
-        }
+        .background { WMControlCapsule() }
         // Scoped to the picker: only the pill slides, while what the selection drives changes in its own transaction.
         .animation(reduceMotion ? nil : WMMotion.select, value: selection)
         .fixedSize()
@@ -424,14 +428,16 @@ private struct IconPickerSegment: View {
     }
 }
 
-/// What a list is sorted by: the chosen sort's name on a capsule button, the sorts in its menu with a checkmark on the
-/// chosen one. As tall as `WMIconPicker`, `WMTopicChip` and `WMSearchField`, so it sits in a row of them. It is as wide
+/// What a list is sorted by: the chosen sort's name on a glass capsule, the sorts in its menu with a checkmark on the
+/// chosen one. Drawn like `WMIconPicker` and as tall, so it sits in a row of the app's capsule controls. It is as wide
 /// as the sort's name, so the row around it animates `selection` to move its other controls over smoothly.
 struct WMSortMenu<Value: Hashable>: View {
     let title: LocalizedStringKey
     @Binding var selection: Value
     let options: [Value]
     let label: (Value) -> String
+    @State private var hovering = false
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         Menu {
@@ -443,12 +449,30 @@ struct WMSortMenu<Value: Hashable>: View {
             .pickerStyle(.inline)
             .labelsHidden()
         } label: {
-            Label(label(selection), systemImage: "arrow.up.arrow.down")
-                .font(.callout.weight(.medium))
+            HStack(spacing: 6) {
+                Label(label(selection), systemImage: "arrow.up.arrow.down")
+                    .font(.callout.weight(.medium))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 28)
+            .background {
+                WMControlCapsule()
+                    .overlay(Capsule().fill(Color.primary.opacity(hovering && isEnabled ? 0.07 : 0)))
+            }
+            .contentShape(Capsule())
         }
-        .buttonBorderShape(.capsule)
-        .controlSize(.large)
+        // The plain style draws the label as it is, so the capsule's edge is the control's edge and the row's spacing
+        // is the gap that shows. The system's bordered menu button is next to invisible on the theme's gradient and
+        // pads its label, which leaves a gap wider than the row's spacing beside it.
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
         .fixedSize()
+        .onHover { inside in withAnimation(WMMotion.hover) { hovering = inside } }
     }
 }
 
@@ -477,32 +501,6 @@ struct StatusDot: View {
             .animation(pulses ? .easeOut(duration: 1.2).repeatForever(autoreverses: false) : .default, value: on)
             .onAppear { on = pulses }
             .onChange(of: pulses) { _, newValue in on = newValue }
-    }
-}
-
-struct ProgressRing: View {
-    let progress: Double
-    var size: CGFloat = 34
-    var lineWidth: CGFloat = 3
-    var tint: Color = WMTheme.accent
-
-    var body: some View {
-        ZStack {
-            Circle().stroke(Color.primary.opacity(0.14), lineWidth: lineWidth)
-            Circle()
-                .trim(from: 0, to: min(max(progress, 0), 1))
-                .stroke(tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .animation(.easeOut(duration: 0.25), value: progress)
-            if size >= 26 {
-                Text(Int((min(max(progress, 0), 1) * 100).rounded()), format: .number)
-                    .font(.system(size: 9, weight: .bold))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(width: size, height: size)
-        .accessibilityLabel("Progress \(Int((min(max(progress, 0), 1) * 100).rounded())) percent")
     }
 }
 
@@ -568,11 +566,7 @@ struct WMSearchField: View {
         }
         .padding(.horizontal, 11)
         .padding(.vertical, 7)
-        .background {
-            Capsule()
-                .fill(.regularMaterial)
-                .overlay(Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 1))
-        }
+        .background { WMControlCapsule() }
         .textFieldClickArea()
         .frame(maxWidth: 260)
     }

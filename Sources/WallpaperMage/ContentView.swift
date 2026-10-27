@@ -374,8 +374,17 @@ struct HomeView: View {
             }
         } label: {
             Label("Add", systemImage: "plus")
+                // The plus symbol has 1.5 points of empty space on its leading side at the label's (body) size; this
+                // takes it back, so the gap that shows before the symbol is the row's spacing. Measure it again when
+                // the symbol or the font changes.
+                .padding(.leading, -1.5)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
+        // The plain style draws the label as it is, so the row's spacing is the gap that shows before it, like the gaps
+        // between the row's capsules. A borderless menu button pads its label on every side.
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
         .help("Import videos, Wallpaper Engine scene packages or scene folders (⌘O), or make a playlist")

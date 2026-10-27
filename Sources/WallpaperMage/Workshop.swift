@@ -431,23 +431,10 @@ enum WorkshopListState: Equatable {
         }
     }
 
-    var activeDownloadCount: Int { downloadEntries.filter(\.phase.isActive).count }
-
     /// 1-based position in the waiting queue; 0 while running; nil when not waiting.
     func queuePosition(of id: String) -> Int? {
         if id == runningID { return 0 }
         return queue.firstIndex(where: { $0.id == id }).map { $0 + 1 }
-    }
-
-    /// Mean progress of the downloads that report a fraction, for the Workshop page's downloads strip.
-    var overallDownloadProgress: Double? {
-        let active = downloadEntries.filter(\.phase.isActive)
-        let fractions = active.compactMap { entry -> Double? in
-            guard case .downloading(let progress) = entry.phase, let progress else { return nil }
-            return min(max(progress, 0), 1)
-        }
-        guard !fractions.isEmpty else { return nil }
-        return fractions.reduce(0, +) / Double(fractions.count)
     }
 
     /// The search inputs as one value, so a view can restart a browse task exactly when one of them changes
