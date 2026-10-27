@@ -238,11 +238,14 @@ struct RootView: View {
 
     // Pages switch without a transition: toolbar items a page adds would fade with it, and AppKit can leave them half
     // transparent, looking disabled, until the pointer passes over them.
-    // No page shows the toolbar's background: side panels (Home's inspector, the Workshop's detail pane) reach up into
-    // the toolbar strip, where it would blur them. Page headers are pinned above what scrolls; the playlist editor's
-    // page fades out under the strip.
+    // Every page reaches up to the window's top edge: the toolbar has no items over the pages, so its strip would
+    // only be empty room above them. Pages pad their content by `WMTheme.pageTopPadding`, side panels (Home's
+    // inspector, the Workshop's detail pane) by `WMTheme.toolbarStripPadding` more than usual. No page shows the
+    // toolbar's background, which would blur what is under it. Page headers are pinned above what scrolls; the
+    // playlist editor's page scrolls up to the window's top edge.
     private var detail: some View {
         content
+            .ignoresSafeArea(.container, edges: .top)
             .background(WMBackground())
             .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
     }

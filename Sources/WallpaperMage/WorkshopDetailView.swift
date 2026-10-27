@@ -61,7 +61,7 @@ struct WorkshopDetailView: View {
                 actions
             }
             .padding(24)
-            // The pane starts at the window's top edge, in the toolbar strip (see `WorkshopView.content`).
+            // The pane starts at the window's top edge, as every page does (RootView).
             .padding(.top, WMTheme.toolbarStripPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }

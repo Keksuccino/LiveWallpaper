@@ -67,7 +67,8 @@ struct PlaylistEditorView: View {
                 PlaylistDetailsCard(model: model, playlist: playlist)
                 PlaylistItemsCard(model: model, playlist: playlist, selection: $selectedItemID)
             }
-            .padding(WMTheme.contentPadding)
+            .padding([.horizontal, .bottom], WMTheme.contentPadding)
+            .padding(.top, WMTheme.pageTopPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.visible)
@@ -463,7 +464,7 @@ private struct PlaylistItemInspector: View {
                 }
             }
             .padding(18)
-            // The panel starts at the window's top edge, in the toolbar strip (see `wmInspectorPanel`).
+            // The panel starts at the window's top edge (see `wmInspectorPanel`).
             .padding(.top, WMTheme.toolbarStripPadding)
         }
         .scrollIndicators(.visible)

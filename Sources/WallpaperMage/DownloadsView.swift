@@ -21,7 +21,8 @@ struct DownloadsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-                .padding([.horizontal, .top], WMTheme.contentPadding)
+                .padding(.horizontal, WMTheme.contentPadding)
+                .padding(.top, WMTheme.pageTopPadding)
                 .padding(.bottom, 8)
             ScrollView {
                 VStack(alignment: .leading, spacing: WMTheme.sectionSpacing) {

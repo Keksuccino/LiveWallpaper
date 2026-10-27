@@ -218,7 +218,8 @@ struct HomeView: View {
                     DisplayPicker(model: model) { revealCurrent(with: proxy) }
                     libraryHeader(count: entries.count)
                 }
-                .padding([.horizontal, .top], WMTheme.contentPadding)
+                .padding(.horizontal, WMTheme.contentPadding)
+                .padding(.top, WMTheme.pageTopPadding)
                 .padding(.bottom, 8)
                 ScrollView {
                     libraryItems(entries)
@@ -890,7 +891,7 @@ struct DisplayInspectorView: View {
             }
         }
         .padding(18)
-        // The panel starts at the window's top edge, in the toolbar strip (see `wmInspectorPanel`).
+        // The panel starts at the window's top edge (see `wmInspectorPanel`).
         .padding(.top, WMTheme.toolbarStripPadding)
     }
 

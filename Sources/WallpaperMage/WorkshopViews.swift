@@ -427,7 +427,6 @@ struct WorkshopView: View {
     /// under the detail pane instead of removing it, disables it so its controls ignore the keyboard, and pauses its
     /// animated previews.
     /// Its width changes without animation, which AnchoredScrollView needs to keep the same wallpapers in view.
-    /// Like Home's inspector (`wmInspectorPanel`), the detail pane reaches up into the toolbar strip, in both widths.
     @ViewBuilder private func content(wide: Bool) -> some View {
         let covered = detail != nil && !wide
         HStack(spacing: 0) {
@@ -438,7 +437,7 @@ struct WorkshopView: View {
                 .accessibilityHidden(covered)
                 .environment(\.animatedPicturesPlay, !covered)
             if wide, let item = detail {
-                Divider().ignoresSafeArea(.container, edges: .top)
+                Divider()
                 detailPane(item).frame(width: 380).zIndex(1)
             }
         }
@@ -451,7 +450,6 @@ struct WorkshopView: View {
         WorkshopDetailView(model: model, workshop: workshop, item: item, close: { detail = nil },
                            openSteamSetup: openSteamSetup, openLibrary: openLibrary)
             .id(item.id)
-            .ignoresSafeArea(.container, edges: .top)
     }
 
     /// The page header, the folding part and the browse controls stay put, as Home's header does; only the results
@@ -462,7 +460,8 @@ struct WorkshopView: View {
                 title: "Workshop",
                 subtitle: "Video and scene wallpapers from Steam, downloaded with your own account.",
                 trailing: { downloadsStrip })
-                .padding([.horizontal, .top], WMTheme.contentPadding)
+                .padding(.horizontal, WMTheme.contentPadding)
+                .padding(.top, WMTheme.pageTopPadding)
             foldingPart
             if workshop.canBrowse {
                 browseHeader

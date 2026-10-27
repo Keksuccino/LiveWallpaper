@@ -35,9 +35,12 @@ enum WMTheme {
     static let panelRadius: CGFloat = 22
     static let sidebarWidth: CGFloat = 236
     static let inspectorWidth: CGFloat = 330
-    /// Added to the top padding of a side panel's content when the panel reaches up into the toolbar strip
-    /// (`wmInspectorPanel`), so its content starts below the strip's window controls.
+    /// Added to the top padding of a side panel's content, which starts at the window's top edge like every page
+    /// (RootView), so its content starts below the toolbar strip's window controls.
     static let toolbarStripPadding: CGFloat = 22
+    /// The top padding of a page's content, from the window's top edge: the page header starts level with the content
+    /// of the side panel beside it (Home's inspector: its 18 points of padding and `toolbarStripPadding`).
+    static let pageTopPadding: CGFloat = 40
     static let gridSpacing: CGFloat = 20
     static let cardMinWidth: CGFloat = 252
     static let sectionSpacing: CGFloat = 26
@@ -185,17 +188,19 @@ struct GlassPanel<Content: View>: View {
 // MARK: - Page header
 
 /// The big page title and a quiet subtitle, used to open every page. Typography-led: no icons, no colour.
+/// The trailing actions sit on the title's line, their bottom edge level with the title's.
 struct WMPageHeader<Trailing: View>: View {
     let title: LocalizedStringKey
     var subtitle: LocalizedStringKey? = nil
     @ViewBuilder let trailing: () -> Trailing
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
+        HStack(alignment: .pageTitleBottom, spacing: 16) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.system(size: 30, weight: .bold))
                     .kerning(-0.4)
+                    .alignmentGuide(.pageTitleBottom) { $0[.bottom] }
                 if let subtitle {
                     Text(subtitle)
                         .font(.callout)
@@ -214,6 +219,16 @@ extension WMPageHeader where Trailing == EmptyView {
     init(title: LocalizedStringKey, subtitle: LocalizedStringKey? = nil) {
         self.init(title: title, subtitle: subtitle, trailing: { EmptyView() })
     }
+}
+
+private extension VerticalAlignment {
+    /// The bottom of a page header's title, set on the title itself: the subtitle below it does not move the trailing
+    /// actions, whose own bottom edge is the default.
+    enum PageTitleBottom: AlignmentID {
+        static func defaultValue(in context: ViewDimensions) -> CGFloat { context[.bottom] }
+    }
+
+    static let pageTitleBottom = VerticalAlignment(PageTitleBottom.self)
 }
 
 // MARK: - Inspector pieces
@@ -570,20 +585,16 @@ extension View {
         modifier(HoverLiftModifier(enabled: enabled))
     }
 
-    /// A fixed inspector panel on the trailing side, always shown. Like the sidebar it reaches up into the toolbar strip,
-    /// which has no items above it (a page using it hides the toolbar's background there, and its content needs
-    /// `WMTheme.toolbarStripPadding` more top padding). SwiftUI's `inspector` would take over the toolbar's trailing
-    /// items.
+    /// A fixed inspector panel on the trailing side, always shown. Like the page and the sidebar it reaches up to the
+    /// window's top edge (RootView), so its content needs `WMTheme.toolbarStripPadding` more top padding. SwiftUI's
+    /// `inspector` would take over the toolbar's trailing items.
     func wmInspectorPanel<Inspector: View>(@ViewBuilder _ inspector: () -> Inspector) -> some View {
         HStack(spacing: 0) {
             frame(maxWidth: .infinity, maxHeight: .infinity)
-            Group {
-                Divider()
-                inspector()
-                    .frame(width: WMTheme.inspectorWidth)
-                    .frame(maxHeight: .infinity)
-            }
-            .ignoresSafeArea(.container, edges: .top)
+            Divider()
+            inspector()
+                .frame(width: WMTheme.inspectorWidth)
+                .frame(maxHeight: .infinity)
         }
     }
 }
