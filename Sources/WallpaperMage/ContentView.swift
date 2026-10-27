@@ -5,7 +5,8 @@ import Core
 
 // Home: the connected displays (DisplayArrangementView) above the library of playlists and wallpapers, in the order
 // the user sorts it by (LibraryOrder). Clicking one puts it on the selected display at once; the inspector holds that
-// display's settings. A playlist's editor (PlaylistEditorView) takes the library's place while it is open.
+// display's settings. Clicking a display scrolls the card of what it shows to the middle of the library. A playlist's
+// editor (PlaylistEditorView) takes the library's place while it is open.
 
 enum LibraryLayout: String, CaseIterable {
     case grid, list
@@ -124,6 +125,8 @@ struct HomeView: View {
     @State private var pendingDeletion: Playlist.ID?
     /// Ringed for a moment after Show in Library scrolled to it.
     @State private var highlightedID: VideoItem.ID?
+    /// Scrolls the card of what a clicked display shows to the middle of the library.
+    @State private var cardReveal = LibraryReveal()
 
     var body: some View {
         Group {
@@ -208,23 +211,28 @@ struct HomeView: View {
     /// scrolls.
     private var gallery: some View {
         let entries = entries
-        return VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 26) {
-                WMPageHeader(title: "Home")
-                DisplayPicker(model: model)
-                libraryHeader(count: entries.count)
-            }
-            .padding([.horizontal, .top], WMTheme.contentPadding)
-            .padding(.bottom, 8)
-            ScrollViewReader { proxy in
+        return ScrollViewReader { proxy in
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 26) {
+                    WMPageHeader(title: "Home")
+                    DisplayPicker(model: model) { revealCurrent(with: proxy) }
+                    libraryHeader(count: entries.count)
+                }
+                .padding([.horizontal, .top], WMTheme.contentPadding)
+                .padding(.bottom, 8)
                 ScrollView {
                     libraryItems(entries)
                         .padding([.horizontal, .bottom], WMTheme.contentPadding)
                         .padding(.top, 6)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .coordinateSpace(.named(LibraryReveal.contentSpace))
                 }
                 .scrollIndicators(.visible)
                 .scrollEdgeEffectStyle(.soft, for: .top)
+                .onScrollGeometryChange(for: ScrollGeometry.self, of: { $0 }) { _, geometry in
+                    cardReveal.scrolled(geometry)
+                }
+                .onScrollPhaseChange { _, phase in cardReveal.phaseChanged(to: phase) }
                 .onAppear { reveal(with: proxy) }
                 .onChange(of: model.focusedID) { reveal(with: proxy) }
             }
@@ -258,6 +266,12 @@ struct HomeView: View {
             try? await Task.sleep(nanoseconds: 1_600_000_000)
             withAnimation(WMMotion.content) { if highlightedID == id { highlightedID = nil } }
         }
+    }
+
+    /// Scrolls the card of what the clicked display shows to the middle of the library's view.
+    private func revealCurrent(with proxy: ScrollViewProxy) {
+        guard let content = currentContent, let id = content.wallpaperID ?? content.playlistID else { return }
+        cardReveal.reveal(id, with: proxy)
     }
 
     /// The library's title, kind filters, sort controls, layout picker, search and Add menu in one row where they fit;
@@ -378,18 +392,20 @@ struct HomeView: View {
                                                  spacing: WMTheme.gridSpacing)],
                               alignment: .leading, spacing: WMTheme.gridSpacing) {
                         ForEach(entries) { entry in
-                            LibraryCard(entry: entry, broken: broken(entry), state: cardState(entry),
-                                        actions: actions(entry))
+                            let state = cardState(entry)
+                            LibraryCard(entry: entry, broken: broken(entry), state: state, actions: actions(entry))
                                 .id(entry.id)
+                                .libraryRevealCard(entry.id, current: state.current, in: cardReveal)
                                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
                         }
                     }
                 case .list:
                     LazyVStack(spacing: 4) {
                         ForEach(entries) { entry in
-                            LibraryListRow(entry: entry, broken: broken(entry), state: cardState(entry),
-                                           actions: actions(entry))
+                            let state = cardState(entry)
+                            LibraryListRow(entry: entry, broken: broken(entry), state: state, actions: actions(entry))
                                 .id(entry.id)
+                                .libraryRevealCard(entry.id, current: state.current, in: cardReveal)
                         }
                     }
                 }

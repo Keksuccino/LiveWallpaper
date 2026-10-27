@@ -8,10 +8,12 @@ import Core
 @MainActor
 struct DisplayPicker: View {
     @ObservedObject var model: SettingsModel
+    /// Called when a click on a display selected it, also when it was selected already.
+    let didSelect: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            DisplayArrangement(model: model)
+            DisplayArrangement(model: model, didSelect: didSelect)
             if let screen = model.selectedScreen { caption(screen) }
         }
         .wmGlassCard()
@@ -55,6 +57,7 @@ struct DisplayPicker: View {
 @MainActor
 private struct DisplayArrangement: View {
     @ObservedObject var model: SettingsModel
+    let didSelect: () -> Void
     private let maxHeight: CGFloat = 190
     private let gap: CGFloat = 6
 
@@ -72,7 +75,8 @@ private struct DisplayArrangement: View {
                                       width: screen.frame.width * scale,
                                       height: screen.frame.height * scale)
                         .insetBy(dx: gap / 2, dy: gap / 2)
-                    DisplayTile(model: model, screen: screen, selected: screen.id == model.selectedDisplayID)
+                    DisplayTile(model: model, screen: screen, selected: screen.id == model.selectedDisplayID,
+                                didSelect: didSelect)
                         .frame(width: rect.width, height: rect.height)
                         .position(x: rect.midX, y: rect.midY)
                 }
@@ -94,6 +98,7 @@ private struct DisplayTile: View {
     @ObservedObject var model: SettingsModel
     let screen: ScreenInfo
     let selected: Bool
+    let didSelect: () -> Void
     @State private var hovering = false
     @State private var still: LoadedStill?
     /// The still `still` replaced on the tile, kept beneath the new one while it fades in, so the fade never lets
@@ -114,7 +119,10 @@ private struct DisplayTile: View {
         let item = model.shownItem(on: screen.id)
         let wallpaper = model.systemWallpaper(on: screen.id)
         let shape = RoundedRectangle(cornerRadius: Self.radius, style: .continuous)
-        Button { model.selectedDisplayID = screen.id } label: {
+        Button {
+            model.selectedDisplayID = screen.id
+            didSelect()
+        } label: {
             face(item, still: showsStill(of: item, wallpaper: wallpaper) ? still : nil, shape: shape)
         }
         .buttonStyle(.plain)
