@@ -855,13 +855,12 @@ struct DisplayInspectorView: View {
                     errorLine(screen)
                     WallpaperInfoSection(item: item)
                     WallpaperSettingsCard(model: model, scope: .display(screen.id), item: item)
-                    energy(screen)
                 }
             case .playlist(let id):
                 if let playlist = model.playlist(id) {
                     PlaylistSummary(model: model, playlist: playlist, screen: screen)
                     errorLine(screen)
-                    energy(screen)
+                    EnergySection(model: model, display: screen.id)
                 }
             case nil:
                 VStack(spacing: 10) {
@@ -885,15 +884,6 @@ struct DisplayInspectorView: View {
                 .font(.caption)
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private func energy(_ screen: ScreenInfo) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Divider()
-            InspectorSection(title: "Energy") {
-                ScenePowerRows(model: model, display: screen.id)
-            }
         }
     }
 }

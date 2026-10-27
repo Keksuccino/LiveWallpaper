@@ -16546,89 +16546,6 @@
         }
       }
     },
-    "Last Added/Updated" : {
-      "comment" : "Option of the library's sort menu: by when a wallpaper or playlist was added to the library or last updated.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zuletzt hinzugefügt/aktualisiert"
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Τελευταία προσθήκη/ενημέρωση"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Última adición/actualización"
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Última adición/actualización"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dernier ajout/mise à jour"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最終追加/更新日"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "마지막 추가/업데이트"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ostatnio dodane/zaktualizowane"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Última adição/atualização"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Последнее добавление/обновление"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Son Eklenen/Güncellenen"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Останнє додавання/оновлення"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最近添加/更新"
-          }
-        }
-      }
-    },
     "Last Edited" : {
       "comment" : "Row of a playlist's Info box in the Home inspector: when the user last changed the playlist.",
       "localizations" : {
@@ -16791,6 +16708,89 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最后更新时间"
+          }
+        }
+      }
+    },
+    "Latest" : {
+      "comment" : "Option of the library's sort menu: by when a wallpaper or playlist was added to the library or last updated.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neueste"
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Πιο πρόσφατα"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Más recientes"
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Más recientes"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plus récents"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最新"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "최신순"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Najnowsze"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mais recentes"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "По новизне"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En Yeni"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "За новизною"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最新"
           }
         }
       }
@@ -23544,8 +23544,91 @@
         }
       }
     },
+    "Put every setting of this wallpaper and this display’s energy settings back to their defaults." : {
+      "comment" : "Tooltip of the Reset button in a display's wallpaper settings: it also resets the display's Energy section.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Setzt alle Einstellungen dieses Hintergrundbilds und die Energieeinstellungen dieses Displays auf die Standardwerte zurück."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Επαναφέρει όλες τις ρυθμίσεις αυτής της ταπετσαρίας και τις ρυθμίσεις ενέργειας αυτής της οθόνης στις προεπιλογές τους."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restablece todos los ajustes de este fondo de pantalla y los ajustes de energía de esta pantalla a sus valores por omisión."
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restablece toda la configuración de este fondo y la configuración de energía de esta pantalla a sus valores predeterminados."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rétablit les valeurs par défaut de tous les réglages de ce fond d’écran et des réglages d’énergie de cet écran."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この壁紙のすべての設定と、このディスプレイのエネルギー設定をデフォルトに戻します。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 배경화면의 모든 설정과 이 디스플레이의 에너지 설정을 기본값으로 되돌립니다."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Przywróć wszystkie ustawienia tej tapety i ustawienia energii tego monitora do wartości domyślnych."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restaura todos os ajustes deste papel de parede e os ajustes de energia desta tela para o padrão."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вернуть все настройки этих обоев и настройки энергии этого дисплея к значениям по умолчанию."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu duvar kâğıdının tüm ayarlarını ve bu ekranın enerji ayarlarını varsayılan değerlerine döndürür."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Відновити типові значення всіх параметрів цієї шпалери та параметрів енергії цього дисплея."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将此墙纸的所有设置和此显示器的能耗设置恢复为默认值。"
+          }
+        }
+      }
+    },
     "Put every setting of this wallpaper back to its default." : {
-      "comment" : "Tooltip of the Reset button.",
+      "comment" : "Tooltip of the Reset button in a playlist's wallpaper settings.",
       "localizations" : {
         "de" : {
           "stringUnit" : {

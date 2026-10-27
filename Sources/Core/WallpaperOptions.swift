@@ -183,16 +183,47 @@ extension WallpaperOptions {
     }
 }
 
-/// A named set of one wallpaper's options the user saved (Wallpaper Engine's "your presets").
+/// A named set of one wallpaper's options the user saved (Wallpaper Engine's "your presets"), with the energy
+/// settings of the display it was saved on.
 public struct WallpaperPreset: Codable, Equatable, Identifiable, Sendable {
     public var id: UUID
     public var name: String
     public var options: WallpaperOptions
+    /// The display's energy settings (DisplayConfig.power); nil when saved in a playlist, which has none. Loading a
+    /// preset without them leaves a display's own.
+    public var power: PowerOptions?
 
-    public init(id: UUID = UUID(), name: String, options: WallpaperOptions) {
+    public init(id: UUID = UUID(), name: String, options: WallpaperOptions, power: PowerOptions? = nil) {
         self.id = id
         self.name = name
         self.options = options
+        self.power = power
+    }
+}
+
+/// What "Share JSON" puts on the clipboard: a wallpaper's options and, from a display, its energy settings under
+/// `power`, all in one object. JSON with the options' keys alone loads too, without energy settings.
+public struct SharedWallpaperSettings: Codable, Equatable, Sendable {
+    public var options: WallpaperOptions
+    public var power: PowerOptions?
+
+    public init(options: WallpaperOptions, power: PowerOptions? = nil) {
+        self.options = options
+        self.power = power
+    }
+
+    // `power` sits beside the options' own keys: both containers are the same JSON object.
+    private enum CodingKeys: String, CodingKey { case power }
+
+    public init(from decoder: Decoder) throws {
+        options = try WallpaperOptions(from: decoder)
+        power = try decoder.container(keyedBy: CodingKeys.self).decodeIfPresent(PowerOptions.self, forKey: .power)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try options.encode(to: encoder)
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(power, forKey: .power)
     }
 }
 

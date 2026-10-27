@@ -2,9 +2,10 @@ import SwiftUI
 import Core
 import SceneFormat
 
-// A wallpaper's settings on one display (the "Wallpaper" section of the Home inspector) or in one playlist (the
-// playlist editor's inspector), and a display's "Energy" power settings. Everything writes through SettingsModel
-// (DisplayConfig.wallpaperOptions, Playlist.wallpaperOptions, DisplayConfig.power), which commits to the service.
+// A wallpaper's settings on one display (the Wallpaper, Energy and Presets sections of the Home inspector) or in one
+// playlist (the playlist editor's inspector), and a display's "Energy" power settings. Everything writes through
+// SettingsModel (DisplayConfig.wallpaperOptions, Playlist.wallpaperOptions, DisplayConfig.power), which commits to the
+// service.
 
 @MainActor
 struct WallpaperSettingsCard: View {
@@ -31,21 +32,27 @@ struct WallpaperSettingsCard: View {
         return false
     }
 
+    /// The Wallpaper section, a display's Energy section and the Presets for both, last. The spacing matches the
+    /// inspectors' own sections.
     var body: some View {
-        InspectorSection(title: "Wallpaper") {
-            VStack(alignment: .leading, spacing: 12) {
-                if let sheet {
-                    propertyList(sheet)
-                } else {
-                    ProgressView().controlSize(.small).frame(maxWidth: .infinity)
+        VStack(alignment: .leading, spacing: 20) {
+            InspectorSection(title: "Wallpaper") {
+                VStack(alignment: .leading, spacing: 12) {
+                    if let sheet {
+                        propertyList(sheet)
+                    } else {
+                        ProgressView().controlSize(.small).frame(maxWidth: .infinity)
+                    }
+                    if item.isScene {
+                        Divider()
+                        performance
+                    }
                 }
-                if item.isScene {
-                    Divider()
-                    performance
-                }
-                Divider()
-                presetButtons
             }
+            if case .display(let display) = scope {
+                EnergySection(model: model, display: display)
+            }
+            presetButtons
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: item.id) { sheet = await WallpaperSheet.load(for: item) }
@@ -78,73 +85,82 @@ struct WallpaperSettingsCard: View {
 
     // MARK: Presets
 
-    /// Wallpaper Engine's "your presets": load, save, apply to all wallpapers, share as JSON, reset.
+    /// Wallpaper Engine's "your presets": load, save, apply to all wallpapers, share as JSON, reset. Presets, shared
+    /// JSON and Reset cover the display's energy settings too.
     private var presetButtons: some View {
         let saved = model.presets(for: item)
-        return InspectorSection(title: "Presets") {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    // A Menu keeps its natural width whatever its frame; Save takes the rest of the row.
-                    Menu {
-                        ForEach(saved) { preset in
-                            Button(preset.name) { update { $0 = preset.options } }
-                        }
-                        if !saved.isEmpty { Divider() }
-                        Button("Paste from Clipboard", action: pasteJSON)
-                        if !saved.isEmpty {
-                            Menu("Delete") {
-                                ForEach(saved) { preset in
-                                    Button(preset.name, role: .destructive) { model.deletePreset(preset, of: item) }
+        return VStack(alignment: .leading, spacing: 18) {
+            Divider()
+            InspectorSection(title: "Presets") {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        // A Menu keeps its natural width whatever its frame; Save takes the rest of the row.
+                        Menu {
+                            ForEach(saved) { preset in
+                                Button(preset.name) {
+                                    model.applySettings(preset.options, power: preset.power, to: item, in: scope)
                                 }
                             }
+                            if !saved.isEmpty { Divider() }
+                            Button("Paste from Clipboard", action: pasteJSON)
+                            if !saved.isEmpty {
+                                Menu("Delete") {
+                                    ForEach(saved) { preset in
+                                        Button(preset.name, role: .destructive) { model.deletePreset(preset, of: item) }
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label("Load", systemImage: "folder")
                         }
-                    } label: {
-                        Label("Load", systemImage: "folder")
+                        Button {
+                            presetName = ""
+                            naming = true
+                        } label: {
+                            Label("Save", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity)
+                        }
                     }
-                    Button {
-                        presetName = ""
-                        naming = true
-                    } label: {
-                        Label("Save", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity)
+                    Button { confirmingApplyToAll = true } label: {
+                        Label("Apply to All Wallpapers", systemImage: "square.stack.3d.up").frame(maxWidth: .infinity)
+                    }
+                    .help(inPlaylist
+                          ? "Gives every other wallpaper in this playlist this wallpaper’s settings, apart from scene properties."
+                          : "Gives every other wallpaper on this display this wallpaper’s settings, apart from scene properties.")
+                    HStack(spacing: 8) {
+                        Button(action: copyJSON) {
+                            Label("Share JSON", systemImage: "doc.on.doc").frame(maxWidth: .infinity)
+                        }
+                        .help("Copies this wallpaper’s settings to the clipboard as JSON.")
+                        Button(action: reset) {
+                            Label("Reset", systemImage: "arrow.counterclockwise").frame(maxWidth: .infinity)
+                        }
+                        .disabled(isDefault)
+                        .help(inPlaylist
+                              ? "Put every setting of this wallpaper back to its default."
+                              : "Put every setting of this wallpaper and this display’s energy settings back to their defaults.")
                     }
                 }
-                Button { confirmingApplyToAll = true } label: {
-                    Label("Apply to All Wallpapers", systemImage: "square.stack.3d.up").frame(maxWidth: .infinity)
-                }
-                .help(inPlaylist
-                      ? "Gives every other wallpaper in this playlist this wallpaper’s settings, apart from scene properties."
-                      : "Gives every other wallpaper on this display this wallpaper’s settings, apart from scene properties.")
-                HStack(spacing: 8) {
-                    Button(action: copyJSON) {
-                        Label("Share JSON", systemImage: "doc.on.doc").frame(maxWidth: .infinity)
-                    }
-                    .help("Copies this wallpaper’s settings to the clipboard as JSON.")
-                    Button(action: reset) {
-                        Label("Reset", systemImage: "arrow.counterclockwise").frame(maxWidth: .infinity)
-                    }
-                    .disabled(isDefault)
-                    .help("Put every setting of this wallpaper back to its default.")
-                }
+                .controlSize(.small)
             }
-            .controlSize(.small)
         }
     }
 
     private func copyJSON() {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(options), let text = String(data: data, encoding: .utf8) else { return }
+        let shared = SharedWallpaperSettings(options: options, power: model.power(in: scope))
+        guard let data = try? encoder.encode(shared), let text = String(data: data, encoding: .utf8) else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }
 
     private func pasteJSON() {
         guard let text = NSPasteboard.general.string(forType: .string),
-              let pasted = try? JSONDecoder().decode(WallpaperOptions.self, from: Data(text.utf8)) else {
+              let pasted = try? JSONDecoder().decode(SharedWallpaperSettings.self, from: Data(text.utf8)) else {
             pasteFailed = true
             return
         }
-        update { $0 = pasted }
+        model.applySettings(pasted.options, power: pasted.power, to: item, in: scope)
     }
 
     // MARK: Properties
@@ -417,9 +433,10 @@ struct WallpaperSettingsCard: View {
 
     // MARK: Reset
 
-    /// True when nothing differs from the defaults (the scene's own properties count as default when they equal
-    /// project.json's values).
+    /// True when nothing differs from the defaults, a display's energy settings included (the scene's own properties
+    /// count as default when they equal project.json's values).
     private var isDefault: Bool {
+        guard model.power(in: scope).map({ $0 == .standard }) ?? true else { return false }
         var base = options
         base.properties = [:]
         guard base == .standard else { return false }
@@ -429,23 +446,21 @@ struct WallpaperSettingsCard: View {
         }
     }
 
-    /// Every setting back to its default. Changed properties get their default written explicitly: dropping the key
-    /// would leave the old value in the renderer until the scene restarts.
+    /// Every setting back to its default, a display's energy settings included. Changed properties get their default
+    /// written explicitly: dropping the key would leave the old value in the renderer until the scene restarts.
     private func reset() {
-        let changed = options.properties
-        let own = sheet?.properties ?? []
-        update { o in
-            o = .standard
-            for p in own where changed[p.key] != nil {
-                if let d = ScenePropertyValue(p.defaultValue, kind: p.kind) { o.properties[p.key] = d }
-            }
+        var o = WallpaperOptions.standard
+        for p in sheet?.properties ?? [] where options.properties[p.key] != nil {
+            if let d = ScenePropertyValue(p.defaultValue, kind: p.kind) { o.properties[p.key] = d }
         }
+        model.applySettings(o, power: inPlaylist ? nil : .standard, to: item, in: scope)
     }
 }
 
-/// A display's "Energy" rows (the battery rule); lives inside its settings card.
+/// A display's "Energy" section (the battery rule) under a divider: in its wallpaper's settings card, or on its own
+/// under a playlist.
 @MainActor
-struct ScenePowerRows: View {
+struct EnergySection: View {
     @ObservedObject var model: SettingsModel
     let display: String
 
@@ -457,27 +472,32 @@ struct ScenePowerRows: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("On battery"); Spacer()
-                Picker("On battery", selection: binding(\.batteryMode)) {
-                    Text("Keep running").tag(BatteryMode.keepRunning)
-                    Text("Reduced quality").tag(BatteryMode.reducedQuality)
-                    Text("Pause").tag(BatteryMode.pause)
-                }.labelsHidden().columnControl()
-            }
-            if power.batteryMode == .reducedQuality {
-                HStack {
-                    Text("Battery resolution")
-                    Slider(value: binding(\.batteryRenderScale), in: 0.25...1)
-                    Text(power.batteryRenderScale, format: .percent.precision(.fractionLength(0))).monospacedDigit()
-                        .foregroundStyle(.secondary).frame(width: 44, alignment: .trailing)
-                }
-                HStack {
-                    Text("Battery frame rate"); Spacer()
-                    Picker("Battery frame rate", selection: binding(\.batteryFPS)) {
-                        ForEach([15, 20, 24, 30], id: \.self) { Text("\($0) fps").tag($0) }
-                    }.labelsHidden().columnControl()
+        VStack(alignment: .leading, spacing: 18) {
+            Divider()
+            InspectorSection(title: "Energy") {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("On battery"); Spacer()
+                        Picker("On battery", selection: binding(\.batteryMode)) {
+                            Text("Keep running").tag(BatteryMode.keepRunning)
+                            Text("Reduced quality").tag(BatteryMode.reducedQuality)
+                            Text("Pause").tag(BatteryMode.pause)
+                        }.labelsHidden().columnControl()
+                    }
+                    if power.batteryMode == .reducedQuality {
+                        HStack {
+                            Text("Battery resolution")
+                            Slider(value: binding(\.batteryRenderScale), in: 0.25...1)
+                            Text(power.batteryRenderScale, format: .percent.precision(.fractionLength(0))).monospacedDigit()
+                                .foregroundStyle(.secondary).frame(width: 44, alignment: .trailing)
+                        }
+                        HStack {
+                            Text("Battery frame rate"); Spacer()
+                            Picker("Battery frame rate", selection: binding(\.batteryFPS)) {
+                                ForEach([15, 20, 24, 30], id: \.self) { Text("\($0) fps").tag($0) }
+                            }.labelsHidden().columnControl()
+                        }
+                    }
                 }
             }
         }

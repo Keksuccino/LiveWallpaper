@@ -195,6 +195,37 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(state.presets[b.presetKey]?.first?.name, "Big")
     }
 
+    func testPresetsKeepEnergySettingsAndLoadWithoutThem() throws {
+        let power = PowerOptions(batteryMode: .pause, batteryRenderScale: 0.75, batteryFPS: 20)
+        let preset = WallpaperPreset(name: "Saver", options: WallpaperOptions(fps: 60), power: power)
+        let back = try JSONDecoder().decode(WallpaperPreset.self, from: JSONEncoder().encode(preset))
+        XCTAssertEqual(back, preset)
+        let stored = Data(#"{"id":"\#(preset.id.uuidString)","name":"Old","options":{"volume":0.25}}"#.utf8)
+        let old = try JSONDecoder().decode(WallpaperPreset.self, from: stored)
+        XCTAssertNil(old.power)
+        XCTAssertEqual(old.options.volume, 0.25)
+    }
+
+    func testSharedSettingsHoldTheEnergySettingsBesideTheOptions() throws {
+        let power = PowerOptions(batteryMode: .keepRunning, batteryRenderScale: 0.25, batteryFPS: 30)
+        let shared = SharedWallpaperSettings(options: WallpaperOptions(volume: 0.4, flip: true), power: power)
+        let data = try JSONEncoder().encode(shared)
+        XCTAssertEqual(try JSONDecoder().decode(SharedWallpaperSettings.self, from: data), shared)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["volume"] as? Double, 0.4, "the options' keys stay at the top level")
+        XCTAssertNotNil(object["power"])
+        XCTAssertEqual(try JSONDecoder().decode(WallpaperOptions.self, from: data), shared.options,
+                       "the options alone still read from shared settings")
+
+        let optionsOnly = try JSONEncoder().encode(WallpaperOptions(alignment: .center))
+        let pasted = try JSONDecoder().decode(SharedWallpaperSettings.self, from: optionsOnly)
+        XCTAssertEqual(pasted.options.alignment, .center)
+        XCTAssertNil(pasted.power)
+        let fromPlaylist = try JSONEncoder().encode(SharedWallpaperSettings(options: .standard))
+        let fromPlaylistObject = try XCTUnwrap(JSONSerialization.jsonObject(with: fromPlaylist) as? [String: Any])
+        XCTAssertNil(fromPlaylistObject["power"])
+    }
+
     func testSettingsApplyWithoutTheScenesOwnProperties() {
         let mine = WallpaperOptions(fps: 24, renderScale: 0.5, properties: ["clock": .bool(true)])
         let other = WallpaperOptions(volume: 0.2, alignment: .free, flip: true, colorAdjust: true, fps: 60,

@@ -150,12 +150,31 @@ import SceneFormat
 
     func presets(for item: VideoItem) -> [WallpaperPreset] { presets[item.presetKey] ?? [] }
 
-    /// Saves the item's options in `scope` under `name`; a preset of the same name is replaced.
+    /// Saves the item's options in `scope` and the scope's energy settings under `name`; a preset of the same name is
+    /// replaced.
     func savePreset(named name: String, for item: VideoItem, in scope: OptionsScope) {
-        let preset = WallpaperPreset(name: name, options: options(in: scope, for: item.id))
+        let preset = WallpaperPreset(name: name, options: options(in: scope, for: item.id), power: power(in: scope))
         var list = presets(for: item).filter { $0.name != name }
         list.append(preset)
         presets[item.presetKey] = list
+    }
+
+    /// The energy settings of `scope`: a display's (DisplayConfig.power); a playlist has none.
+    func power(in scope: OptionsScope) -> PowerOptions? {
+        guard case .display(let display) = scope else { return nil }
+        return config(for: display).power
+    }
+
+    /// Gives the item `options` in `scope` and, when given and `scope` is a display, `power` as the display's energy
+    /// settings, in one commit: a loaded preset or pasted settings.
+    func applySettings(_ options: WallpaperOptions, power: PowerOptions?, to item: VideoItem, in scope: OptionsScope) {
+        guard let power, case .display(let display) = scope else {
+            return updateOptions(in: scope, for: item.id) { $0 = options }
+        }
+        updateDisplay(display) { config in
+            config.wallpaperOptions[item.id.uuidString] = options
+            config.power = power
+        }
     }
 
     func deletePreset(_ preset: WallpaperPreset, of item: VideoItem) {

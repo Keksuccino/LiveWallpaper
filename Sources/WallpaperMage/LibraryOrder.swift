@@ -16,7 +16,7 @@ enum LibrarySort: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .updated: return String(localized: "Last Added/Updated")
+        case .updated: return String(localized: "Latest")
         case .kind: return String(localized: "By Type")
         case .created: return String(localized: "Creation Date")
         }
