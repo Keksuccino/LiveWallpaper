@@ -673,7 +673,7 @@ private struct LibraryCard: View {
                     .strokeBorder(state.ringColor, lineWidth: state.ringWidth)
             }
             .overlay(alignment: .topLeading) {
-                CurrentBadge(shown: state.current, size: 22)
+                CurrentBadge(shown: state.current, size: 31)
                     .padding(8)
             }
             .shadow(color: .black.opacity(hovering || state.current ? 0.20 : 0), radius: 16, y: 8)
@@ -715,7 +715,7 @@ private struct LibraryListRow: View {
             EntryArtwork(entry: entry, broken: broken, cornerRadius: 8)
                 .frame(width: 96, height: 54)
                 .overlay(alignment: .topLeading) {
-                    CurrentBadge(shown: state.current, size: 15)
+                    CurrentBadge(shown: state.current, size: 21)
                         .padding(4)
                 }
             VStack(alignment: .leading, spacing: 3) {
