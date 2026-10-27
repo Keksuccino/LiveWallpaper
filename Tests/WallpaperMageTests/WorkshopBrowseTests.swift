@@ -23,8 +23,6 @@ final class WorkshopBrowseTests: XCTestCase {
         }
         let others = WorkshopSort.allCases.filter { $0.trendDays == nil }
         XCTAssertEqual(Set(others.map(\.queryType)).count, others.count)
-        XCTAssertEqual(Set(WorkshopSort.sections.joined()), Set(WorkshopSort.allCases))
-        XCTAssertEqual(WorkshopSort.sections.joined().count, WorkshopSort.allCases.count)
     }
 
     func testASearchKeepsTheChosenSort() {

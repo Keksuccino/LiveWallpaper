@@ -670,9 +670,7 @@ struct WorkshopView: View {
             .frame(maxWidth: .infinity)
         }
         if workshop.listState == .loaded, workshop.results.isEmpty {
-            Text(personalListIsEmpty
-                 ? "Nothing here yet. This list comes from your Steam friends and the people you follow."
-                 : "No wallpapers match. Try other filters or another search.")
+            Text("No wallpapers match. Try other filters or another search.")
                 .font(.callout).foregroundStyle(.secondary)
         }
         if !workshop.results.isEmpty {
@@ -698,17 +696,6 @@ struct WorkshopView: View {
         case .idle, .loaded, .failed:
             EmptyView()
         }
-    }
-
-    /// The key's own list (a personal sort) is empty, rather than narrowed down to nothing by a search or filters that
-    /// let less through than the standard ones.
-    private var personalListIsEmpty: Bool {
-        let filters = workshop.filters
-        return workshop.sort.isPersonal && workshop.searchText.isEmpty && filters.required.isEmpty
-            && WorkshopFilterGroup.allCases.allSatisfy { group in
-                guard let allowed = filters.allowed(in: group) else { return true }
-                return Set(allowed).isSuperset(of: WorkshopFilters.standard.allowed(in: group) ?? group.tags)
-            }
     }
 
     private var resultGrid: some View {

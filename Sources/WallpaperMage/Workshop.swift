@@ -409,7 +409,7 @@ enum WorkshopListState: Equatable {
     private var searchTask: Task<Void, Never>?
     private var searchGeneration = 0
     private var nextCursor: String?
-    private var sortBeforeSearch: WorkshopSort?   // the ranking a search switched away from
+    private var sortBeforeSearch: WorkshopSort?   // the sort a search switched away from
 
     /// True while steamcmd runs for a download or a sign-in check (the wizard refuses to start then).
     var isBusyWithSteam: Bool { runner != nil || hasActiveDownloads }
@@ -551,13 +551,12 @@ enum WorkshopListState: Equatable {
     }
 
     /// As in Wallpaper Engine, a new search ranks by how well the items match it (`WorkshopSort.search`), and the end of
-    /// the search brings the ranking back that it replaced, unless the user picked another sort meanwhile. The lists of
-    /// the key's own account stay as they are: a search narrows them.
+    /// the search brings the sort back that it replaced, unless the user picked another sort meanwhile.
     private func searchTextChanged(from old: String) {
         let searching = !searchText.isEmpty
         guard searching != !old.isEmpty else { return }
         if searching {
-            guard !sort.isPersonal, sort != WorkshopSort.search else { return }
+            guard sort != WorkshopSort.search else { return }
             sortBeforeSearch = sort
             sort = WorkshopSort.search
         } else {

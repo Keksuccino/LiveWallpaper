@@ -19,8 +19,7 @@ struct WorkshopBrowseControls: View {
             WrappingRows(spacing: 10, lineSpacing: 10) {
                 WMSearchField(prompt: "Search wallpapers", text: $workshop.searchText)
                     .frame(width: 260)
-                WMSortMenu(title: "Sort By", selection: $workshop.sort, sections: WorkshopSort.sections,
-                           label: \.label)
+                WMSortMenu(title: "Sort By", selection: $workshop.sort, options: WorkshopSort.allCases, label: \.label)
                     .help("Order of the browse grid")
             }
             WrappingRows(spacing: WMTheme.chipSpacing, lineSpacing: 10) {
@@ -172,13 +171,12 @@ struct WorkshopBrowseControls: View {
 
     // MARK: Summaries
 
-    /// What `groups` let through while one of them narrows the list or lets more through than the standard filters;
-    /// nil while they are as standard and let everything through.
+    /// What `groups` let through while one of them differs from the standard filters; nil while they are as standard,
+    /// so every capsule shows only its name until the user changes it.
     private func summary(of groups: [WorkshopFilterGroup]) -> String? {
+        guard groups.contains(where: filters.differsFromStandard) else { return nil }
         let narrowed = groups.compactMap { filters.allowed(in: $0) }
-        guard !narrowed.isEmpty else {
-            return groups.contains(where: filters.differsFromStandard) ? String(localized: "All") : nil
-        }
+        guard !narrowed.isEmpty else { return String(localized: "All") }
         if narrowed.contains(where: \.isEmpty) { return String(localized: "None") }
         return summary(narrowed.flatMap { $0 }.map { WorkshopTags.label($0, detailed: false) })
     }

@@ -6,24 +6,16 @@ import CoreGraphics
 // The tags are Steam's own, in English, exactly as the Workshop's items carry them; the filters show them in the words
 // of Wallpaper Engine's browser.
 
-/// The Workshop browser's sorts, as Wallpaper Engine's browser offers them: Steam's rankings of the whole Workshop, then
-/// lists of the Steam account the Web API key belongs to (what its friends favourited or made, what the people it
-/// follows made). Every sort also orders a search and a filtered list.
+/// The Workshop browser's sorts, as Wallpaper Engine's browser offers them: Steam's rankings of the whole Workshop.
+/// Every sort also orders a search and a filtered list.
 enum WorkshopSort: String, CaseIterable, Identifiable {
     case topRated, popularYear, popularMonth, popularWeek, popularToday, mostRecent, mostUpVotes, mostSubscriptions
-    case friendsFavorites, friendsCreated, followedCreated
 
     /// A new browser's sort.
     static let standard = WorkshopSort.popularWeek
-    /// The sort a new search switches the rankings to, as Wallpaper Engine does: with a search text, Steam ranks Top
-    /// Rated by how well the items match it.
+    /// The sort a new search switches to, as Wallpaper Engine does: with a search text, Steam ranks Top Rated by how
+    /// well the items match it.
     static let search = WorkshopSort.topRated
-    /// The sort menu's sections: the rankings, then the key's own lists.
-    static let sections: [[WorkshopSort]] = [
-        [.topRated, .popularYear, .popularMonth, .popularWeek, .popularToday, .mostRecent, .mostUpVotes,
-         .mostSubscriptions],
-        [.friendsFavorites, .friendsCreated, .followedCreated],
-    ]
 
     var id: String { rawValue }
 
@@ -37,14 +29,8 @@ enum WorkshopSort: String, CaseIterable, Identifiable {
         case .mostRecent: return String(localized: "Most Recent")
         case .mostUpVotes: return String(localized: "Most Up Votes")
         case .mostSubscriptions: return String(localized: "Most Subscriptions")
-        case .friendsFavorites: return String(localized: "Friends’ Favorites")
-        case .friendsCreated: return String(localized: "Created by Friends")
-        case .followedCreated: return String(localized: "Created by Followed Users")
         }
     }
-
-    /// A list of the Web API key's own account rather than a ranking of the whole Workshop.
-    var isPersonal: Bool { Self.sections[1].contains(self) }
 
     /// Steam's EPublishedFileQueryType.
     var queryType: Int {
@@ -54,9 +40,6 @@ enum WorkshopSort: String, CaseIterable, Identifiable {
         case .mostRecent: return 1                                                  // RankedByPublicationDate
         case .mostUpVotes: return 11                                                // RankedByVotesUp
         case .mostSubscriptions: return 9                                           // RankedByTotalUniqueSubscriptions
-        case .friendsFavorites: return 4                                // FavoritedByFriendsRankedByPublicationDate
-        case .friendsCreated: return 5                                  // CreatedByFriendsRankedByPublicationDate
-        case .followedCreated: return 7                                 // CreatedByFollowedUsersRankedByPublicationDate
         }
     }
 

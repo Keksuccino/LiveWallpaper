@@ -500,37 +500,23 @@ private struct MenuCapsuleLabel: View {
 }
 
 /// What a list is sorted by: the chosen sort's name on a glass capsule, the sorts in its menu with a checkmark on the
-/// chosen one, in sections parted by a line.
+/// chosen one.
 struct WMSortMenu<Value: Hashable>: View {
     let title: LocalizedStringKey
     @Binding var selection: Value
-    let sections: [[Value]]
+    let options: [Value]
     let label: (Value) -> String
     @State private var hovering = false
 
-    init(title: LocalizedStringKey, selection: Binding<Value>, sections: [[Value]], label: @escaping (Value) -> String) {
-        self.title = title
-        self._selection = selection
-        self.sections = sections
-        self.label = label
-    }
-
-    init(title: LocalizedStringKey, selection: Binding<Value>, options: [Value], label: @escaping (Value) -> String) {
-        self.init(title: title, selection: selection, sections: [options], label: label)
-    }
-
     var body: some View {
         Menu {
-            ForEach(sections.indices, id: \.self) { index in
-                if index > 0 { Divider() }
-                Picker(title, selection: $selection) {
-                    ForEach(sections[index], id: \.self) { option in
-                        Text(label(option)).tag(option)
-                    }
+            Picker(title, selection: $selection) {
+                ForEach(options, id: \.self) { option in
+                    Text(label(option)).tag(option)
                 }
-                .pickerStyle(.inline)
-                .labelsHidden()
             }
+            .pickerStyle(.inline)
+            .labelsHidden()
         } label: {
             MenuCapsuleLabel(systemImage: "arrow.up.arrow.down", title: label(selection), hovering: hovering)
         }
