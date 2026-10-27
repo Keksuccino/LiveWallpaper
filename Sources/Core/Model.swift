@@ -638,16 +638,16 @@ public enum AgentRecordStore {
 // MARK: - Frame extraction
 
 public enum VideoStills {
-    /// A still from `url` (frame at min(1 s, duration / 2), transform applied); nil on failure.
+    /// A still from `url` (frame at min(`seconds`, duration / 2), transform applied); nil on failure.
     /// `maxPixelSize` nil = native size. Runs off the main actor.
-    public static func cgImage(for url: URL, maxPixelSize: CGSize?) async -> CGImage? {
+    public static func cgImage(for url: URL, at seconds: Double = 1, maxPixelSize: CGSize?) async -> CGImage? {
         let asset = AVURLAsset(url: url)
         guard let duration = try? await asset.load(.duration) else { return nil }
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
         if let maxPixelSize { generator.maximumSize = maxPixelSize }
-        let seconds = duration.seconds
-        let time = CMTime(seconds: seconds.isFinite ? min(1, seconds / 2) : 0, preferredTimescale: 600)
+        let length = duration.seconds
+        let time = CMTime(seconds: length.isFinite ? min(seconds, length / 2) : 0, preferredTimescale: 600)
         return try? await generator.image(at: time).image
     }
 }

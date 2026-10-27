@@ -24,9 +24,9 @@ enum StillRendering {
         case noFrame, encode
     }
 
-    /// Draws the scene with these options into every canvas, one after the other, handing each picture to `deliver`
-    /// with the canvas's index. One renderer serves all of them.
-    static func renderScene(path: String, options: WallpaperOptions, into canvases: [StillCanvas],
+    /// Draws the scene `time` seconds in with these options into every canvas, one after the other, handing each
+    /// picture to `deliver` with the canvas's index. One renderer serves all of them.
+    static func renderScene(path: String, options: WallpaperOptions, at time: Double = 1, into canvases: [StillCanvas],
                             deliver: (Int, CGImage) throws -> Void) throws {
         // No script storage: a still must not write what the live scene keeps.
         let renderer = try Renderer(pkgPath: path, storagePath: nil)
@@ -40,24 +40,27 @@ enum StillRendering {
         for (name, value) in options.properties.sorted(by: { $0.key < $1.key }) {
             renderer.applyProperty(name: name, valueJson: value.json)
         }
-        // Particles and scripts need a second to settle; the warm-up frames are tiny.
+        // Particles, scripts and animations advance frame by frame, so every frame before `time` is drawn, at the
+        // 30 per second the renderer steps an off-screen frame by; the warm-up frames are tiny.
         renderer.setFrameSize(width: 160, height: 90)
-        for frame in 0..<30 {
+        for frame in 0..<Int((time * 30).rounded()) {
             try Task.checkCancellation()
             _ = try renderer.renderFrame(time: Double(frame) / 30)
         }
         for (index, canvas) in canvases.enumerated() {
             try Task.checkCancellation()
             renderer.setFrameSize(width: UInt32(canvas.width), height: UInt32(canvas.height))
-            let pixels = try renderer.renderFrame(time: 1)
+            let pixels = try renderer.renderFrame(time: time)
             try deliver(index, image(fromBGRA: pixels, of: canvas))
         }
     }
 
-    /// The video's still frame (VideoStills) through the colour options and image filter, like the player's video
-    /// composition. `maxPixelSize` nil = the video's own size.
-    static func videoFrame(path: String, options: WallpaperOptions, maxPixelSize: CGSize?) async throws -> CGImage {
-        guard let frame = await VideoStills.cgImage(for: URL(fileURLWithPath: path), maxPixelSize: maxPixelSize) else {
+    /// The video's still frame `time` seconds in (VideoStills) through the colour options and image filter, like the
+    /// player's video composition. `maxPixelSize` nil = the video's own size.
+    static func videoFrame(path: String, options: WallpaperOptions, at time: Double = 1,
+                           maxPixelSize: CGSize?) async throws -> CGImage {
+        guard let frame = await VideoStills.cgImage(for: URL(fileURLWithPath: path), at: time,
+                                                    maxPixelSize: maxPixelSize) else {
             throw Failure.noFrame
         }
         let grader = VideoGrader()

@@ -87,7 +87,8 @@ private struct DisplayArrangement: View {
 
 /// A display in the arrangement. It shows the display's system wallpaper, which the service keeps a still of its
 /// live wallpaper framed exactly as on the display, so the tile looks like the display itself. Until the still of a
-/// newly chosen wallpaper exists, the wallpaper's preview stands in for it, framed the same way.
+/// newly chosen wallpaper exists, the wallpaper's preview stands in for it, framed the same way. A new still of what
+/// the tile shows (a wallpaper's settled still after its quick one, a changed setting) fades in over the old one.
 @MainActor
 private struct DisplayTile: View {
     @ObservedObject var model: SettingsModel
@@ -95,6 +96,9 @@ private struct DisplayTile: View {
     let selected: Bool
     @State private var hovering = false
     @State private var still: LoadedStill?
+    /// The still `still` replaced on the tile, kept beneath the new one while it fades in, so the fade never lets
+    /// the background through.
+    @State private var replaced: NSImage?
 
     private static let radius: CGFloat = 9
     /// The display-sized still is scaled down to this for the tile.
@@ -127,8 +131,11 @@ private struct DisplayTile: View {
             guard let wallpaper,
                   let image = await ThumbnailCache.shared.image(at: wallpaper.url, maxPixelSize: Self.stillPixelSize)
             else { return }
+            replaced = showsStill(of: model.shownItem(on: screen.id), wallpaper: wallpaper) ? still?.image : nil
             withAnimation(WMMotion.content) {
                 still = LoadedStill(url: wallpaper.url, stillOf: wallpaper.stillOf, image: image)
+            } completion: {
+                replaced = nil
             }
         }
         .help(screen.name)
@@ -149,10 +156,15 @@ private struct DisplayTile: View {
         Color.clear
             .overlay {
                 if let still {
-                    Image(nsImage: still.image)
-                        .resizable()
-                        .scaledToFill()
-                        .transition(.opacity)
+                    ZStack {
+                        if let replaced { Image(nsImage: replaced).resizable().scaledToFill() }
+                        Image(nsImage: still.image)
+                            .resizable()
+                            .scaledToFill()
+                            .id(still.url)
+                            .transition(.opacity)
+                    }
+                    .transition(.opacity)
                 } else if let item {
                     WallpaperPreview(item: item, options: model.shownOptions(on: screen.id, for: item.id))
                         .id(item.id)

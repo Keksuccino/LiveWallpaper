@@ -5,10 +5,11 @@ import Core
 
 // The system wallpaper of every display with a live wallpaper is a still of it, framed exactly like the live one on
 // that display. The menu bar's background, Mission Control and the lock screen show the system wallpaper, never our
-// windows, so without it they would show whatever picture was set before. A still is made only when what it shows
-// changes (another wallpaper, display size or scene framing), never to follow the animation. It stays when the
-// service quits: from then on it simply is the user's wallpaper. A display whose live wallpaper is taken away gets
-// macOS's default wallpaper back.
+// windows, so without it they would show whatever picture was set before. A newly set wallpaper gets a quick still
+// at once and, once it has played for a few seconds, a settled one (Stage), which then stays. Beyond that a still is
+// made only when what it shows changes (display size or scene framing), never to follow the animation. It stays when
+// the service quits: from then on it simply is the user's wallpaper. A display whose live wallpaper is taken away
+// gets macOS's default wallpaper back.
 
 @MainActor final class WallpaperStills {
     /// Bump when the still of an unchanged wallpaper would come out differently; every display gets a new one.
@@ -34,7 +35,7 @@ import Core
     /// step), and a new wallpaper should get the machine before its still loads the scene a second time.
     var delay = LibraryState.defaultStillDelay
     /// What each display shows live, by display UUID.
-    private var looks: [String: Look] = [:]
+    private var shown: [String: Shown] = [:]
     /// The still each display should show, once it exists.
     private var targets: [String: Target] = [:]
     private var work: Task<Void, Never>?
@@ -43,15 +44,18 @@ import Core
     /// `display` now shows `item` with these wallpaper options.
     func show(_ item: VideoItem, options: WallpaperOptions, on display: String) {
         let look = Look(item: item, options: options)
-        guard look != looks[display] else { return }
-        looks[display] = look
+        let old = shown[display]
+        guard look != old?.look else { return }
+        // The live wallpaper plays on when only its options change, so its settled still is due as before.
+        let since = old.flatMap { $0.look.isSameWallpaper(as: look) ? $0.since : nil } ?? .now
+        shown[display] = Shown(look: look, since: since)
         if observers.isEmpty { installObservers() }
         refresh()
     }
 
     /// `display` shows nothing live any more; its still stays its system wallpaper.
     func forget(_ display: String) {
-        looks[display] = nil
+        shown[display] = nil
         targets[display] = nil
     }
 
@@ -75,7 +79,7 @@ import Core
     func stop() {
         work?.cancel()
         work = nil
-        looks = [:]
+        shown = [:]
         targets = [:]
         for (center, token) in observers { center.removeObserver(token) }
         observers.removeAll()
@@ -83,44 +87,64 @@ import Core
 
     // MARK: Making and applying
 
-    /// Works out the still of every display, makes the missing ones after the settle delay and applies them.
+    /// Makes and applies the stills the displays should show after the settle delay, then each settled still when it
+    /// falls due.
     private func refresh() {
         work?.cancel()
-        var targets: [String: Target] = [:]
-        for screen in NSScreen.screens {
-            if let look = looks[screen.displayID] { targets[screen.displayID] = Target(screen: screen, look: look) }
-        }
-        guard !targets.isEmpty else { return }
         let delay = delay
         work = Task { @MainActor [weak self] in
             if delay > 0 {
                 do { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) } catch { return }
             }
-            // One renderer or video frame serves every display that shows the same look; a file that exists already
-            // (same look, size and colour space) is not made again.
-            var groups: [(look: Look, jobs: [String: Target])] = []
-            for target in targets.values where !FileManager.default.fileExists(atPath: target.url.path) {
-                if let index = groups.firstIndex(where: { $0.look == target.look }) {
-                    groups[index].jobs[target.fileName] = target
-                } else {
-                    groups.append((target.look, [target.fileName: target]))
-                }
+            while let due = await self?.update() {
+                do { try await Task.sleep(until: due) } catch { return }
             }
-            for group in groups {
-                do {
-                    try await Self.make(Array(group.jobs.values), of: group.look)
-                } catch {
-                    if Task.isCancelled { return }
-                    NSLog("WallpaperMage: couldn’t make the wallpaper still: \(error)")
-                }
-            }
-            guard !Task.isCancelled, let self else { return }
-            self.work = nil
-            // A display that shows something else by now waits for its own refresh.
-            self.targets = targets.filter { self.looks[$0.key] == $0.value.look }
-            self.apply()
-            self.removeUnusedStills()
         }
+    }
+
+    /// Works out the still every display should show by now, makes the missing ones and applies them. Returns when
+    /// the next settled still falls due; nil when none waits or the work was cancelled.
+    private func update() async -> ContinuousClock.Instant? {
+        let now = ContinuousClock.now
+        var targets: [String: Target] = [:]
+        var due: ContinuousClock.Instant?
+        for screen in NSScreen.screens {
+            guard let live = shown[screen.displayID] else { continue }
+            // A settled still made before (the same wallpaper shown again, a restart) is taken at once.
+            let settled = Target(screen: screen, look: live.look, stage: .settled)
+            let settles = live.since + .seconds(Stage.settled.seconds)
+            if settles <= now || FileManager.default.fileExists(atPath: settled.url.path) {
+                targets[screen.displayID] = settled
+            } else {
+                targets[screen.displayID] = Target(screen: screen, look: live.look, stage: .first)
+                due = min(due ?? settles, settles)
+            }
+        }
+        guard !targets.isEmpty else { return nil }
+        // One renderer or video frame serves every display that shows the same look at the same stage; a file that
+        // exists already (same look, stage, size and colour space) is not made again.
+        var groups: [(look: Look, stage: Stage, jobs: [String: Target])] = []
+        for target in targets.values where !FileManager.default.fileExists(atPath: target.url.path) {
+            if let index = groups.firstIndex(where: { $0.look == target.look && $0.stage == target.stage }) {
+                groups[index].jobs[target.fileName] = target
+            } else {
+                groups.append((target.look, target.stage, [target.fileName: target]))
+            }
+        }
+        for group in groups {
+            do {
+                try await Self.make(Array(group.jobs.values), of: group.look, at: group.stage)
+            } catch {
+                if Task.isCancelled { return nil }
+                NSLog("WallpaperMage: couldn’t make the wallpaper still: \(error)")
+            }
+        }
+        guard !Task.isCancelled else { return nil }
+        // A display that shows something else by now waits for its own refresh.
+        self.targets = targets.filter { shown[$0.key]?.look == $0.value.look }
+        apply()
+        removeUnusedStills()
+        return due
     }
 
     /// Sets each display's still as its system wallpaper, skipping displays that show it already, and records which
@@ -188,15 +212,18 @@ import Core
 
     // MARK: Rendering (off the main actor)
 
-    /// Writes the still of every target, all of the same look: one renderer or video frame serves all of them.
-    nonisolated private static func make(_ jobs: [Target], of look: Look) async throws {
+    /// Writes the still of every target, all of the same look and stage: one renderer or video frame serves all of
+    /// them.
+    nonisolated private static func make(_ jobs: [Target], of look: Look, at stage: Stage) async throws {
         try AppPaths.ensureDirectory(directory)
         if look.isScene {
-            try StillRendering.renderScene(path: look.path, options: look.options, into: jobs.map(\.canvas)) {
+            try StillRendering.renderScene(path: look.path, options: look.options, at: stage.seconds,
+                                           into: jobs.map(\.canvas)) {
                 try write($1, to: jobs[$0].url)
             }
         } else {
-            let frame = try await StillRendering.videoFrame(path: look.path, options: look.options, maxPixelSize: nil)
+            let frame = try await StillRendering.videoFrame(path: look.path, options: look.options, at: stage.seconds,
+                                                            maxPixelSize: nil)
             for job in jobs {
                 try Task.checkCancellation()
                 try write(StillRendering.place(frame, look.options, into: job.canvas), to: job.url)
@@ -209,6 +236,24 @@ import Core
     }
 
     // MARK: What a still shows
+
+    /// A wallpaper's two stills: a quick one as soon as it is set, and a settled one of it once its opening (intro
+    /// animations, particles that build up, a video's fade-in) is over, made when the live wallpaper has played that
+    /// long. The settled one then stays.
+    private enum Stage {
+        case first, settled
+
+        /// Seconds into the wallpaper the still shows; also how long after the wallpaper was set the settled still
+        /// is made.
+        var seconds: Double { self == .first ? 1 : 10 }
+    }
+
+    /// What a display shows live.
+    private struct Shown {
+        let look: Look
+        /// When the display began showing the wallpaper.
+        let since: ContinuousClock.Instant
+    }
 
     /// Everything that decides a still apart from the display: the item, its content and the options that change
     /// its picture (sound, speed, frame rate, render scale and the pointer's parallax do not).
@@ -231,19 +276,26 @@ import Core
             if !item.isScene { (picture.antialiasing, picture.properties) = (false, [:]) }
             self.options = picture
         }
+
+        /// The same wallpaper (item and content), whatever its options.
+        func isSameWallpaper(as other: Look) -> Bool {
+            itemID == other.itemID && path == other.path && stamp == other.stamp
+        }
     }
 
-    /// The still one display needs. Displays of the same look, size and colour space share one file.
+    /// The still one display needs. Displays of the same look, stage, size and colour space share one file.
     private struct Target: Sendable {
         let look: Look
+        let stage: Stage
         let canvas: StillCanvas
         /// Named after a digest of everything that decides its pixels, so a changed wallpaper gets a new file
         /// (macOS caches a wallpaper by its path) and an unchanged one is found again after a restart.
         let fileName: String
         var url: URL { WallpaperStills.directory.appendingPathComponent(fileName) }
 
-        @MainActor init(screen: NSScreen, look: Look) {
+        @MainActor init(screen: NSScreen, look: Look, stage: Stage) {
             self.look = look
+            self.stage = stage
             let scale = screen.backingScaleFactor
             let width = Int((screen.frame.width * scale).rounded())
             let height = Int((screen.frame.height * scale).rounded())
@@ -252,8 +304,8 @@ import Core
             let display = screen.colorSpace?.cgColorSpace
             let colorSpace = !look.isScene && display?.model == .rgb ? display! : StillCanvas.sRGB
             canvas = StillCanvas(width: width, height: height, colorSpace: colorSpace)
-            let key = Key(revision: WallpaperStills.revision, look: look, width: width, height: height,
-                          colorSpace: Self.identity(of: colorSpace))
+            let key = Key(revision: WallpaperStills.revision, look: look, seconds: stage.seconds, width: width,
+                          height: height, colorSpace: Self.identity(of: colorSpace))
             let encoder = JSONEncoder()
             encoder.outputFormatting = .sortedKeys
             fileName = Self.digest((try? encoder.encode(key)) ?? Data()) + ".jpg"
@@ -262,6 +314,7 @@ import Core
         private struct Key: Codable {
             var revision: Int
             var look: Look
+            var seconds: Double
             var width: Int
             var height: Int
             var colorSpace: String
