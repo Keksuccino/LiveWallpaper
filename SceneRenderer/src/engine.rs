@@ -270,8 +270,8 @@ struct LayerGpu {
     blend: Blend,
     /// Placement resolved from the current properties; `None` when hidden or sizeless.
     placed: Option<Placed>,
-    /// For a text layer: its bitmap quad inside the layer box (`x, y, w, h`, y down).
-    text_rect: Option<[f32; 4]>,
+    /// For a text layer: where its bitmap sits and the scale it was rasterised at.
+    text: Option<TextQuad>,
     /// The layer draws a skinned mesh instead of a quad.
     puppet: bool,
     /// The effect chain's output never changes (no time, pointer or sprite input), so it is
@@ -289,6 +289,14 @@ struct Placed {
     color: [f32; 3],
     alpha: f32,
     compose: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TextQuad {
+    /// The bitmap inside the layer box (`x, y, w, h`, y down), in design units.
+    rect: [f32; 4],
+    /// Bitmap pixels per design unit (see `text_raster_scale`).
+    scale: f32,
 }
 
 /// A particle system bound to its scene layer.
@@ -374,6 +382,8 @@ struct DrawCtx {
     /// Intermediate buffers are rendered at this fraction of the layer's native size;
     /// resolution uniforms still report native sizes, so texel-based kernels keep their look.
     buffer_scale: [f32; 2],
+    /// The same for the effect's own buffers (its `fbos`); finer for text (see `text_fbo_scale`).
+    fbo_scale: [f32; 2],
     /// The layer's own unit quad (y down) to the screen, and its size in design units. Effect
     /// passes draw a buffer-filling quad, but pointer effects unproject the cursor through these.
     screen_mvp: Mat4,
@@ -532,10 +542,9 @@ pub struct Engine {
     text: TextRenderer,
     /// Fonts by (name, point size).
     fonts: HashMap<(String, u32), Rc<text::Font>>,
-    /// On-screen pixels per design pixel the text bitmaps were rasterised for.
-    text_scale: f32,
-    /// A text bitmap is too small or too sharp for the current zoom; rebuild after this frame.
-    text_dirty: bool,
+    /// Screen pixels per design pixel of the latest frame (0 before the first); text layers
+    /// rasterise for it.
+    text_fit: f32,
     /// Hides text layers whose string a script computes, e.g. clocks, when a frame is recorded
     /// for a place that cannot update (the lock screen plays a fixed loop).
     pub hide_scripted_text: bool,
@@ -615,8 +624,7 @@ impl Engine {
             neutral_lut,
             text: TextRenderer::new(),
             fonts: HashMap::new(),
-            text_scale: 0.0,
-            text_dirty: false,
+            text_fit: 0.0,
             hide_scripted_text: false,
             particles: Vec::new(),
             puppets: Vec::new(),
@@ -718,13 +726,31 @@ impl Engine {
         self.warnings.retain(|w| seen.insert(w.clone()));
     }
 
-    /// Redraws the bitmaps of text layers (new string or new zoom) without touching the rest.
-    pub fn refresh_texts(&mut self) {
-        for i in 0..self.scene.layers.len().min(self.layers.len()) {
-            if self.scene.layers[i].text.is_some() {
+    /// Redraws the bitmaps of these text layers (new string) without touching the rest.
+    pub fn refresh_texts(&mut self, indices: &[usize]) {
+        for &i in indices {
+            if i < self.layers.len() && self.scene.layers[i].text.is_some() {
                 self.layers[i] = self.build_layer(i);
             }
         }
+    }
+
+    /// Re-rasterises the text layers whose on-screen scale moved to another step since their
+    /// bitmap was made (a new target size or zoom, a scaled layer), before the frame draws them.
+    fn fit_texts(&mut self, fit: f32) {
+        self.text_fit = fit;
+        for i in 0..self.layers.len().min(self.scene.layers.len()) {
+            if self.layers[i].text.is_some_and(|t| t.scale != self.text_scale(i)) {
+                self.layers[i] = self.build_layer(i);
+            }
+        }
+    }
+
+    /// Bitmap pixels per design unit for text layer `index` at the latest frame's zoom.
+    fn text_scale(&self, index: usize) -> f32 {
+        // Before the first frame the zoom is unknown; that frame re-rasterises if 1 was wrong.
+        let fit = if self.text_fit > 0.0 { self.text_fit } else { 1.0 };
+        text_raster_scale(fit * world_scale(&self.world(index, 0)), self.scene.layers[index].size)
     }
 
     /// Layers that visible layers' materials or effects sample as `_rt_imageLayerComposite_<id>_a`,
@@ -781,16 +807,16 @@ impl Engine {
         // shows them rebuilds.
         let visible = shown || self.composite_refs.iter().any(|(i, _)| *i == index);
         let text = if visible && layer.text.is_some() {
-            self.text_material(&layer)
+            self.text_material(&layer, self.text_scale(index))
         } else {
             None
         };
         let material = match (layer.material.as_ref().filter(|_| visible), text) {
             (Some(m), _) => Some((m.clone(), None)),
-            (None, Some((m, rect))) => Some((m, Some(rect))),
+            (None, Some((m, quad))) => Some((m, Some(quad))),
             (None, None) => None,
         };
-        let Some((material, text_rect)) = material else {
+        let Some((material, text)) = material else {
             return LayerGpu {
                 base: None,
                 base_fx: None,
@@ -798,7 +824,7 @@ impl Engine {
                 effects: Vec::new(),
                 blend: Blend::Translucent,
                 placed: None,
-                text_rect: None,
+                text: None,
                 puppet: false,
                 still: false,
                 cached: None,
@@ -923,7 +949,7 @@ impl Engine {
             effects,
             blend: material.blend,
             placed,
-            text_rect,
+            text,
             puppet: layer.puppet.is_some(),
             still,
             cached: None,
@@ -991,16 +1017,11 @@ impl Engine {
         self.trim_models();
     }
 
-    /// Rasterises a text layer at the last known zoom and registers the bitmap as a texture.
-    /// The returned material draws it like an image layer, so effects, colour and alpha work
-    /// the same way they do for images.
-    fn text_material(&mut self, layer: &Layer) -> Option<(Material, [f32; 4])> {
+    /// Rasterises a text layer at `scale` bitmap pixels per design unit and registers the bitmap
+    /// as a texture. The returned material draws it like an image layer, so effects, colour and
+    /// alpha work the same way they do for images.
+    fn text_material(&mut self, layer: &Layer, scale: f32) -> Option<(Material, TextQuad)> {
         let t = layer.text.as_ref()?;
-        let scale = if self.text_scale > 0.0 {
-            self.text_scale
-        } else {
-            2.0
-        };
         // The editor sizes a text box to fit its text, so the box height against the font's
         // line height at the stored point size gives the point-to-design-unit factor.
         let font = self.font(&t.font, t.point_size).and_then(|base| {
@@ -1071,7 +1092,7 @@ impl Engine {
             depth_test: false,
             depth_write: false,
         };
-        Some((material, bitmap.rect))
+        Some((material, TextQuad { rect: bitmap.rect, scale }))
     }
 
     /// A font from the package or the system, cached per name and point size.
@@ -1542,6 +1563,7 @@ impl Engine {
                     color: [1.0; 3],
                     alpha: 1.0,
                     buffer_scale: [1.0, 1.0],
+                    fbo_scale: [1.0, 1.0],
                     screen_mvp: mvp,
                     size: [1.0, 1.0],
                     normal_model: IDENTITY,
@@ -2091,6 +2113,7 @@ impl Engine {
         let view_projection = if perspective { self.models.view.view_projection } else { ortho_projection };
         // Screen pixels per design pixel (a flipped view has r < l).
         let fit = tw / (r - l).abs().max(0.001);
+        self.fit_texts(fit);
 
         let mut c = [0.0f32; 3];
         for (o, v) in c.iter_mut().zip(floats(&self.scene.clear_color.get(&self.props))) {
@@ -2229,27 +2252,21 @@ impl Engine {
             }
             let image = self.layers[li].image.clone();
             let is_puppet = self.layers[li].puppet;
-            let model = match self.layers[li].text_rect {
+            // A text layer draws its bitmap, which overflows or underfills the box in the file as
+            // the string changes ("DAY" in the editor, "WEDNESDAY" at runtime). Its effects run on
+            // that quad, so from here on the layer's size is the bitmap's: effect buffers sized by
+            // the box would squeeze a longer string and stretch it back, blocky.
+            let (model, size) = match self.layers[li].text.map(|t| t.rect) {
                 Some([x, y, w, h]) => {
                     // The quad is centred on the model origin, and the layer box is centred on
                     // the layer origin; `rect` is measured from the box's top-left corner.
                     let ox = x - size[0] / 2.0 + w / 2.0;
                     let oy = y - size[1] / 2.0 + h / 2.0;
-                    mul(
-                        &mul(&world, &translate(ox, oy, 0.0)),
-                        &scale(w.max(0.001), h.max(0.001), 1.0),
-                    )
+                    let (w, h) = (w.max(0.001), h.max(0.001));
+                    (mul(&mul(&world, &translate(ox, oy, 0.0)), &scale(w, h, 1.0)), [w, h])
                 }
-                None => mul(&world, &scale(size[0], size[1], 1.0)),
+                None => (mul(&world, &scale(size[0], size[1], 1.0)), size),
             };
-            // Screen pixels per layer pixel. Effects never need more detail than the screen shows.
-            let on_screen = fit * world_scale(&world);
-            if self.layers[li].text_rect.is_some()
-                && self.text_scale > 0.0
-                && !(0.75..=1.34).contains(&(on_screen / self.text_scale))
-            {
-                self.text_dirty = true;
-            }
             // Exactly the full-target quad, which the draw then gives in clip space.
             let mvp = if fullscreen { FBO_MVP } else { mul(&view_projection, &model) };
             let ctx = DrawCtx {
@@ -2260,6 +2277,7 @@ impl Engine {
                 color,
                 alpha,
                 buffer_scale: [1.0, 1.0],
+                fbo_scale: [1.0, 1.0],
                 screen_mvp: mvp,
                 size,
                 normal_model: IDENTITY,
@@ -2278,7 +2296,7 @@ impl Engine {
             if visible_effects.is_empty() || self.layers[li].base_fx.is_none() {
                 // A sampled layer without effects offers its plain image.
                 if let (Some(name), Some(t)) = (composite.as_ref(), image.as_ref()) {
-                    let k = axis_scale(&world).map(|s| (fit * s).clamp(0.05, 1.0));
+                    let k = self.buffer_scale(li, &world, fit);
                     let (fw, fh) = (
                         (size[0] * k[0]).round().max(1.0) as usize,
                         (size[1] * k[1]).round().max(1.0) as usize,
@@ -2343,8 +2361,7 @@ impl Engine {
                 continue;
             }
 
-            // Per axis, so a layer stretched in one direction gets a buffer of its screen shape.
-            let k = axis_scale(&world).map(|s| (fit * s).clamp(0.05, 1.0));
+            let k = self.buffer_scale(li, &world, fit);
             let (fw, fh) = (
                 (size[0] * k[0]).round().max(1.0) as usize,
                 (size[1] * k[1]).round().max(1.0) as usize,
@@ -2394,6 +2411,7 @@ impl Engine {
                 color,
                 alpha: 1.0,
                 buffer_scale: k,
+                fbo_scale: k,
                 ..ctx
             };
             {
@@ -2426,26 +2444,34 @@ impl Engine {
             }
             for &ei in &visible_effects {
                 let effect = &self.layers[li].effects[ei];
+                let fk = match self.layers[li].text {
+                    Some(_) => text_fbo_scale(k, &effect.fbos),
+                    None => k,
+                };
                 let mut named = frame_copy.clone();
                 for (name, div) in &effect.fbos {
                     let (w, h) = (
-                        ((fw as f32) / div).max(1.0) as usize,
-                        ((fh as f32) / div).max(1.0) as usize,
+                        (size[0] * fk[0] / div).round().max(1.0) as usize,
+                        (size[1] * fk[1] / div).round().max(1.0) as usize,
                     );
                     let _ = named.insert(name.clone(), self.pool.take(&self.gpu, w, h)?);
                 }
+                let fbo_ctx = DrawCtx { fbo_scale: fk, ..fbo_ctx };
                 for pass in &effect.passes {
-                    let out = match &pass.target {
-                        Some(name) => named
-                            .get(name)
-                            .cloned()
-                            .ok_or_else(|| Error::Format(format!("unknown buffer {name}")))?,
-                        None => self.pool.take(&self.gpu, fw, fh)?,
+                    let (out, ok) = match &pass.target {
+                        Some(name) => (
+                            named
+                                .get(name)
+                                .cloned()
+                                .ok_or_else(|| Error::Format(format!("unknown buffer {name}")))?,
+                            fk,
+                        ),
+                        None => (self.pool.take(&self.gpu, fw, fh)?, k),
                     };
                     let enc = gpu::begin(cb, &out, None, Some([0.0; 4]))?;
                     scissor(&enc, &out, clip);
                     let pctx = DrawCtx {
-                        target: [out.width() as f32 / k[0], out.height() as f32 / k[1]],
+                        target: [out.width() as f32 / ok[0], out.height() as f32 / ok[1]],
                         ..fbo_ctx
                     };
                     self.draw(
@@ -2566,14 +2592,15 @@ impl Engine {
             self.pool.give(t);
         }
         self.pool.end_frame(&self.gpu);
-        // The zoom moved far enough that the text bitmaps are the wrong size; redraw them at
-        // the new scale for the next frame.
-        if self.text_dirty {
-            self.text_dirty = false;
-            self.text_scale = fit;
-            self.refresh_texts();
-        }
         Ok(())
+    }
+
+    /// Effect buffer pixels per layer pixel, per axis, so a layer stretched in one direction gets
+    /// a buffer of its screen shape. Effects never need more detail than the screen shows, nor
+    /// more than the layer has: one buffer pixel per image pixel, or the text bitmap's scale.
+    fn buffer_scale(&self, li: usize, world: &Mat4, fit: f32) -> [f32; 2] {
+        let finest = self.layers[li].text.map_or(1.0, |t| t.scale);
+        axis_scale(world).map(|s| (fit * s).min(finest).max(0.05))
     }
 
     /// Ends the main pass, copies the target into `_rt_FullFrameBuffer` and reopens the pass.
@@ -2901,8 +2928,10 @@ impl Engine {
                     // The screen copy is real size; effect buffers report their native size.
                     let k = if name == "_rt_FullFrameBuffer" {
                         [1.0, 1.0]
-                    } else {
+                    } else if name == "previous" || name.starts_with("_rt_imageLayerComposite_") {
                         ctx.buffer_scale
+                    } else {
+                        ctx.fbo_scale
                     };
                     let (w, h) = (tex.width() as f32 / k[0], tex.height() as f32 / k[1]);
                     bound.push((*slot, *index, tex, 0, [w, h, w, h]));
@@ -3062,6 +3091,38 @@ fn world_scale(m: &Mat4) -> f32 {
 /// Length of the matrix's x and y axes: how much it scales each.
 fn axis_scale(m: &Mat4) -> [f32; 2] {
     [m[0].hypot(m[1]), m[4].hypot(m[5])]
+}
+
+/// The scale of a text layer's own effect buffers (`fbos`, each `1/div` of the layer) when its
+/// main buffers are at `k` of the layer's size. A quarter-size blur buffer holds a quarter of the
+/// layer's pixels; text has no pixel size of its own, and once the screen magnifies such a buffer
+/// the glyphs turn blocky and soft. So the smallest divided buffer is as fine as the main buffers
+/// and its siblings keep their size relative to it. The blur keeps its width: kernels step by
+/// the native sizes that the resolution uniforms report.
+fn text_fbo_scale(k: [f32; 2], fbos: &[(String, f32)]) -> [f32; 2] {
+    let div = fbos.iter().map(|(_, d)| *d).reduce(f32::min).unwrap_or(1.0);
+    k.map(|k| k * div)
+}
+
+/// Text raster scales are powers of 2^(1/8), about 9 % apart.
+const TEXT_SCALE_STEPS_PER_OCTAVE: f32 = 8.0;
+/// The longest edge, in pixels, a text layer's box may take at its raster scale; this bounds its
+/// bitmap and effect buffers when the view zooms far in.
+const TEXT_MAX_EDGE: f32 = 8192.0;
+
+/// Bitmap pixels per design unit for a text layer of `size` design units that shows at
+/// `on_screen` screen pixels per design unit. Rounding up to the next step means the bitmap is
+/// never magnified (blurry) and never shrunk by more than one step (bilinear sampling without
+/// mipmaps aliases when it shrinks much more), and a layer whose scale animates rasterises once
+/// per step instead of every frame.
+fn text_raster_scale(on_screen: f32, size: [f32; 2]) -> f32 {
+    let cap = TEXT_MAX_EDGE / size[0].max(size[1]).max(1.0);
+    if !(on_screen.is_finite() && on_screen > 0.0) {
+        return cap.min(1.0);
+    }
+    // The bias keeps a scale that sits on a step (1, 2) from rounding up through float error.
+    let step = (on_screen.log2() * TEXT_SCALE_STEPS_PER_OCTAVE - 1e-3).ceil();
+    (step / TEXT_SCALE_STEPS_PER_OCTAVE).exp2().min(cap)
 }
 
 /// The part of the centred unit quad that `mvp` puts inside clip space grown to `reach` (1 is the
@@ -3479,6 +3540,40 @@ mod tests {
         let s = camera_shift(&weak, [1.0, 0.5], w);
         assert!((s[0] - 9.6).abs() < 1e-3, "{s:?}");
         assert!((parallax_offset([1.2, 1.2], s, margin)[0] - 11.52).abs() < 1e-3);
+    }
+
+    #[test]
+    fn text_rasterises_at_the_next_step_above_its_screen_scale() {
+        let step = 2f32.powf(1.0 / TEXT_SCALE_STEPS_PER_OCTAVE);
+        let size = [688.0, 205.0];
+        for on_screen in [0.05, 0.42, 0.75, 1.0, 1.5, 1.72, 2.0, 3.0, 4.0] {
+            let s = text_raster_scale(on_screen, size);
+            // Never magnified, never shrunk by more than one step.
+            let ratio = s / on_screen;
+            assert!((0.9999..=step * 1.0001).contains(&ratio), "{on_screen} -> {s}");
+        }
+        // A scale on a step keeps it; one just above takes the next.
+        assert_eq!(text_raster_scale(2.0, size), 2.0);
+        assert!(text_raster_scale(2.01, size) > 2.0);
+        // Nearby scales share a step, so a slowly scaling layer reuses its bitmap.
+        assert_eq!(text_raster_scale(1.45, size), text_raster_scale(1.5, size));
+        // A huge zoom stops at the edge limit; a broken scale falls back to 1.
+        assert_eq!(text_raster_scale(100.0, size), TEXT_MAX_EDGE / 688.0);
+        assert_eq!(text_raster_scale(f32::NAN, size), 1.0);
+        assert_eq!(text_raster_scale(0.0, size), 1.0);
+    }
+
+    #[test]
+    fn text_effect_buffers_are_as_fine_as_the_screen() {
+        let fbos = |divs: &[f32]| -> Vec<(String, f32)> {
+            divs.iter().enumerate().map(|(i, d)| (format!("_rt_Buffer{i}"), *d)).collect()
+        };
+        let (quarters, mixed) = (fbos(&[4.0, 4.0]), fbos(&[2.0, 4.0]));
+        // A quarter-size buffer gets the main buffers' pixels: size * k * 4 / 4.
+        assert_eq!(text_fbo_scale([0.42, 0.4], &quarters), [1.68, 1.6]);
+        // With mixed sizes the half buffer matches the main buffers, the quarter is half of that.
+        assert_eq!(text_fbo_scale([1.5, 1.5], &mixed), [3.0, 3.0]);
+        assert_eq!(text_fbo_scale([0.5, 0.5], &[]), [0.5, 0.5]);
     }
 
     #[test]

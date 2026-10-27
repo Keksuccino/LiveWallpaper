@@ -9,10 +9,11 @@ use crate::scene::{floats, Bound, Scene};
 use crate::script::{Created, Events, FrameState, Host};
 
 /// What a script write requires before the next draw.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default)]
 struct Changes {
     place: bool,
-    text: bool,
+    /// Layers whose string changed.
+    text: Vec<usize>,
     rebuild: bool,
 }
 
@@ -231,9 +232,7 @@ impl Engine {
             if changes.place {
                 self.replace_layers();
             }
-            if changes.text {
-                self.refresh_texts();
-            }
+            self.refresh_texts(&changes.text);
         }
     }
 
@@ -334,7 +333,9 @@ impl Engine {
                     let s = value.as_str().map_or_else(|| value.to_string(), str::to_string);
                     if t.value != s {
                         t.value = s;
-                        changes.text = true;
+                        if !changes.text.contains(&index) {
+                            changes.text.push(index);
+                        }
                     }
                 }
             }
@@ -368,10 +369,7 @@ impl Engine {
             }
             let layer = self.scene.layers[i].clone();
             let image = self.layers[i].image.clone();
-            let text_rect = self.layers[i].text_rect;
-            let placed = self.place(i, &layer, image.as_deref());
-            self.layers[i].placed = placed;
-            self.layers[i].text_rect = text_rect;
+            self.layers[i].placed = self.place(i, &layer, image.as_deref());
         }
         let worlds: Vec<_> = self.particles.iter().map(|p| self.world(p.layer, 0)).collect();
         for (p, w) in self.particles.iter_mut().zip(worlds) {

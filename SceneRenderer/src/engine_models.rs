@@ -530,6 +530,7 @@ impl Engine {
                 color: m.color,
                 alpha: m.alpha,
                 buffer_scale: [1.0, 1.0],
+                fbo_scale: [1.0, 1.0],
                 screen_mvp: mvp,
                 size: [1.0, 1.0],
                 normal_model: m.normal,
