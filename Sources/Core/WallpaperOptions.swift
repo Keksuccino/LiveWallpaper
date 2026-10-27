@@ -172,12 +172,15 @@ public struct WallpaperOptions: Codable, Equatable, Sendable {
 }
 
 extension WallpaperOptions {
-    /// These options with Wallpaper Engine's built-in options (sound, speed, placement, colour) taken from `other`;
-    /// the scene's own properties and its performance settings stay. "Apply to all wallpapers" uses it.
-    public func withBuiltIns(of other: WallpaperOptions) -> WallpaperOptions {
+    /// These options with every setting taken from `other` except the scene's own properties, which stay. The scene
+    /// performance settings (frame rate, render scale, audio response, antialiasing) come along only with
+    /// `performance`; otherwise these keep theirs. "Apply to all wallpapers" uses it.
+    public func withSettings(of other: WallpaperOptions, performance: Bool) -> WallpaperOptions {
         var o = other
-        (o.fps, o.renderScale, o.audioResponse, o.antialiasing, o.properties) =
-            (fps, renderScale, audioResponse, antialiasing, properties)
+        o.properties = properties
+        if !performance {
+            (o.fps, o.renderScale, o.audioResponse, o.antialiasing) = (fps, renderScale, audioResponse, antialiasing)
+        }
         return o
     }
 }

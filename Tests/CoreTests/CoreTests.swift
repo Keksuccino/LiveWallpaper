@@ -186,17 +186,26 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(state.presets[b.presetKey]?.first?.name, "Big")
     }
 
-    func testBuiltInOptionsApplyWithoutTheScenesOwn() {
+    func testSettingsApplyWithoutTheScenesOwnProperties() {
         let mine = WallpaperOptions(fps: 24, renderScale: 0.5, properties: ["clock": .bool(true)])
         let other = WallpaperOptions(volume: 0.2, alignment: .free, flip: true, colorAdjust: true, fps: 60,
-                                     properties: ["rain": .bool(false)])
-        let merged = mine.withBuiltIns(of: other)
-        XCTAssertEqual(merged.volume, 0.2)
-        XCTAssertEqual(merged.alignment, .free)
-        XCTAssertTrue(merged.flip && merged.colorAdjust)
-        XCTAssertEqual(merged.fps, 24)
-        XCTAssertEqual(merged.renderScale, 0.5)
-        XCTAssertEqual(merged.properties, ["clock": .bool(true)])
+                                     audioResponse: true, antialiasing: true, properties: ["rain": .bool(false)])
+        let fromScene = mine.withSettings(of: other, performance: true)
+        XCTAssertEqual(fromScene.volume, 0.2)
+        XCTAssertEqual(fromScene.alignment, .free)
+        XCTAssertTrue(fromScene.flip && fromScene.colorAdjust)
+        XCTAssertEqual(fromScene.fps, 60)
+        XCTAssertEqual(fromScene.renderScale, 1)
+        XCTAssertTrue(fromScene.audioResponse && fromScene.antialiasing)
+        XCTAssertEqual(fromScene.properties, ["clock": .bool(true)])
+
+        let fromVideo = mine.withSettings(of: other, performance: false)
+        XCTAssertEqual(fromVideo.volume, 0.2)
+        XCTAssertEqual(fromVideo.alignment, .free)
+        XCTAssertEqual(fromVideo.fps, 24)
+        XCTAssertEqual(fromVideo.renderScale, 0.5)
+        XCTAssertFalse(fromVideo.audioResponse || fromVideo.antialiasing)
+        XCTAssertEqual(fromVideo.properties, ["clock": .bool(true)])
     }
 
     func testWallpaperOptionsClampAndKnowWhenTheyGradeColour() {

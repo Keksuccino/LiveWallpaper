@@ -159,21 +159,25 @@ import SceneFormat
         presets[item.presetKey] = presets(for: item).filter { $0.id != preset.id }
     }
 
-    /// Wallpaper Engine's built-in options of `item` go to every other wallpaper in `scope` (every library wallpaper on
-    /// a display, the playlist's wallpapers in a playlist); each keeps its own properties and performance settings.
-    func applyBuiltInsToAll(from item: VideoItem, in scope: OptionsScope) {
+    /// The settings of `item` go to every other wallpaper in `scope` (every library wallpaper on a display, the
+    /// playlist's wallpapers in a playlist); each keeps its own scene properties. The performance settings go along
+    /// only from a scene: a video does not show them, so its values were never chosen.
+    func applySettingsToAll(from item: VideoItem, in scope: OptionsScope) {
         let source = options(in: scope, for: item.id)
+        let performance = item.isScene
         switch scope {
         case .display(let display):
             updateDisplay(display) { config in
                 for other in videos where other.id != item.id {
-                    config.wallpaperOptions[other.id.uuidString] = config.options(for: other.id).withBuiltIns(of: source)
+                    config.wallpaperOptions[other.id.uuidString] =
+                        config.options(for: other.id).withSettings(of: source, performance: performance)
                 }
             }
         case .playlist(let playlist):
             updatePlaylist(playlist) { playlist in
                 for other in playlist.items where other != item.id {
-                    playlist.wallpaperOptions[other.uuidString] = playlist.options(for: other).withBuiltIns(of: source)
+                    playlist.wallpaperOptions[other.uuidString] =
+                        playlist.options(for: other).withSettings(of: source, performance: performance)
                 }
             }
         }

@@ -62,12 +62,12 @@ struct WallpaperSettingsCard: View {
                  : "Saves this wallpaper’s settings on this display under a name. A preset with the same name is replaced.")
         }
         .confirmationDialog("Apply these settings to all wallpapers?", isPresented: $confirmingApplyToAll) {
-            Button("Apply to All Wallpapers") { model.applyBuiltInsToAll(from: item, in: scope) }
+            Button("Apply to All Wallpapers") { model.applySettingsToAll(from: item, in: scope) }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(inPlaylist
-                 ? "Every other wallpaper in this playlist gets this wallpaper’s sound, speed, alignment and colour settings. Each keeps its own properties."
-                 : "Every other wallpaper on this display gets this wallpaper’s sound, speed, alignment and colour settings. Each keeps its own properties.")
+                 ? "Every other wallpaper in this playlist gets this wallpaper’s settings. Each keeps its own scene properties."
+                 : "Every other wallpaper on this display gets this wallpaper’s settings. Each keeps its own scene properties.")
         }
         .alert("No Wallpaper Settings on the Clipboard", isPresented: $pasteFailed) {
             Button("OK", role: .cancel) {}
@@ -112,8 +112,8 @@ struct WallpaperSettingsCard: View {
                     Label("Apply to All Wallpapers", systemImage: "square.stack.3d.up").frame(maxWidth: .infinity)
                 }
                 .help(inPlaylist
-                      ? "Gives every other wallpaper in this playlist this wallpaper’s sound, speed, alignment and colour settings."
-                      : "Gives every other wallpaper on this display this wallpaper’s sound, speed, alignment and colour settings.")
+                      ? "Gives every other wallpaper in this playlist this wallpaper’s settings, apart from scene properties."
+                      : "Gives every other wallpaper on this display this wallpaper’s settings, apart from scene properties.")
                 HStack(spacing: 8) {
                     Button(action: copyJSON) {
                         Label("Share JSON", systemImage: "doc.on.doc").frame(maxWidth: .infinity)

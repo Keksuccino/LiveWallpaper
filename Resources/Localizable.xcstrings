@@ -11540,168 +11540,168 @@
         }
       }
     },
-    "Every other wallpaper in this playlist gets this wallpaper’s sound, speed, alignment and colour settings. Each keeps its own properties." : {
+    "Every other wallpaper in this playlist gets this wallpaper’s settings. Each keeps its own scene properties." : {
       "comment" : "Message of the confirmation dialog of “Apply to All Wallpapers” in the playlist editor's inspector.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Alle anderen Hintergrundbilder in dieser Playlist übernehmen die Ton-, Geschwindigkeits-, Ausrichtungs- und Farbeinstellungen dieses Hintergrundbilds. Jedes behält seine eigenen Eigenschaften."
+            "value" : "Alle anderen Hintergrundbilder in dieser Playlist übernehmen die Einstellungen dieses Hintergrundbilds. Jedes behält seine eigenen Szeneneigenschaften."
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Όλες οι άλλες ταπετσαρίες αυτής της λίστας αναπαραγωγής θα λάβουν τις ρυθμίσεις ήχου, ταχύτητας, ευθυγράμμισης και χρώματος αυτής της ταπετσαρίας. Η καθεμία διατηρεί τις δικές της ιδιότητες."
+            "value" : "Όλες οι άλλες ταπετσαρίες αυτής της λίστας αναπαραγωγής θα λάβουν τις ρυθμίσεις αυτής της ταπετσαρίας. Η καθεμία διατηρεί τις δικές της ιδιότητες σκηνής."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Todos los demás fondos de esta lista de reproducción recibirán los ajustes de sonido, velocidad, posicionamiento y color de este fondo. Cada uno conserva sus propias propiedades."
+            "value" : "Todos los demás fondos de esta lista de reproducción recibirán los ajustes de este fondo. Cada uno conserva sus propias propiedades de escena."
           }
         },
         "es-MX" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Todos los demás fondos de esta playlist recibirán la configuración de sonido, velocidad, posicionamiento y color de este fondo. Cada uno conserva sus propias propiedades."
+            "value" : "Todos los demás fondos de esta playlist recibirán la configuración de este fondo. Cada uno conserva sus propias propiedades de escena."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tous les autres fonds d’écran de cette liste de lecture reçoivent les réglages de son, de vitesse, d’alignement et de couleur de ce fond d’écran. Chacun conserve ses propres propriétés."
+            "value" : "Tous les autres fonds d’écran de cette liste de lecture reçoivent les réglages de ce fond d’écran. Chacun conserve ses propres propriétés de scène."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "このプレイリストのほかのすべての壁紙に、この壁紙のサウンド、再生速度、配置、色の設定が適用されます。各壁紙固有のプロパティはそのまま保持されます。"
+            "value" : "このプレイリストのほかのすべての壁紙に、この壁紙の設定が適用されます。各壁紙のシーンのプロパティはそのまま保持されます。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "이 재생목록의 다른 모든 배경화면에 이 배경화면의 사운드, 재생 속도, 정렬 및 색 설정이 적용됩니다. 각 배경화면의 고유 속성은 그대로 유지됩니다."
+            "value" : "이 재생목록의 다른 모든 배경화면에 이 배경화면의 설정이 적용됩니다. 각 배경화면의 씬 속성은 그대로 유지됩니다."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Każda inna tapeta w tej playliście otrzyma ustawienia dźwięku, szybkości, wyrównania i kolorów tej tapety. Każda zachowa własne właściwości."
+            "value" : "Każda inna tapeta w tej playliście otrzyma ustawienia tej tapety. Każda zachowa własne właściwości sceny."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Todos os outros papéis de parede desta playlist recebem os ajustes de som, velocidade, alinhamento e cor deste papel de parede. Cada um mantém suas próprias propriedades."
+            "value" : "Todos os outros papéis de parede desta playlist recebem os ajustes deste papel de parede. Cada um mantém suas próprias propriedades de cena."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Все остальные обои в этом плейлисте получат настройки звука, скорости, выравнивания и цвета этих обоев. Их собственные свойства сохранятся."
+            "value" : "Все остальные обои в этом плейлисте получат настройки этих обоев. Их собственные свойства сцены сохранятся."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bu oynatma listesindeki diğer tüm duvar kâğıtlarına bu duvar kâğıdının ses, hız, hizalama ve renk ayarları uygulanır. Her biri kendi özelliklerini korur."
+            "value" : "Bu oynatma listesindeki diğer tüm duvar kâğıtlarına bu duvar kâğıdının ayarları uygulanır. Her biri kendi sahne özelliklerini korur."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Усі інші шпалери в цій підбірці отримають такі самі параметри звуку, швидкості, вирівнювання й кольору, як у цієї шпалери. Власні властивості кожної шпалери збережуться."
+            "value" : "Усі інші шпалери в цій підбірці отримають такі самі параметри, як у цієї шпалери. Власні властивості сцени кожної шпалери збережуться."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "此播放列表中的其他所有墙纸都将使用此墙纸的声音、速度、对齐方式和颜色设置。各墙纸会保留自己的属性。"
+            "value" : "此播放列表中的其他所有墙纸都将使用此墙纸的设置。各墙纸会保留自己的场景属性。"
           }
         }
       }
     },
-    "Every other wallpaper on this display gets this wallpaper’s sound, speed, alignment and colour settings. Each keeps its own properties." : {
+    "Every other wallpaper on this display gets this wallpaper’s settings. Each keeps its own scene properties." : {
       "comment" : "Message of the Apply to All Wallpapers confirmation.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Alle anderen Hintergrundbilder auf diesem Display übernehmen die Ton-, Geschwindigkeits-, Ausrichtungs- und Farbeinstellungen dieses Hintergrundbilds. Jedes behält seine eigenen Eigenschaften."
+            "value" : "Alle anderen Hintergrundbilder auf diesem Display übernehmen die Einstellungen dieses Hintergrundbilds. Jedes behält seine eigenen Szeneneigenschaften."
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Όλες οι άλλες ταπετσαρίες σε αυτή την οθόνη θα λάβουν τις ρυθμίσεις ήχου, ταχύτητας, ευθυγράμμισης και χρώματος αυτής της ταπετσαρίας. Η καθεμία διατηρεί τις δικές της ιδιότητες."
+            "value" : "Όλες οι άλλες ταπετσαρίες σε αυτή την οθόνη θα λάβουν τις ρυθμίσεις αυτής της ταπετσαρίας. Η καθεμία διατηρεί τις δικές της ιδιότητες σκηνής."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Todos los demás fondos de esta pantalla recibirán los ajustes de sonido, velocidad, posicionamiento y color de este fondo. Cada uno conserva sus propias propiedades."
+            "value" : "Todos los demás fondos de esta pantalla recibirán los ajustes de este fondo. Cada uno conserva sus propias propiedades de escena."
           }
         },
         "es-MX" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Todos los demás fondos de esta pantalla recibirán la configuración de sonido, velocidad, posicionamiento y color de este fondo. Cada uno conserva sus propias propiedades."
+            "value" : "Todos los demás fondos de esta pantalla recibirán la configuración de este fondo. Cada uno conserva sus propias propiedades de escena."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tous les autres fonds d’écran de cet écran reçoivent les réglages de son, de vitesse, d’alignement et de couleur de ce fond d’écran. Chacun conserve ses propres propriétés."
+            "value" : "Tous les autres fonds d’écran de cet écran reçoivent les réglages de ce fond d’écran. Chacun conserve ses propres propriétés de scène."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "このディスプレイのほかのすべての壁紙に、この壁紙のサウンド、再生速度、配置、色の設定が適用されます。各壁紙固有のプロパティはそのまま保持されます。"
+            "value" : "このディスプレイのほかのすべての壁紙に、この壁紙の設定が適用されます。各壁紙のシーンのプロパティはそのまま保持されます。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "이 디스플레이의 다른 모든 배경화면에 이 배경화면의 사운드, 재생 속도, 정렬 및 색 설정이 적용됩니다. 각 배경화면의 고유 속성은 그대로 유지됩니다."
+            "value" : "이 디스플레이의 다른 모든 배경화면에 이 배경화면의 설정이 적용됩니다. 각 배경화면의 씬 속성은 그대로 유지됩니다."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Każda inna tapeta na tym monitorze otrzyma ustawienia dźwięku, szybkości, wyrównania i kolorów tej tapety. Każda zachowa własne właściwości."
+            "value" : "Każda inna tapeta na tym monitorze otrzyma ustawienia tej tapety. Każda zachowa własne właściwości sceny."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Todos os outros papéis de parede desta tela recebem os ajustes de som, velocidade, alinhamento e cor deste papel de parede. Cada um mantém suas próprias propriedades."
+            "value" : "Todos os outros papéis de parede desta tela recebem os ajustes deste papel de parede. Cada um mantém suas próprias propriedades de cena."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Все остальные обои на этом дисплее получат настройки звука, скорости, выравнивания и цвета этих обоев. Их собственные свойства сохранятся."
+            "value" : "Все остальные обои на этом дисплее получат настройки этих обоев. Их собственные свойства сцены сохранятся."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bu ekrandaki diğer tüm duvar kâğıtlarına bu duvar kâğıdının ses, hız, hizalama ve renk ayarları uygulanır. Her biri kendi özelliklerini korur."
+            "value" : "Bu ekrandaki diğer tüm duvar kâğıtlarına bu duvar kâğıdının ayarları uygulanır. Her biri kendi sahne özelliklerini korur."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Усі інші шпалери на цьому дисплеї отримають такі самі параметри звуку, швидкості, вирівнювання й кольору, як у цієї шпалери. Власні властивості кожної шпалери збережуться."
+            "value" : "Усі інші шпалери на цьому дисплеї отримають такі самі параметри, як у цієї шпалери. Власні властивості сцени кожної шпалери збережуться."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "此显示器上的其他所有墙纸都将使用此墙纸的声音、速度、对齐方式和颜色设置。各墙纸会保留自己的属性。"
+            "value" : "此显示器上的其他所有墙纸都将使用此墙纸的设置。各墙纸会保留自己的场景属性。"
           }
         }
       }
@@ -12868,168 +12868,168 @@
         }
       }
     },
-    "Gives every other wallpaper in this playlist this wallpaper’s sound, speed, alignment and colour settings." : {
+    "Gives every other wallpaper in this playlist this wallpaper’s settings, apart from scene properties." : {
       "comment" : "Tooltip of “Apply to All Wallpapers” in the playlist editor's inspector.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Überträgt die Ton-, Geschwindigkeits-, Ausrichtungs- und Farbeinstellungen dieses Hintergrundbilds auf alle anderen Hintergrundbilder in dieser Playlist."
+            "value" : "Überträgt die Einstellungen dieses Hintergrundbilds auf alle anderen Hintergrundbilder in dieser Playlist, außer den Szeneneigenschaften."
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Εφαρμόζει τις ρυθμίσεις ήχου, ταχύτητας, ευθυγράμμισης και χρώματος αυτής της ταπετσαρίας σε όλες τις άλλες ταπετσαρίες αυτής της λίστας αναπαραγωγής."
+            "value" : "Εφαρμόζει τις ρυθμίσεις αυτής της ταπετσαρίας σε όλες τις άλλες ταπετσαρίες αυτής της λίστας αναπαραγωγής, εκτός από τις ιδιότητες σκηνής."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Da a todos los demás fondos de esta lista de reproducción los ajustes de sonido, velocidad, posicionamiento y color de este fondo."
+            "value" : "Da a todos los demás fondos de esta lista de reproducción los ajustes de este fondo, salvo las propiedades de escena."
           }
         },
         "es-MX" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aplica a todos los demás fondos de esta playlist la configuración de sonido, velocidad, posicionamiento y color de este fondo."
+            "value" : "Aplica a todos los demás fondos de esta playlist la configuración de este fondo, excepto las propiedades de escena."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Donne à tous les autres fonds d’écran de cette liste de lecture les réglages de son, de vitesse, d’alignement et de couleur de ce fond d’écran."
+            "value" : "Donne à tous les autres fonds d’écran de cette liste de lecture les réglages de ce fond d’écran, sauf les propriétés de scène."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "この壁紙のサウンド、再生速度、配置、色の設定を、このプレイリストのほかのすべての壁紙に適用します。"
+            "value" : "この壁紙の設定を、このプレイリストのほかのすべての壁紙に適用します（シーンのプロパティを除く）。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "이 배경화면의 사운드, 재생 속도, 정렬 및 색 설정을 이 재생목록의 다른 모든 배경화면에 적용합니다."
+            "value" : "씬 속성을 제외한 이 배경화면의 설정을 이 재생목록의 다른 모든 배경화면에 적용합니다."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Przekazuje ustawienia dźwięku, szybkości, wyrównania i kolorów tej tapety wszystkim pozostałym tapetom w tej playliście."
+            "value" : "Przekazuje ustawienia tej tapety wszystkim pozostałym tapetom w tej playliście, z wyjątkiem właściwości sceny."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aplica os ajustes de som, velocidade, alinhamento e cor deste papel de parede a todos os outros papéis de parede desta playlist."
+            "value" : "Aplica os ajustes deste papel de parede a todos os outros papéis de parede desta playlist, exceto as propriedades de cena."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Передает всем остальным обоям в этом плейлисте настройки звука, скорости, выравнивания и цвета этих обоев."
+            "value" : "Передает всем остальным обоям в этом плейлисте настройки этих обоев, кроме свойств сцены."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bu duvar kâğıdının ses, hız, hizalama ve renk ayarlarını bu oynatma listesindeki diğer tüm duvar kâğıtlarına uygular."
+            "value" : "Bu duvar kâğıdının sahne özellikleri dışındaki ayarlarını bu oynatma listesindeki diğer tüm duvar kâğıtlarına uygular."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Застосовує параметри звуку, швидкості, вирівнювання й кольору цієї шпалери до всіх інших шпалер у цій підбірці."
+            "value" : "Застосовує параметри цієї шпалери, крім властивостей сцени, до всіх інших шпалер у цій підбірці."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "将此墙纸的声音、速度、对齐方式和颜色设置应用到此播放列表中的其他所有墙纸。"
+            "value" : "将此墙纸除场景属性外的设置应用到此播放列表中的其他所有墙纸。"
           }
         }
       }
     },
-    "Gives every other wallpaper on this display this wallpaper’s sound, speed, alignment and colour settings." : {
+    "Gives every other wallpaper on this display this wallpaper’s settings, apart from scene properties." : {
       "comment" : "Tooltip of the Apply to All Wallpapers button.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Überträgt die Ton-, Geschwindigkeits-, Ausrichtungs- und Farbeinstellungen dieses Hintergrundbilds auf alle anderen Hintergrundbilder auf diesem Display."
+            "value" : "Überträgt die Einstellungen dieses Hintergrundbilds auf alle anderen Hintergrundbilder auf diesem Display, außer den Szeneneigenschaften."
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Εφαρμόζει τις ρυθμίσεις ήχου, ταχύτητας, ευθυγράμμισης και χρώματος αυτής της ταπετσαρίας σε όλες τις άλλες ταπετσαρίες αυτής της οθόνης."
+            "value" : "Εφαρμόζει τις ρυθμίσεις αυτής της ταπετσαρίας σε όλες τις άλλες ταπετσαρίες αυτής της οθόνης, εκτός από τις ιδιότητες σκηνής."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Da a todos los demás fondos de esta pantalla los ajustes de sonido, velocidad, posicionamiento y color de este fondo."
+            "value" : "Da a todos los demás fondos de esta pantalla los ajustes de este fondo, salvo las propiedades de escena."
           }
         },
         "es-MX" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aplica a todos los demás fondos de esta pantalla la configuración de sonido, velocidad, posicionamiento y color de este fondo."
+            "value" : "Aplica a todos los demás fondos de esta pantalla la configuración de este fondo, excepto las propiedades de escena."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Donne à tous les autres fonds d’écran de cet écran les réglages de son, de vitesse, d’alignement et de couleur de ce fond d’écran."
+            "value" : "Donne à tous les autres fonds d’écran de cet écran les réglages de ce fond d’écran, sauf les propriétés de scène."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "この壁紙のサウンド、再生速度、配置、色の設定を、このディスプレイのほかのすべての壁紙に適用します。"
+            "value" : "この壁紙の設定を、このディスプレイのほかのすべての壁紙に適用します（シーンのプロパティを除く）。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "이 배경화면의 사운드, 재생 속도, 정렬 및 색 설정을 이 디스플레이의 다른 모든 배경화면에 적용합니다."
+            "value" : "씬 속성을 제외한 이 배경화면의 설정을 이 디스플레이의 다른 모든 배경화면에 적용합니다."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Przekazuje ustawienia dźwięku, szybkości, wyrównania i kolorów tej tapety wszystkim pozostałym tapetom na tym monitorze."
+            "value" : "Przekazuje ustawienia tej tapety wszystkim pozostałym tapetom na tym monitorze, z wyjątkiem właściwości sceny."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aplica os ajustes de som, velocidade, alinhamento e cor deste papel de parede a todos os outros papéis de parede desta tela."
+            "value" : "Aplica os ajustes deste papel de parede a todos os outros papéis de parede desta tela, exceto as propriedades de cena."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Передает всем остальным обоям на этом дисплее настройки звука, скорости, выравнивания и цвета этих обоев."
+            "value" : "Передает всем остальным обоям на этом дисплее настройки этих обоев, кроме свойств сцены."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bu duvar kâğıdının ses, hız, hizalama ve renk ayarlarını bu ekrandaki diğer tüm duvar kâğıtlarına uygular."
+            "value" : "Bu duvar kâğıdının sahne özellikleri dışındaki ayarlarını bu ekrandaki diğer tüm duvar kâğıtlarına uygular."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Застосовує параметри звуку, швидкості, вирівнювання й кольору цієї шпалери до всіх інших шпалер на цьому дисплеї."
+            "value" : "Застосовує параметри цієї шпалери, крім властивостей сцени, до всіх інших шпалер на цьому дисплеї."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "将此墙纸的声音、速度、对齐方式和颜色设置应用到此显示器上的其他所有墙纸。"
+            "value" : "将此墙纸除场景属性外的设置应用到此显示器上的其他所有墙纸。"
           }
         }
       }
