@@ -32,6 +32,8 @@ import SceneFormat
     @Published var selectedDisplayID: String?
     /// A library item Home scrolls to and highlights once (Show in Library in the Workshop). UI state only.
     @Published var focusedID: VideoItem.ID? = nil
+    /// The kinds of content Home's library leaves out (its filter buttons); empty shows everything. UI state only.
+    @Published var hiddenLibraryKinds: Set<LibraryKind> = []
     /// The playlist editor Home shows instead of the library; nil while it is closed. UI state only.
     @Published private(set) var playlistEdit: PlaylistEdit?
     /// A way out of the playlist editor waiting for the user to confirm that the edit is undone. UI state only.

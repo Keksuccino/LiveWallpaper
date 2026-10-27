@@ -433,7 +433,7 @@ extension View {
 
     /// A fixed inspector panel on the trailing side, always shown. Like the sidebar it reaches up into the toolbar strip,
     /// which has no items above it (a page using it hides the toolbar's background there, and its content needs top
-    /// padding for the strip). SwiftUI's `inspector` would take over the toolbar's trailing items (the search field).
+    /// padding for the strip). SwiftUI's `inspector` would take over the toolbar's trailing items (Home's layout picker).
     func wmInspectorPanel<Inspector: View>(@ViewBuilder _ inspector: () -> Inspector) -> some View {
         HStack(spacing: 0) {
             frame(maxWidth: .infinity, maxHeight: .infinity)

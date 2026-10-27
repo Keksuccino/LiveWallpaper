@@ -12,6 +12,26 @@ enum LibraryLayout: String, CaseIterable {
     case grid, list
 }
 
+/// A kind of content the library lists; a button in the library's title row shows or hides each kind.
+enum LibraryKind: CaseIterable, Identifiable {
+    case playlist, scene, video
+
+    /// A wallpaper's kind: Workshop videos and the user's own videos are videos alike.
+    init(_ item: VideoItem) {
+        self = item.isScene ? .scene : .video
+    }
+
+    var id: Self { self }
+
+    var label: String {
+        switch self {
+        case .playlist: return String(localized: "Playlists")
+        case .scene: return String(localized: "Scenes")
+        case .video: return String(localized: "Videos")
+        }
+    }
+}
+
 /// One entry of the library: a playlist (with its wallpapers, for its picture) or a wallpaper.
 enum LibraryEntry: Identifiable, Equatable {
     case playlist(Playlist, items: [VideoItem])
@@ -37,6 +57,33 @@ enum LibraryEntry: Identifiable, Equatable {
         case .playlist(let playlist, _): return playlist.name
         case .wallpaper(let item): return item.name
         }
+    }
+
+    var kind: LibraryKind {
+        switch self {
+        case .playlist: return .playlist
+        case .wallpaper(let item): return LibraryKind(item)
+        }
+    }
+
+    /// The library as Home lists it: the playlists, then the wallpapers, without the `hidden` kinds and without what
+    /// does not match `search` (a playlist's name, a wallpaper's name or author).
+    static func library(videos: [VideoItem], playlists: [Playlist], search: String,
+                        hiding hidden: Set<LibraryKind>) -> [LibraryEntry] {
+        func matches(_ text: String?) -> Bool {
+            search.isEmpty || (text ?? "").localizedCaseInsensitiveContains(search)
+        }
+        var entries: [LibraryEntry] = []
+        if !hidden.contains(.playlist) {
+            let library = Dictionary(videos.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            entries += playlists
+                .filter { matches($0.name) }
+                .map { .playlist($0, items: $0.items.compactMap { library[$0] }) }
+        }
+        entries += videos
+            .filter { !hidden.contains(LibraryKind($0)) && (matches($0.name) || matches($0.author)) }
+            .map(LibraryEntry.wallpaper)
+        return entries
     }
 }
 
@@ -67,7 +114,6 @@ struct HomeView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .dropDestination(for: URL.self) { urls, _ in add(urls); return true } isTargeted: { isTargeted = $0 }
-        .searchable(text: $searchText, placement: .toolbar, prompt: "Search wallpapers")
         // A standard toolbar control with fixed labels, so nothing in the toolbar swaps its image while the page
         // animates.
         .toolbar {
@@ -106,20 +152,10 @@ struct HomeView: View {
 
     // MARK: Data
 
-    private func matches(_ text: String?) -> Bool {
-        searchText.isEmpty || (text ?? "").localizedCaseInsensitiveContains(searchText)
-    }
-
-    /// The playlists, then the wallpapers, that match the search.
+    /// The playlists, then the wallpapers, of the kinds shown that match the search.
     private var entries: [LibraryEntry] {
-        let library = Dictionary(model.videos.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let playlists = model.playlists
-            .filter { matches($0.name) }
-            .map { LibraryEntry.playlist($0, items: $0.items.compactMap { library[$0] }) }
-        let wallpapers = model.videos
-            .filter { matches($0.name) || matches($0.author) }
-            .map(LibraryEntry.wallpaper)
-        return playlists + wallpapers
+        LibraryEntry.library(videos: model.videos, playlists: model.playlists, search: searchText,
+                             hiding: model.hiddenLibraryKinds)
     }
 
     /// What the selected display is set to; its card is ringed.
@@ -172,11 +208,14 @@ struct HomeView: View {
         .animation(.easeInOut(duration: 0.18), value: isTargeted)
     }
 
-    /// Scrolls to the wallpaper Show in Library asked for and rings it for a moment.
+    /// Scrolls to the wallpaper Show in Library asked for and rings it for a moment, showing its kind if it was hidden.
     private func reveal(with proxy: ScrollViewProxy) {
         guard let id = model.focusedID else { return }
         model.focusedID = nil
         searchText = ""
+        if let item = model.videos.first(where: { $0.id == id }) {
+            model.hiddenLibraryKinds.remove(LibraryKind(item))
+        }
         Task { @MainActor in
             await Task.yield()  // the cards exist after this layout pass
             withAnimation(WMMotion.content) { proxy.scrollTo(id, anchor: .center) }
@@ -186,34 +225,81 @@ struct HomeView: View {
         }
     }
 
+    /// The library's title, kind filters, search and Add menu in one row where they fit; in a narrow window, the title
+    /// and the Add menu above the filters and the search.
     private func libraryHeader(count: Int) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                libraryTitle(count: count)
+                Spacer(minLength: 16)
+                kindFilters
+                searchField
+                addMenu
+            }
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    libraryTitle(count: count)
+                    Spacer(minLength: 16)
+                    addMenu
+                }
+                HStack(spacing: 10) {
+                    kindFilters
+                    Spacer(minLength: 16)
+                    searchField
+                }
+            }
+        }
+    }
+
+    private func libraryTitle(count: Int) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text("Your library")
                 .font(.title3.weight(.semibold))
             Text(count, format: .number)
                 .font(.callout.monospacedDigit())
                 .foregroundStyle(.tertiary)
-            Spacer()
-            Menu {
-                Button { importWallpapers() } label: {
-                    Label("Import Wallpapers", systemImage: "square.and.arrow.down.on.square")
-                }
-                Button { chooseVideos() } label: {
-                    Label("Add Videos", systemImage: "film")
-                }
-                Divider()
-                Button { newPlaylist() } label: {
-                    Label("New Playlist", systemImage: "rectangle.stack.badge.plus")
-                }
-            } label: {
-                Label("Add", systemImage: "plus")
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("Import videos, Wallpaper Engine scene packages or scene folders (⌘O), or make a playlist")
-            .accessibilityLabel("Add wallpapers or a playlist")
         }
+        .fixedSize()
+    }
+
+    /// A button per kind of content; a kind that is off leaves the library.
+    private var kindFilters: some View {
+        HStack(spacing: 4) {
+            ForEach(LibraryKind.allCases) { kind in
+                WMTopicChip(title: kind.label, selected: !model.hiddenLibraryKinds.contains(kind)) {
+                    if model.hiddenLibraryKinds.remove(kind) == nil { model.hiddenLibraryKinds.insert(kind) }
+                }
+            }
+        }
+        .fixedSize()
+        .help("Show or hide playlists, scenes and videos")
+    }
+
+    private var searchField: some View {
+        WMSearchField(prompt: "Search your library", text: $searchText)
+            .frame(minWidth: 120, idealWidth: 180, maxWidth: 260)
+    }
+
+    private var addMenu: some View {
+        Menu {
+            Button { importWallpapers() } label: {
+                Label("Import Wallpapers", systemImage: "square.and.arrow.down.on.square")
+            }
+            Button { chooseVideos() } label: {
+                Label("Add Videos", systemImage: "film")
+            }
+            Divider()
+            Button { newPlaylist() } label: {
+                Label("New Playlist", systemImage: "rectangle.stack.badge.plus")
+            }
+        } label: {
+            Label("Add", systemImage: "plus")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Import videos, Wallpaper Engine scene packages or scene folders (⌘O), or make a playlist")
+        .accessibilityLabel("Add wallpapers or a playlist")
     }
 
     private func libraryItems(_ entries: [LibraryEntry]) -> some View {
@@ -296,12 +382,20 @@ struct HomeView: View {
 
     private var noResults: some View {
         VStack(spacing: 12) {
-            Image(systemName: "magnifyingglass").font(.system(size: 28, weight: .light)).foregroundStyle(.tertiary)
+            Image(systemName: searchText.isEmpty ? "line.3.horizontal.decrease" : "magnifyingglass")
+                .font(.system(size: 28, weight: .light))
+                .foregroundStyle(.tertiary)
             Text("No wallpapers match").font(.title3.weight(.semibold))
-            Text("Try another search.").font(.callout).foregroundStyle(.secondary)
+            Text(noResultsHint).font(.callout).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 40)
+    }
+
+    private var noResultsHint: LocalizedStringKey {
+        if model.hiddenLibraryKinds.isEmpty { return "Try another search." }
+        return searchText.isEmpty ? "Turn on more content types above."
+                                  : "Try another search, or turn on more content types above."
     }
 
     // MARK: Adding, removing and playlists
@@ -481,6 +575,31 @@ private struct EntryBadge: View {
     }
 }
 
+/// Marks the entry the selected display shows, in the top-left corner of its picture: a bold white checkmark on an
+/// accent circle that pops in and out with the selection.
+@MainActor
+private struct CurrentBadge: View {
+    let shown: Bool
+    let size: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack {
+            if shown {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: size, weight: .bold))
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, WMTheme.accent)
+                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+                    .transition(reduceMotion ? .opacity : .scale(scale: 0.4).combined(with: .opacity))
+            }
+        }
+        .animation(WMMotion.success, value: shown)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)  // the entry itself carries the selected trait
+    }
+}
+
 /// The line under a card's name.
 private func entryMeta(_ entry: LibraryEntry, broken: Bool) -> String {
     switch entry {
@@ -553,6 +672,10 @@ private struct LibraryCard: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(state.ringColor, lineWidth: state.ringWidth)
             }
+            .overlay(alignment: .topLeading) {
+                CurrentBadge(shown: state.current, size: 22)
+                    .padding(8)
+            }
             .shadow(color: .black.opacity(hovering || state.current ? 0.20 : 0), radius: 16, y: 8)
             .animation(WMMotion.hover, value: state)
 
@@ -591,6 +714,10 @@ private struct LibraryListRow: View {
         HStack(spacing: 12) {
             EntryArtwork(entry: entry, broken: broken, cornerRadius: 8)
                 .frame(width: 96, height: 54)
+                .overlay(alignment: .topLeading) {
+                    CurrentBadge(shown: state.current, size: 15)
+                        .padding(4)
+                }
             VStack(alignment: .leading, spacing: 3) {
                 Text(entry.name).font(.callout.weight(.medium)).lineLimit(1).truncationMode(.middle)
                 EntryBadge(entry: entry)

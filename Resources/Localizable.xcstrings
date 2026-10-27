@@ -22586,6 +22586,89 @@
         }
       }
     },
+    "Playlists" : {
+      "comment" : "Filter button in the library’s title row that shows or hides the playlists.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Playlists"
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Λίστες αναπαραγωγής"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Listas de reproducción"
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Playlists"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Listes de lecture"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プレイリスト"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "재생목록"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Playlisty"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Playlists"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Плейлисты"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oynatma Listeleri"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Підбірки"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "播放列表"
+          }
+        }
+      }
+    },
     "Presets" : {
       "comment" : "Small heading above the preset buttons of a wallpaper (Wallpaper Engine’s “your presets”).",
       "localizations" : {
@@ -25933,7 +26016,7 @@
       }
     },
     "Scenes" : {
-      "comment" : "The Workshop filter for scene wallpapers.",
+      "comment" : "Filter button for scene wallpapers (Workshop browse and the library’s title row).",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -26100,7 +26183,7 @@
       }
     },
     "Search wallpapers" : {
-      "comment" : "Placeholder of the search field (library toolbar and Workshop browse).",
+      "comment" : "Placeholder of the Workshop’s browse search field.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -26183,7 +26266,7 @@
       }
     },
     "Search your library" : {
-      "comment" : "Placeholder of the search field of the “Add to Playlist” sheet.",
+      "comment" : "Placeholder of the search field in the library’s title row and in the “Add to Playlist” sheet.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -27174,6 +27257,89 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "在资料库中显示"
+          }
+        }
+      }
+    },
+    "Show or hide playlists, scenes and videos" : {
+      "comment" : "Tooltip of the filter buttons (Playlists, Scenes, Videos) in the library’s title row.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Playlists, Szenen und Videos ein- oder ausblenden"
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Εμφάνιση ή απόκρυψη λιστών αναπαραγωγής, σκηνών και βίντεο"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar u ocultar listas de reproducción, escenas y vídeos"
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar u ocultar playlists, escenas y videos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afficher ou masquer les listes de lecture, les scènes et les vidéos"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プレイリスト、シーン、ビデオの表示/非表示を切り替えます"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "재생목록, 씬, 비디오 보기 또는 가리기"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokaż lub ukryj playlisty, sceny i wideo"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar ou ocultar playlists, cenas e vídeos"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показать или скрыть плейлисты, сцены и видео"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oynatma listelerini, sahneleri ve videoları göster veya gizle"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показати або сховати підбірки, сцени й відео"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示或隐藏播放列表、场景和视频"
           }
         }
       }
@@ -37832,6 +37998,89 @@
         }
       }
     },
+    "Try another search, or turn on more content types above." : {
+      "comment" : "Shown below “No wallpapers match” in the library when a search finds nothing while its filter buttons (Playlists, Scenes, Videos) hide some kinds of content.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Versuche eine andere Suche oder schalte oben weitere Inhaltsarten ein."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Δοκιμάστε άλλη αναζήτηση ή ενεργοποιήστε περισσότερους τύπους περιεχομένου παραπάνω."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prueba con otra búsqueda o activa más tipos de contenido arriba."
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prueba otra búsqueda o activa más tipos de contenido arriba."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Essayez une autre recherche ou activez d’autres types de contenu ci-dessus."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "別の検索語句を試すか、上でほかの種類のコンテンツをオンにしてください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "다른 검색어를 사용하거나 위에서 더 많은 콘텐츠 유형을 켜십시오."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spróbuj wyszukać coś innego lub włącz więcej typów treści powyżej."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tente outra busca ou ative mais tipos de conteúdo acima."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Попробуйте другой запрос или включите больше типов контента выше."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Başka bir arama deneyin veya yukarıdan daha fazla içerik türünü açın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Спробуйте інший запит або увімкніть більше типів вмісту вгорі."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请尝试其他搜索内容，或在上方开启更多内容类型。"
+          }
+        }
+      }
+    },
     "Try another search." : {
       "comment" : "Shown below “No wallpapers match” in the library.",
       "localizations" : {
@@ -37911,6 +38160,89 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "请尝试其他搜索内容。"
+          }
+        }
+      }
+    },
+    "Turn on more content types above." : {
+      "comment" : "Shown below “No wallpapers match” in the library when its filter buttons (Playlists, Scenes, Videos) hide some kinds of content and nothing is searched.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schalte oben weitere Inhaltsarten ein."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ενεργοποιήστε περισσότερους τύπους περιεχομένου παραπάνω."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Activa más tipos de contenido arriba."
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Activa más tipos de contenido arriba."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Activez d’autres types de contenu ci-dessus."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上でほかの種類のコンテンツをオンにしてください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "위에서 더 많은 콘텐츠 유형을 켜십시오."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Włącz więcej typów treści powyżej."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ative mais tipos de conteúdo acima."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Включите больше типов контента выше."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yukarıdan daha fazla içerik türünü açın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Увімкніть більше типів вмісту вгорі."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请在上方开启更多内容类型。"
           }
         }
       }
@@ -39494,7 +39826,7 @@
       }
     },
     "Videos" : {
-      "comment" : "Workshop filter that shows video wallpapers only.",
+      "comment" : "Filter button for video wallpapers (Workshop browse and the library’s title row).",
       "localizations" : {
         "de" : {
           "stringUnit" : {
