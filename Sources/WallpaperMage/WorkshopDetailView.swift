@@ -3,8 +3,8 @@ import AppKit
 import Core
 
 // The Workshop detail pane: opens when a result is clicked. Large preview that ANIMATES (Workshop
-// previews are often GIFs), title, tags, size, description, Download; after the download the pane shows the
-// library item's own preview (the muted looping video, or the scene preview).
+// previews are often GIFs), title, the Info box (WallpaperInfoView.swift), description, Download; after the download
+// the pane shows the library item's own preview (the muted looping video, or the scene preview).
 
 /// NSImageView with `animates = true`, so animated GIF previews play. SwiftUI's Image and AsyncImage show frame 1.
 struct AnimatedImageView: NSViewRepresentable {
@@ -48,43 +48,6 @@ struct AnimatedImageView: NSViewRepresentable {
     }
 }
 
-/// Lays chips and small buttons out in rows that wrap at the available width.
-fileprivate struct WrappingRows: Layout {
-    private let gap: CGFloat = 6
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        place(subviews, width: proposal.width ?? .infinity).size
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let placed = place(subviews, width: bounds.width)
-        for (subview, origin) in zip(subviews, placed.origins) {
-            subview.place(at: CGPoint(x: bounds.minX + origin.x, y: bounds.minY + origin.y), proposal: .unspecified)
-        }
-    }
-
-    private func place(_ subviews: Subviews, width: CGFloat) -> (origins: [CGPoint], size: CGSize) {
-        var origins: [CGPoint] = []
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var rowHeight: CGFloat = 0
-        var widest: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x > 0, x + size.width > width {
-                x = 0
-                y += rowHeight + gap
-                rowHeight = 0
-            }
-            origins.append(CGPoint(x: x, y: y))
-            x += size.width + gap
-            rowHeight = max(rowHeight, size.height)
-            widest = max(widest, x - gap)
-        }
-        return (origins, CGSize(width: widest, height: y + rowHeight))
-    }
-}
-
 @MainActor
 struct WorkshopDetailView: View {
     @ObservedObject var model: SettingsModel
@@ -117,25 +80,20 @@ struct WorkshopDetailView: View {
                     .buttonStyle(.borderless)
                     .keyboardShortcut(.cancelAction)
                     Spacer()
-                    if let url = steamCommunityURL {
+                    if let url = WorkshopItem.pageURL(id: item.id) {
                         Link(destination: url) {
-                            Label("Open on Steam", systemImage: "arrow.up.right.square")
+                            Label("Open in Steam", systemImage: "arrow.up.right.square")
                                 .font(.caption)
                         }
                         .buttonStyle(.link)
                     }
                 }
                 previewArea
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(item.title)
-                        .font(.system(size: 26, weight: .semibold))
-                        .textSelection(.enabled)
-                    if let author = item.author {
-                        Text(author).font(.callout).foregroundStyle(.secondary)
-                    }
-                }
-                chips
-                tags
+                Text(item.title)
+                    .font(.system(size: 26, weight: .semibold))
+                    .textSelection(.enabled)
+                // The page link is in the top row already.
+                WallpaperInfoBox(rows: infoRows, tags: item.topicTags)
                 Text(item.summary.isEmpty ? String(localized: "No description.") : item.summary)
                     .font(.callout)
                     .foregroundStyle(item.summary.isEmpty ? .secondary : .primary)
@@ -144,6 +102,8 @@ struct WorkshopDetailView: View {
                 actions
             }
             .padding(24)
+            // The pane starts at the window's top edge, in the toolbar strip (see `WorkshopView.content`).
+            .padding(.top, WMTheme.toolbarStripPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(WMBackground())
@@ -185,41 +145,24 @@ struct WorkshopDetailView: View {
         }
     }
 
-    /// The item's page on the Steam Community.
-    private var steamCommunityURL: URL? {
-        URL(string: "https://steamcommunity.com/sharedfiles/filedetails/?id=\(item.id)")
-    }
+    // MARK: Info
 
-    // MARK: Facts
-
-    private var chips: some View {
-        WrappingRows {
-            if let kind = item.kind.label {
-                WorkshopChip(text: kind, tint: item.isImportable ? WMTheme.accent : Color.orange)
-            }
-            if let resolution = item.resolutionTag { WorkshopChip(text: resolution) }
-            if let rating = item.ratingTag { WorkshopChip(text: rating) }
-            if item.sizeBytes > 0 {
-                WorkshopChip(text: ByteCountFormatter.string(fromByteCount: item.sizeBytes, countStyle: .file))
-            }
-            if let subscriptions = item.subscriptions {
-                WorkshopChip(text: String(localized: "\(subscriptions) subscribers"))
-            }
+    /// What Steam's record of the item says, in the rows of a library wallpaper's Info box where they match.
+    private var infoRows: [InfoRow] {
+        var rows: [InfoRow] = []
+        if let kind = item.kind.label { rows.append(InfoRow(title: "Type", value: kind)) }
+        if let resolution = item.resolutionTag {
+            rows.append(InfoRow(title: "Resolution", value: WallpaperInfoBox.resolution(tag: resolution)))
         }
-    }
-
-    // Tags that are not already shown as chips.
-    private var otherTags: [String] {
-        let shown = Set([item.resolutionTag, item.ratingTag, item.kind.rawValue].compactMap { $0?.lowercased() })
-        return item.tags.filter { !shown.contains($0.lowercased()) }
-    }
-
-    @ViewBuilder private var tags: some View {
-        if !otherTags.isEmpty {
-            WrappingRows {
-                ForEach(otherTags, id: \.self) { WorkshopChip(text: $0) }
-            }
+        if item.sizeBytes > 0 { rows.append(InfoRow(title: "Size", value: WallpaperInfoBox.bytes(item.sizeBytes))) }
+        if let rating = item.ratingTag { rows.append(InfoRow(title: "Rating", value: WallpaperInfoBox.rating(rating))) }
+        if let author = item.author { rows.append(InfoRow(title: "Author", value: author)) }
+        if let subscriptions = item.subscriptions {
+            rows.append(InfoRow(title: "Subscribers", value: subscriptions.formatted()))
         }
+        if let created = item.created { rows.append(InfoRow(title: "Created", value: WallpaperInfoBox.date(created))) }
+        if let updated = item.updated { rows.append(InfoRow(title: "Updated", value: WallpaperInfoBox.date(updated))) }
+        return rows
     }
 
     // MARK: Actions

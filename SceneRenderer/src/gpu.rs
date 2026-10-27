@@ -35,6 +35,23 @@ pub const VERTEX_STRIDE: usize = 20;
 
 /// Puppet vertex: position xy, texcoord uv, straight colour rgba.
 pub const PUPPET_STRIDE: usize = 32;
+/// Format of puppet clipping masks.
+pub const MASK_FORMAT: MTLPixelFormat = MTLPixelFormat::R8Unorm;
+
+/// How a puppet pipeline draws.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PuppetPass {
+    Plain,
+    /// Coverage into a clipping mask.
+    Mask,
+    /// Alpha times the clipping mask under each pixel.
+    Clipped,
+    /// A mask multiplied into the clipping mask.
+    MaskMultiply,
+    /// A blend map's channels over the flat texture, alone or mixed with the plain image.
+    Channels,
+    ChannelsOverPlain,
+}
 
 /// The depth buffer of the passes that draw models.
 pub const DEPTH_FORMAT: MTLPixelFormat = MTLPixelFormat::Depth32Float;
@@ -71,6 +88,55 @@ fragment float4 wm_puppet_fs(VOut i [[stage_in]], texture2d<float> t [[texture(0
                            sampler s [[sampler(0)]]) {
     float4 c = t.sample(s, i.uv);
     return float4(c.rgb * i.col.rgb, c.a * i.col.a);
+}
+// A clipping mask part, as Wallpaper Engine's `clippingmaskimage4` draws it: the group's mask
+// texture's red under the part, its alpha (sharpened where unmasked, so overlapping parts add
+// little), coverage `mask * alpha`, inverted with `clip.z`; blended translucently.
+fragment float4 wm_puppet_mask_fs(VOut i [[stage_in]], texture2d<float> t [[texture(0)]],
+                                  sampler s [[sampler(0)]], texture2d<float> m [[texture(1)]],
+                                  constant float4& clip [[buffer(1)]]) {
+    float albedo = t.sample(s, i.uv).a;
+    float mask = m.sample(s, i.uv).r;
+    float a = mix(pow(albedo, 4.0), albedo, mask) * i.col.a;
+    float r = mask * a;
+    r = clip.z > 0.5 ? 1.0 - r : r;
+    return float4(r, 0.0, 0.0, a);
+}
+// A clipped part: its alpha times the mask under it (`clip.xy` turns pixels into the mask's uv).
+fragment float4 wm_puppet_clip_fs(VOut i [[stage_in]], texture2d<float> t [[texture(0)]],
+                                  sampler s [[sampler(0)]], texture2d<float> m [[texture(1)]],
+                                  constant float4& clip [[buffer(1)]]) {
+    float4 c = t.sample(s, i.uv);
+    constexpr sampler nearest(filter::nearest, address::clamp_to_edge);
+    float k = m.sample(nearest, i.pos.xy * clip.xy).r;
+    return float4(c.rgb * i.col.rgb, c.a * i.col.a * k);
+}
+// A puppet's texture channels (its blend map), as Wallpaper Engine's `puppettexturechannels`
+// draws them over the flat texture: `col.xy` is the vertex's uv in the plain image, `col.z` its
+// blend value; `tint` is the layer's colour and alpha.
+fragment float4 wm_channels_fs(VOut i [[stage_in]], texture2d<float> t [[texture(0)]],
+                               sampler s [[sampler(0)]], constant float4& tint [[buffer(1)]]) {
+    float4 albedo = t.sample(s, i.uv);
+    float z = i.col.z;
+    albedo.a *= saturate(z);
+    albedo.rgb *= tint.rgb * max(1.0, z);
+    return albedo;
+}
+// With a second texture (`DOUBLEBUFFERED`): mixed over the plain image by the blend value.
+fragment float4 wm_channels2_fs(VOut i [[stage_in]], texture2d<float> t [[texture(0)]],
+                                sampler s [[sampler(0)]], texture2d<float> plain [[texture(1)]],
+                                constant float4& tint [[buffer(1)]]) {
+    float4 albedo = t.sample(s, i.uv);
+    float z = i.col.z;
+    if (z <= 0.001) discard_fragment();
+    float4 base = plain.sample(s, i.col.xy);
+    base.rgb = mix(albedo.rgb, base.rgb, step(saturate(z), base.a));
+    return mix(base, albedo, z) * tint;
+}
+// A nested group's mask multiplied into its ancestors' (blended by the destination).
+fragment float4 wm_puppet_mask_mul_fs(VOut i [[stage_in]], texture2d<float> t [[texture(0)]],
+                                      sampler s [[sampler(0)]]) {
+    return float4(t.sample(s, i.uv).r, 0.0, 0.0, 1.0);
 }
 "#;
 
@@ -230,7 +296,7 @@ pub struct Gpu {
     composite_lib: Retained<ProtocolObject<dyn MTLLibrary>>,
     blur: HashMap<(&'static str, usize), Retained<Pipeline>>,
     blur_lib: Retained<ProtocolObject<dyn MTLLibrary>>,
-    puppet: HashMap<(Blend, MTLPixelFormat, usize), Retained<Pipeline>>,
+    puppet: HashMap<(Blend, MTLPixelFormat, usize, PuppetPass), Retained<Pipeline>>,
     puppet_lib: Retained<ProtocolObject<dyn MTLLibrary>>,
     /// Pipelines of particle materials, by program address, blend, format, samples and vertex
     /// layout address.
@@ -386,8 +452,28 @@ impl Gpu {
                 data: rgba.to_vec(),
             }]],
             frames: Vec::new(),
+            video: None,
         };
         self.upload(&tex, 0, false)
+    }
+
+    /// A texture a video's frames are copied into on the GPU timeline: BGRA, as AVFoundation
+    /// decodes them.
+    pub fn video_target(&self, w: usize, h: usize) -> Result<Retained<Texture>, Error> {
+        // SAFETY: plain descriptor construction with in-range sizes.
+        let desc = unsafe {
+            MTLTextureDescriptor::texture2DDescriptorWithPixelFormat_width_height_mipmapped(
+                MTLPixelFormat::BGRA8Unorm,
+                w.max(1),
+                h.max(1),
+                false,
+            )
+        };
+        desc.setUsage(MTLTextureUsage::ShaderRead);
+        desc.setStorageMode(MTLStorageMode::Private);
+        self.device
+            .newTextureWithDescriptor(&desc)
+            .ok_or_else(|| Error::Metal("video texture alloc".into()))
     }
 
     pub fn render_target(
@@ -651,19 +737,29 @@ impl Gpu {
         Ok(p)
     }
 
-    /// Pipeline for CPU-built textured, coloured triangles (skinned puppet meshes).
+    /// Pipeline for CPU-built textured, coloured triangles (skinned puppet meshes): drawn
+    /// plainly, as a clipping mask (into `MASK_FORMAT`), clipped by one, or multiplying a mask
+    /// into another.
     pub fn puppet_pipeline(
         &mut self,
         blend: Blend,
         format: MTLPixelFormat,
         samples: usize,
+        pass: PuppetPass,
     ) -> Result<Retained<Pipeline>, Error> {
-        let key = (blend, format, samples);
+        let key = (blend, format, samples, pass);
         if let Some(p) = self.puppet.get(&key) {
             return Ok(p.clone());
         }
         let vs = function(&self.puppet_lib, "wm_puppet_vs")?;
-        let fs = function(&self.puppet_lib, "wm_puppet_fs")?;
+        let fs = function(&self.puppet_lib, match pass {
+            PuppetPass::Plain => "wm_puppet_fs",
+            PuppetPass::Mask => "wm_puppet_mask_fs",
+            PuppetPass::Clipped => "wm_puppet_clip_fs",
+            PuppetPass::MaskMultiply => "wm_puppet_mask_mul_fs",
+            PuppetPass::Channels => "wm_channels_fs",
+            PuppetPass::ChannelsOverPlain => "wm_channels2_fs",
+        })?;
         let vd = MTLVertexDescriptor::new();
         for (i, (format, offset)) in [
             (MTLVertexFormat::Float2, 0),
@@ -681,7 +777,19 @@ impl Gpu {
                 attr.setBufferIndex(VERTEX_BUFFER_SLOT as usize);
             }
         }
-        let p = self.finish_pipeline(&vs, &fs, &vd, blend, format, samples, PUPPET_STRIDE)?;
+        let p = if pass == PuppetPass::MaskMultiply {
+            let desc = self.pipeline_descriptor(&vs, &fs, &vd, Blend::Disabled, format, samples, PUPPET_STRIDE);
+            // SAFETY: attachment 0 always exists.
+            let color = unsafe { desc.colorAttachments().objectAtIndexedSubscript(0) };
+            color.setBlendingEnabled(true);
+            color.setSourceRGBBlendFactor(MTLBlendFactor::DestinationColor);
+            color.setDestinationRGBBlendFactor(MTLBlendFactor::Zero);
+            self.device
+                .newRenderPipelineStateWithDescriptor_error(&desc)
+                .map_err(|e| Error::Metal(format!("pipeline: {}", e.localizedDescription())))?
+        } else {
+            self.finish_pipeline(&vs, &fs, &vd, blend, format, samples, PUPPET_STRIDE)?
+        };
         let _ = self.puppet.insert(key, p.clone());
         Ok(p)
     }

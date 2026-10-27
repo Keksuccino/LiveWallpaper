@@ -35,9 +35,14 @@ enum WMTheme {
     static let panelRadius: CGFloat = 22
     static let sidebarWidth: CGFloat = 236
     static let inspectorWidth: CGFloat = 330
+    /// Added to the top padding of a side panel's content when the panel reaches up into the toolbar strip
+    /// (`wmInspectorPanel`), so its content starts below the strip's window controls.
+    static let toolbarStripPadding: CGFloat = 22
     static let gridSpacing: CGFloat = 20
     static let cardMinWidth: CGFloat = 252
     static let sectionSpacing: CGFloat = 26
+    /// Between the `WMTopicChip`s of one row.
+    static let chipSpacing: CGFloat = 4
 
     /// Hairline used on every glass edge: a light top and a shadowed bottom, in one pass.
     static let edgeGradient = LinearGradient(
@@ -269,6 +274,43 @@ struct WMChip: View {
     }
 }
 
+/// Lays chips and small buttons out in rows that wrap at the available width.
+struct WrappingRows: Layout {
+    private let gap: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        place(subviews, width: proposal.width ?? .infinity).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let placed = place(subviews, width: bounds.width)
+        for (subview, origin) in zip(subviews, placed.origins) {
+            subview.place(at: CGPoint(x: bounds.minX + origin.x, y: bounds.minY + origin.y), proposal: .unspecified)
+        }
+    }
+
+    private func place(_ subviews: Subviews, width: CGFloat) -> (origins: [CGPoint], size: CGSize) {
+        var origins: [CGPoint] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var widest: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > width {
+                x = 0
+                y += rowHeight + gap
+                rowHeight = 0
+            }
+            origins.append(CGPoint(x: x, y: y))
+            x += size.width + gap
+            rowHeight = max(rowHeight, size.height)
+            widest = max(widest, x - gap)
+        }
+        return (origins, CGSize(width: widest, height: y + rowHeight))
+    }
+}
+
 /// A tappable capsule used for topic chips and filter segments. Text only, system accent when selected.
 struct WMTopicChip: View {
     let title: String
@@ -296,6 +338,102 @@ struct WMTopicChip: View {
         .buttonStyle(.plain)
         .animation(WMMotion.hover, value: selected)
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// A choice among a few values shown as icons in a glass capsule, the chosen one on an accent pill that slides over to
+/// the next choice. Drawn like `WMTopicChip` and `WMSearchField`, so it sits in a row of them.
+struct WMIconPicker<Value: Hashable>: View {
+    struct Option {
+        let value: Value
+        let title: LocalizedStringKey
+        let systemImage: String
+    }
+
+    let title: LocalizedStringKey
+    @Binding var selection: Value
+    let options: [Option]
+    @Namespace private var pill
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(options, id: \.value) { option in
+                IconPickerSegment(title: option.title, systemImage: option.systemImage,
+                                  selected: option.value == selection, pill: pill) {
+                    selection = option.value
+                }
+            }
+        }
+        .padding(2)
+        .background {
+            Capsule()
+                .fill(.regularMaterial)
+                .overlay(Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 1))
+        }
+        // Scoped to the picker: only the pill slides, while what the selection drives changes in its own transaction.
+        .animation(reduceMotion ? nil : WMMotion.select, value: selection)
+        .fixedSize()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(title)
+    }
+}
+
+private struct IconPickerSegment: View {
+    let title: LocalizedStringKey
+    let systemImage: String
+    let selected: Bool
+    let pill: Namespace.ID
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(selected ? Color.white : Color.primary.opacity(hovering ? 0.9 : 0.6))
+                .frame(width: 30, height: 24)
+                .background {
+                    if selected {
+                        Capsule().fill(WMTheme.accent).matchedGeometryEffect(id: "pill", in: pill)
+                    } else if hovering {
+                        Capsule().fill(Color.primary.opacity(0.07))
+                    }
+                }
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .onHover { inside in withAnimation(WMMotion.hover) { hovering = inside } }
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// What a list is sorted by: the chosen sort's name on a capsule button, the sorts in its menu with a checkmark on the
+/// chosen one. As tall as `WMIconPicker`, `WMTopicChip` and `WMSearchField`, so it sits in a row of them. It is as wide
+/// as the sort's name, so the row around it animates `selection` to move its other controls over smoothly.
+struct WMSortMenu<Value: Hashable>: View {
+    let title: LocalizedStringKey
+    @Binding var selection: Value
+    let options: [Value]
+    let label: (Value) -> String
+
+    var body: some View {
+        Menu {
+            Picker(title, selection: $selection) {
+                ForEach(options, id: \.self) { option in
+                    Text(label(option)).tag(option)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            Label(label(selection), systemImage: "arrow.up.arrow.down")
+                .font(.callout.weight(.medium))
+        }
+        .buttonBorderShape(.capsule)
+        .controlSize(.large)
+        .fixedSize()
     }
 }
 
@@ -388,7 +526,7 @@ struct WMProgressBar: View {
 
 // MARK: - Search field
 
-/// Glass capsule search field with icon, clear button and an escape-to-clear shortcut.
+/// Glass capsule search field with icon and clear button.
 struct WMSearchField: View {
     let prompt: LocalizedStringKey
     @Binding var text: String
@@ -420,6 +558,7 @@ struct WMSearchField: View {
                 .fill(.regularMaterial)
                 .overlay(Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 1))
         }
+        .textFieldClickArea()
         .frame(maxWidth: 260)
     }
 }
@@ -432,8 +571,9 @@ extension View {
     }
 
     /// A fixed inspector panel on the trailing side, always shown. Like the sidebar it reaches up into the toolbar strip,
-    /// which has no items above it (a page using it hides the toolbar's background there, and its content needs top
-    /// padding for the strip). SwiftUI's `inspector` would take over the toolbar's trailing items (Home's layout picker).
+    /// which has no items above it (a page using it hides the toolbar's background there, and its content needs
+    /// `WMTheme.toolbarStripPadding` more top padding). SwiftUI's `inspector` would take over the toolbar's trailing
+    /// items.
     func wmInspectorPanel<Inspector: View>(@ViewBuilder _ inspector: () -> Inspector) -> some View {
         HStack(spacing: 0) {
             frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -445,24 +585,6 @@ extension View {
             }
             .ignoresSafeArea(.container, edges: .top)
         }
-    }
-}
-
-extension View {
-    /// For the standard controls in the window's toolbar. SwiftUI creates them a moment before the window becomes
-    /// key and then does not redraw them, so they keep the dimmed look of an inactive window until the pointer passes
-    /// over them. A new identity whenever the window's active state changes has SwiftUI draw them afresh. Not for a
-    /// control with state of its own (a popover would close whenever it takes the key window).
-    func redrawnOnWindowActivation() -> some View {
-        modifier(ActiveStateRedrawModifier())
-    }
-}
-
-private struct ActiveStateRedrawModifier: ViewModifier {
-    @Environment(\.controlActiveState) private var activeState
-
-    func body(content: Content) -> some View {
-        content.id(activeState)
     }
 }
 
@@ -487,6 +609,11 @@ private struct HoverLiftModifier: ViewModifier {
 final class ThumbnailCache {
     static let shared = ThumbnailCache()
     private let cache = NSCache<NSString, NSImage>()
+
+    private init() {
+        // Counts the decoded library previews only (their cost is their bytes): a long library is never all in memory.
+        cache.totalCostLimit = 192 << 20
+    }
 
     func image(for item: VideoItem) async -> NSImage? {
         let key = (item.previewPath ?? item.path) as NSString
@@ -515,18 +642,48 @@ final class ThumbnailCache {
         cache.setObject(image, forKey: key)
         return image
     }
+
+    /// A library preview (LibraryPreviewStore), decoded off the main thread; a refreshed one is decoded again.
+    func image(of preview: LibraryPreviewStore.File) async -> NSImage? {
+        let key = "\(preview.url.path)@\(preview.modified.timeIntervalSinceReferenceDate)" as NSString
+        if let cached = cache.object(forKey: key) { return cached }
+        let url = preview.url
+        let decoded = await Task.detached(priority: .userInitiated) { () -> CGImage? in
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+            return CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+        }.value
+        guard let decoded else { return nil }
+        let image = NSImage(cgImage: decoded, size: .zero)
+        cache.setObject(image, forKey: key, cost: decoded.bytesPerRow * decoded.height)
+        return image
+    }
 }
 
-/// A wallpaper's preview. It takes exactly the size it is offered: the picture fills it from an overlay, so a picture
-/// of another aspect ratio never makes the thumbnail larger than its frame.
+/// A wallpaper's preview: the library's preview of it once the service made one (LibraryPreviewStore), until then its
+/// own preview image or a video frame. It takes exactly the size it is offered: the picture fills it from an overlay,
+/// so a picture of another aspect ratio never makes the thumbnail larger than its frame.
 struct ItemThumbnail: View {
     let item: VideoItem
     var broken = false
     var cornerRadius: CGFloat = 12
 
-    @State private var image: NSImage?
+    @ObservedObject private var previews = LibraryPreviewStore.shared
+    @State private var picture: Picture?
+
+    /// A loaded picture and what it was loaded from: a new source fades in over the old picture.
+    private struct Picture {
+        let source: Source
+        let image: NSImage
+    }
+
+    private struct Source: Hashable {
+        let path: String
+        let previewPath: String?
+        let preview: LibraryPreviewStore.File?
+    }
 
     var body: some View {
+        let source = Source(path: item.path, previewPath: item.previewPath, preview: previews.files[item.id])
         Rectangle()
             .fill(Color.primary.opacity(0.05))
             .overlay {
@@ -537,10 +694,11 @@ struct ItemThumbnail: View {
                         Text("Missing").font(.caption2)
                     }
                     .foregroundStyle(.orange)
-                } else if let image {
-                    Image(nsImage: image)
+                } else if let picture {
+                    Image(nsImage: picture.image)
                         .resizable()
                         .scaledToFill()
+                        .id(picture.source)
                         .transition(.opacity)
                 } else {
                     Image(systemName: item.isScene ? "photo" : "film")
@@ -548,10 +706,23 @@ struct ItemThumbnail: View {
                         .foregroundStyle(.tertiary)
                 }
             }
+            .overlay {
+                if !broken && previews.refreshing.contains(item.id) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .padding(6)
+                        .background(.ultraThinMaterial, in: Circle())
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: previews.refreshing.contains(item.id))
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .task(id: [item.path, item.previewPath ?? ""]) {
-                let loaded = await ThumbnailCache.shared.image(for: item)
-                withAnimation(.easeInOut(duration: 0.2)) { image = loaded }
+            .task(id: source) {
+                var loaded: NSImage?
+                if let preview = source.preview { loaded = await ThumbnailCache.shared.image(of: preview) }
+                if loaded == nil { loaded = await ThumbnailCache.shared.image(for: item) }
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeInOut(duration: 0.2)) { picture = loaded.map { Picture(source: source, image: $0) } }
             }
     }
 }

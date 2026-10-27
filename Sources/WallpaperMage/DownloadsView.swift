@@ -17,21 +17,29 @@ struct DownloadsView: View {
     private var active: [WorkshopDownloadEntry] { entries.filter(\.phase.isActive) }
     private var settled: [WorkshopDownloadEntry] { entries.filter { !$0.phase.isActive } }
 
+    /// The page header stays put, as on Home; only the downloads below it scroll.
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: WMTheme.sectionSpacing) {
-                header
-                if entries.isEmpty {
-                    emptyState
-                } else {
-                    if !active.isEmpty { activeSection }
-                    if !settled.isEmpty { settledSection }
+        VStack(alignment: .leading, spacing: 0) {
+            header
+                .padding([.horizontal, .top], WMTheme.contentPadding)
+                .padding(.bottom, 8)
+            ScrollView {
+                VStack(alignment: .leading, spacing: WMTheme.sectionSpacing) {
+                    if entries.isEmpty {
+                        emptyState
+                    } else {
+                        if !active.isEmpty { activeSection }
+                        if !settled.isEmpty { settledSection }
+                    }
                 }
+                .padding([.horizontal, .bottom], WMTheme.contentPadding)
+                // With the header's bottom padding, the usual gap between sections.
+                .padding(.top, WMTheme.sectionSpacing - 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(WMTheme.contentPadding)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .scrollIndicators(.visible)
+            .scrollEdgeEffectStyle(.soft, for: .top)
         }
-        .scrollIndicators(.visible)
         .background(WMBackground())
         .animation(WMMotion.content, value: entries.map(\.id))
     }

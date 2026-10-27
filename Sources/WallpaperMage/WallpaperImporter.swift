@@ -78,8 +78,8 @@ enum WallpaperImporter {
             defer { try? FileManager.default.removeItem(at: staging) }
             try AppPaths.ensureDirectory(staging)
             try FileManager.default.copyItem(at: package, to: staging.appendingPathComponent("scene.pkg"))
-            try await importScene(contentFolder: staging,
-                                  title: package.deletingPathExtension().lastPathComponent, into: model)
+            try await importScene(contentFolder: staging, title: package.deletingPathExtension().lastPathComponent,
+                                  created: package.creationDate, into: model)
             outcome.addedScenes += 1
         } catch {
             outcome.failed.append("\(package.lastPathComponent): \(error.localizedDescription)")
@@ -89,7 +89,8 @@ enum WallpaperImporter {
     private static func importSceneFolder(_ folder: URL, into model: SettingsModel,
                                           outcome: inout Outcome) async {
         do {
-            try await importScene(contentFolder: folder, title: folder.lastPathComponent, into: model)
+            try await importScene(contentFolder: folder, title: folder.lastPathComponent, created: folder.creationDate,
+                                  into: model)
             outcome.addedScenes += 1
         } catch {
             outcome.failed.append("\(folder.lastPathComponent): \(error.localizedDescription)")
@@ -97,8 +98,10 @@ enum WallpaperImporter {
     }
 
     /// Runs the shared scene import (copy + analysis) and adds the item to the library. Local imports get
-    /// no workshop id, so they read as the user's own wallpapers rather than Workshop items.
-    private static func importScene(contentFolder: URL, title: String, into model: SettingsModel) async throws {
+    /// no workshop id, so they read as the user's own wallpapers rather than Workshop items. `created`: when the
+    /// user's package or folder was made (the copy in the library is new).
+    private static func importScene(contentFolder: URL, title: String, created: Date?,
+                                    into model: SettingsModel) async throws {
         let preview = ["jpg", "jpeg", "png", "gif"]
             .compactMap { ext -> URL? in
                 let url = contentFolder.appendingPathComponent("preview.\(ext)")
@@ -110,6 +113,7 @@ enum WallpaperImporter {
             title: title, author: nil, tags: [],
             contentFolder: contentFolder, previewSource: preview))
         item.workshopID = nil
+        item.created = created
         model.addImported(item)
     }
 
@@ -124,4 +128,9 @@ enum WallpaperImporter {
         panel.prompt = "Import"
         return panel.runModal() == .OK ? panel.urls : []
     }
+}
+
+extension URL {
+    /// When the file or folder was made, as the file system says; nil when it cannot be read.
+    var creationDate: Date? { (try? resourceValues(forKeys: [.creationDateKey]))?.creationDate }
 }

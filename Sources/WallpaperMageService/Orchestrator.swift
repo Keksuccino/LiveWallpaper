@@ -5,6 +5,7 @@ import Core
 // DisplayPlayer, which draws it on that display alone; WallpaperStills keeps such a display's system wallpaper a still
 // of what it shows, which is also what its menu bar and the lock screen show. A display whose content is taken away
 // gets macOS's default wallpaper back. The service is the only writer of state.json (StateStore.commit / setMuted).
+// The library's previews (LibraryPreviews) are made here too, as Settings asks for them.
 
 @MainActor final class Orchestrator {
     private static let unreadableLibrary = String(localized: "Couldn’t read your library. Using the previous list.")
@@ -21,6 +22,7 @@ import Core
 
     private var players: [String: DisplayPlayer] = [:]
     private let stills = WallpaperStills()
+    private let previews = LibraryPreviews()
     private var activity: NSObjectProtocol?
     private var screenLock: ScreenLockObserver?
     private var screenLocked = false
@@ -33,6 +35,7 @@ import Core
             displays.forEach { self?.players[$0]?.revealSystemWallpaper() }
             self?.onChange?()
         }
+        previews.onChange = { [weak self] in self?.onChange?() }
     }
 
     var isLive: Bool { players.values.contains { $0.current != nil } }
@@ -44,8 +47,11 @@ import Core
     /// Once at launch: loads state.json, clears what older versions left for their lock screen and shows every
     /// display's wallpaper.
     func bootstrap() {
-        state = StateStore.load() ?? LibraryState()
+        let loaded = StateStore.load()
+        state = loaded ?? LibraryState()
         stills.delay = state.stillDelay
+        // An unreadable library must not cost the previews of the wallpapers it has.
+        if loaded != nil { previews.retain(Set(state.videos.map(\.id))) }
         LegacyLockScreen.cleanUp(library: state.videos)
         screenLock = ScreenLockObserver { [weak self] locked in
             guard let self else { return }
@@ -98,6 +104,11 @@ import Core
         reload()
     }
 
+    /// Makes the library's previews Settings asks for (LibraryPreviews).
+    func makePreviews(_ requests: [PreviewRequest]) {
+        previews.make(requests)
+    }
+
     /// Takes the live wallpapers off the displays; their stills stay the system wallpapers. Idempotent.
     func shutdown() {
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
@@ -105,6 +116,7 @@ import Core
         players.values.forEach { $0.stop() }
         players = [:]
         stills.stop()
+        previews.stop()
         screenLock = nil
         updateActivity()
     }
@@ -118,7 +130,7 @@ import Core
                                  systemWallpaper: picture?.path, stillItemID: wallpaper?.stillOf)
         }
         return ServiceStatus(paused: isPaused, muted: state.muted, displays: displays, stateRevision: state.revision,
-                             message: message)
+                             message: message, previews: previews.status)
     }
 
     // MARK: Applying
@@ -127,6 +139,8 @@ import Core
         let old = state
         state = fresh
         stills.delay = fresh.stillDelay
+        let library = Set(fresh.videos.map(\.id))
+        if library != Set(old.videos.map(\.id)) { previews.retain(library) }
         // Content taken away (or deleted) gives the display macOS's default wallpaper back. It is set while the live
         // window still covers it; reconcile() then closes the window.
         let connected = Set(NSScreen.screens.map(\.displayID))

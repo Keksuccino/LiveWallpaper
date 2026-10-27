@@ -10,17 +10,21 @@ enum AudioTapError: Error {
     case status(String, OSStatus)
 }
 
-/// Captures system audio and reports 64 band levels (0...1, low to high) per channel, about 30
-/// times a second, on its own queue.
+/// Captures system audio and reports 64 band levels (0...1, low to high) per channel to `onSpectrum`,
+/// about 30 times a second, on its own queue.
 final class SystemAudioTap: @unchecked Sendable {
-    var onSpectrum: (([Float], [Float]) -> Void)?
-
+    /// Constant, so the queue can call it while `stop` runs on another thread.
+    private let onSpectrum: ([Float], [Float]) -> Void
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
     private var procID: AudioDeviceIOProcID?
     private let queue = DispatchQueue(label: "WallpaperMage.audio-tap", qos: .utility)
     private var left = SpectrumAnalyzer()
     private var right = SpectrumAnalyzer()
+
+    init(onSpectrum: @escaping ([Float], [Float]) -> Void) {
+        self.onSpectrum = onSpectrum
+    }
 
     func start() throws {
         let description = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
@@ -41,21 +45,17 @@ final class SystemAudioTap: @unchecked Sendable {
         let interleaved = format.mFormatFlags & kAudioFormatFlagIsNonInterleaved == 0
         let channels = Int(format.mChannelsPerFrame)
 
-        var aggregate: [String: Any] = [
+        // The device holds the tap alone. An output device as a sub-device would add its own inputs
+        // (a sound card's line in) ahead of the tap's buffers, and starting it would then need
+        // microphone permission, which macOS refuses here: the whole input would be silent.
+        let aggregate: [String: Any] = [
             kAudioAggregateDeviceNameKey: "WallpaperMage audio response",
             kAudioAggregateDeviceUIDKey: "WallpaperMage-\(UUID().uuidString)",
             kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceIsStackedKey: false,
             kAudioAggregateDeviceTapAutoStartKey: true,
-            kAudioAggregateDeviceTapListKey: [[
-                kAudioSubTapUIDKey: description.uuid.uuidString,
-                kAudioSubTapDriftCompensationKey: true,
-            ]],
+            kAudioAggregateDeviceTapListKey: [[kAudioSubTapUIDKey: description.uuid.uuidString]],
         ]
-        if let output = Self.defaultOutputUID() {
-            aggregate[kAudioAggregateDeviceMainSubDeviceKey] = output
-            aggregate[kAudioAggregateDeviceSubDeviceListKey] = [[kAudioSubDeviceUIDKey: output]]
-        }
         try check("create device", AudioHardwareCreateAggregateDevice(aggregate as CFDictionary, &aggregateID))
 
         try check("io proc", AudioDeviceCreateIOProcIDWithBlock(&procID, aggregateID, queue) {
@@ -66,7 +66,6 @@ final class SystemAudioTap: @unchecked Sendable {
     }
 
     func stop() {
-        onSpectrum = nil
         if let procID {
             AudioDeviceStop(aggregateID, procID)
             AudioDeviceDestroyIOProcID(aggregateID, procID)
@@ -107,22 +106,7 @@ final class SystemAudioTap: @unchecked Sendable {
     /// One spectrum per full analysis block: about 30 a second at 48 kHz.
     private func publishIfReady() {
         guard left.pending == SpectrumAnalyzer.window else { return }
-        onSpectrum?(left.bands(), right.bands())
-    }
-
-    private static func defaultOutputUID() -> String? {
-        var device = AudioObjectID(kAudioObjectUnknown)
-        var size = UInt32(MemoryLayout<AudioObjectID>.size)
-        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultSystemOutputDevice,
-                                                 mScope: kAudioObjectPropertyScopeGlobal,
-                                                 mElement: kAudioObjectPropertyElementMain)
-        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device) == noErr
-        else { return nil }
-        var uid: Unmanaged<CFString>?
-        size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-        address.mSelector = kAudioDevicePropertyDeviceUID
-        guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, &uid) == noErr else { return nil }
-        return uid?.takeRetainedValue() as String?
+        onSpectrum(left.bands(), right.bands())
     }
 
     private func check(_ what: String, _ status: OSStatus) throws {

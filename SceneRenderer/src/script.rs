@@ -117,6 +117,9 @@ pub struct FrameState {
     pub right: Vec<f32>,
     /// Ids of the sound objects that are playing.
     pub playing: Vec<i64>,
+    /// This frame's pose of every puppet scripts work with, by layer id (`Value::Null` when no
+    /// script uses the puppet calls).
+    pub puppets: Value,
 }
 
 pub struct Host {
@@ -224,6 +227,7 @@ impl Host {
             "left": s.left,
             "right": s.right,
             "playing": s.playing,
+            "puppets": s.puppets,
         });
         let out = self.call("__wm_frame", input.to_string())?;
         Ok(Events::parse(&out))
@@ -279,8 +283,8 @@ mod tests {
         h
     }
 
-    fn frame(h: &mut Host, time: f32) -> Events {
-        h.frame(&FrameState {
+    fn frame_state(time: f32) -> FrameState {
+        FrameState {
             time,
             frame_time: 1.0 / 30.0,
             time_of_day: 0.5,
@@ -292,8 +296,12 @@ mod tests {
             left: vec![1.0; 64],
             right: vec![0.0; 64],
             playing: vec![],
-        })
-        .expect("frame")
+            puppets: Value::Null,
+        }
+    }
+
+    fn frame(h: &mut Host, time: f32) -> Events {
+        h.frame(&frame_state(time)).expect("frame")
     }
 
     #[test]
@@ -445,20 +453,7 @@ mod tests {
             export function cursorMove(e) { if (drag) thisLayer.origin = e.worldPosition.add(off); }";
         let _ = h.add(0, 7, "origin", src, &Value::Null, &json!("10 20 0")).expect("add");
         let at = |h: &mut Host, x: f32, y: f32, down: bool| {
-            h.frame(&FrameState {
-                time: 1.0,
-                frame_time: 1.0 / 30.0,
-                time_of_day: 0.5,
-                screen: [1920.0, 1080.0],
-                canvas: [1920.0, 1080.0],
-                cursor: [0.0, 0.0],
-                cursor_world: [x, y],
-                cursor_down: down,
-                left: vec![],
-                right: vec![],
-                playing: vec![],
-            })
-            .expect("frame")
+            h.frame(&FrameState { cursor_world: [x, y], cursor_down: down, ..frame_state(1.0) }).expect("frame")
         };
         // A press away from the layer (it has no size, so only its origin hits) moves nothing.
         let e = at(&mut h, 500.0, 500.0, true);
@@ -472,6 +467,53 @@ mod tests {
         let _ = at(&mut h, 15.0, 25.0, false);
         let e = at(&mut h, 99.0, 99.0, false);
         assert!(e.dirty.is_empty());
+    }
+
+    #[test]
+    fn puppet_calls_read_this_frames_pose_and_report_overrides() {
+        let mut h = Host::new().expect("runtime");
+        h.set_layers(&json!([{ "id": 7, "name": "girl", "origin": "0 0 0", "scale": "1 1 1",
+            "angles": "0 0 0", "color": "1 1 1", "alpha": 1.0, "visible": true, "text": "",
+            "puppet": { "bones": [{ "name": "root", "parent": -1 }, { "name": "arm", "parent": 0 }],
+                "shapes": ["smile"], "animations": [{ "id": 5, "name": "wave", "fps": 30, "frames": 60, "mode": "loop" }] } }]))
+            .expect("layers");
+        let src = "let wave, ended = 0;\n\
+            export function update() {\n\
+              const out = [thisLayer.getBoneCount(), thisLayer.getBoneIndex('arm'), thisLayer.getBoneParentIndex('arm')];\n\
+              const t = thisLayer.getBoneTransform('arm');\n\
+              out.push(t.m[12], t.m[13], thisLayer.getLocalBoneOrigin(1).x);\n\
+              thisLayer.setLocalBoneOrigin(0, new Vec3(0, 20, 0));\n\
+              out.push(thisLayer.getBoneTransform(1).m[13]);\n\
+              thisLayer.setLocalBoneAngles(1, new Vec3(0, 0, Math.PI / 2));\n\
+              out.push(Math.round(thisLayer.getLocalBoneAngles(1).z * 1000), thisLayer.getLocalBoneOrigin(1).x);\n\
+              thisLayer.setBlendShapeWeight('smile', 0.75);\n\
+              out.push(thisLayer.getBlendShapeWeight(0));\n\
+              if (!wave) { wave = thisLayer.createAnimationLayer('wave', { rate: 2 }); wave.addEndedCallback(() => ended++); }\n\
+              out.push(thisLayer.getAnimationLayerCount(), ended);\n\
+              return out.join(',');\n\
+            }";
+        let _ = h.add(0, 7, "alpha", src, &Value::Null, &json!("")).expect("add");
+        // Bone 0 at (0, 10), bone 1 five units along it; the layer sits 100 units right.
+        let translate = |x: f32, y: f32| vec![1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., x, y, 0., 1.];
+        let model = [translate(0.0, 10.0), translate(5.0, 10.0)].concat();
+        let pose = |layers: Value, ended: Value| {
+            json!({ "7": { "world": translate(100.0, 0.0), "model": model, "weights": [0.0], "layers": layers, "ended": ended } })
+        };
+        let at = |h: &mut Host, puppets: Value| {
+            h.frame(&FrameState { puppets, ..frame_state(1.0) }).expect("frame")
+        };
+        let e = at(&mut h, pose(json!([]), json!([])));
+        assert_eq!(e.values, vec![(0, json!("2,1,0,105,10,5,20,1571,5,0.75,1,0"))], "{:?}", h.take_log());
+        let calls = e.dirty.iter().find(|(id, _)| *id == 7).and_then(|(_, d)| d["puppet"].as_str().map(str::to_string));
+        let calls: Value = serde_json::from_str(&calls.expect("puppet calls")).expect("json");
+        let ops: Vec<&str> = calls.as_array().expect("list").iter().map(|c| c["op"].as_str().unwrap_or("")).collect();
+        assert_eq!(ops, ["bone", "bone", "bone", "shape", "create"]);
+        let create = &calls[4];
+        assert_eq!((&create["cfg"]["animation"], &create["cfg"]["rate"]), (&json!(5), &json!(2)));
+        // The renderer reports the new layer and its first wrap: the callback runs before update.
+        let uid = create["uid"].clone();
+        let e = at(&mut h, pose(json!([{ "uid": uid, "name": "", "animation": 5, "playing": true }]), json!([uid])));
+        assert!(matches!(&e.values[..], [(0, Value::String(s))] if s.ends_with(",1,1")), "{:?}", e.values);
     }
 
     #[test]

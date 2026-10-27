@@ -2,24 +2,31 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
+pub mod anim_layer;
 pub mod api;
 pub mod camera;
+pub mod clip;
 pub mod engine;
 pub mod gpu;
+pub mod ik;
 pub mod light;
 pub mod mat;
 pub mod model;
 pub mod particles;
+pub mod physics;
 pub mod pose;
 pub mod puppet;
+pub mod quat;
 pub mod scene;
 pub mod script;
 pub mod shader;
+pub mod skin;
 pub mod sound;
 pub mod tex;
 pub mod text;
 pub mod timeline;
 pub mod vfs;
+pub mod video;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]

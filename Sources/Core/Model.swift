@@ -21,6 +21,12 @@ public struct VideoItem: Identifiable, Codable, Hashable, Sendable {
     /// Non-nil = a Wallpaper Engine scene (schema v2). `path` is then the scene package (`scene.pkg`) or
     /// the folder's `scene.json`, `previewPath` the preview image shown when the scene cannot be rendered.
     public var scene: SceneInfo?
+    /// When the wallpaper itself was made: a Workshop item's publication, the creation of the user's own file. nil
+    /// while unknown.
+    public var created: Date?
+    /// When the wallpaper came into the library or was last downloaded again (a Workshop update). nil for one added
+    /// before the library kept this.
+    public var updated: Date?
 
     // Containers the system may not map to a movie type.
     private static let fallbackExtensions: Set<String> =
@@ -29,7 +35,7 @@ public struct VideoItem: Identifiable, Codable, Hashable, Sendable {
     // New fields are optional so phase-1 records ({"id","path"}) still decode.
     public init(id: UUID = UUID(), path: String, title: String? = nil, author: String? = nil,
                 workshopID: String? = nil, previewPath: String? = nil, tags: [String]? = nil,
-                scene: SceneInfo? = nil) {
+                scene: SceneInfo? = nil, created: Date? = nil, updated: Date? = nil) {
         self.id = id
         self.path = path
         self.title = title
@@ -38,6 +44,8 @@ public struct VideoItem: Identifiable, Codable, Hashable, Sendable {
         self.previewPath = previewPath
         self.tags = tags
         self.scene = scene
+        self.created = created
+        self.updated = updated
     }
 
     public init(url: URL) {
@@ -180,13 +188,15 @@ public struct LibraryState: Codable, Equatable, Sendable {
     /// Silences every wallpaper (the menu bar's Mute Sound). Changed only through StateStore.setMuted, never by a
     /// commit.
     public var muted: Bool
+    /// Scenes react to what the Mac plays: their audio visualisers follow the system audio.
+    public var audioResponse: Bool
     /// The presets the user saved, per wallpaper (VideoItem.presetKey).
     public var presets: [String: [WallpaperPreset]]
 
     public init(schema: Int = LibraryState.currentSchema, revision: Int = 0, videos: [VideoItem] = [],
                 playlists: [Playlist] = [], displays: [String: DisplayConfig] = [:],
                 stillDelay: Double = LibraryState.defaultStillDelay, masterVolume: Double = 1, muted: Bool = false,
-                presets: [String: [WallpaperPreset]] = [:]) {
+                audioResponse: Bool = true, presets: [String: [WallpaperPreset]] = [:]) {
         self.schema = schema
         self.revision = revision
         self.videos = videos
@@ -195,6 +205,7 @@ public struct LibraryState: Codable, Equatable, Sendable {
         self.stillDelay = LibraryState.clampedStillDelay(stillDelay)
         self.masterVolume = min(max(masterVolume, 0), 1)
         self.muted = muted
+        self.audioResponse = audioResponse
         self.presets = presets
     }
 
@@ -214,10 +225,12 @@ public struct LibraryState: Codable, Equatable, Sendable {
     // Files before schema 5 also had a frame rate per display for the wallpapers without their own, and a cap; reading
     // one gives every wallpaper of the library the frame rate it ran at (see `LegacyFrameRate`).
     // Files before schema 6 hold a single unnamed `playlist` and a rotation setting per display; both are ignored.
+    // Files without `audioResponse` hold it per wallpaper, where it was off unless the user turned it on; reading one
+    // turns it on for every wallpaper, its default.
     // Files written by older versions may also hold `sameForBoth` and a `lock` section; both are ignored.
 
     private enum CodingKeys: String, CodingKey {
-        case schema, revision, videos, playlists, displays, stillDelay, masterVolume, presets
+        case schema, revision, videos, playlists, displays, stillDelay, masterVolume, audioResponse, presets
         // schema 2
         case desktop, muted, sceneOptions, power
         // schema 1
@@ -236,6 +249,7 @@ public struct LibraryState: Codable, Equatable, Sendable {
         presets = try c.decodeIfPresent([String: [WallpaperPreset]].self, forKey: .presets) ?? [:]
         let fileSchema = try c.decodeIfPresent(Int.self, forKey: .schema) ?? 1
         muted = fileSchema >= 4 ? try c.decodeIfPresent(Bool.self, forKey: .muted) ?? false : false
+        audioResponse = try c.decodeIfPresent(Bool.self, forKey: .audioResponse) ?? true
         var rates: [String: LegacyFrameRate] = [:]
         if c.contains(.displays) {
             displays = try c.decode([String: DisplayConfig].self, forKey: .displays)
@@ -260,6 +274,7 @@ public struct LibraryState: Codable, Equatable, Sendable {
         try c.encode(stillDelay, forKey: .stillDelay)
         try c.encode(masterVolume, forKey: .masterVolume)
         try c.encode(muted, forKey: .muted)
+        try c.encode(audioResponse, forKey: .audioResponse)
         try c.encode(presets, forKey: .presets)
     }
 
@@ -441,6 +456,9 @@ public enum AppPaths {
     /// The stills the service sets as each display's system wallpaper (WallpaperStills in the service).
     public static let wallpaperStillsDirectory = supportDirectory
         .appendingPathComponent("WallpaperStills", isDirectory: true)
+    /// The library's preview of each wallpaper (LibraryPreview), made by the service (LibraryPreviews).
+    public static let libraryPreviewsDirectory = supportDirectory
+        .appendingPathComponent("LibraryPreviews", isDirectory: true)
     /// The pictures users chose for their playlists (Playlist.image), scaled down when they were chosen.
     public static let playlistImagesDirectory = supportDirectory
         .appendingPathComponent("PlaylistImages", isDirectory: true)

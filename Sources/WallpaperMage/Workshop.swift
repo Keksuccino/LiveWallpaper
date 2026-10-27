@@ -42,15 +42,40 @@ struct WorkshopItem: Identifiable, Hashable {
     var creatorSteamID: String?
     var author: String?            // persona name; only known when an API key resolved it
     var updated: Date?
+    var created: Date?             // when it was published
     var subscriptions: Int?
 
     var isVideo: Bool { kind == .video }
     /// Kinds the app can import: videos, and (schema v2) scenes. Web and application wallpapers never.
     var isImportable: Bool { kind == .video || kind == .scene }
+    var resolutionTag: String? { WorkshopTags.resolution(in: tags) }
+    var ratingTag: String? { WorkshopTags.rating(in: tags) }
+    var topicTags: [String] { WorkshopTags.topics(in: tags, kind: kind.rawValue) }
+
+    /// The item's page on the Steam Community.
+    static func pageURL(id: String) -> URL? {
+        URL(string: "https://steamcommunity.com/sharedfiles/filedetails/?id=\(id)")
+    }
+}
+
+/// What a Workshop item's tags say besides its topics: its kind ("Scene"), a resolution and an age rating. A library
+/// item keeps the tags it was downloaded with (VideoItem.tags).
+enum WorkshopTags {
+    static let ratings = ["Everyone", "Questionable", "Mature"]
+
     /// "1920 x 1080", "Other resolution", ... whichever resolution tag the item carries.
-    var resolutionTag: String? { tags.first { $0.contains(" x ") || $0.hasSuffix("resolution") } }
+    static func resolution(in tags: [String]) -> String? {
+        tags.first { $0.contains(" x ") || $0.hasSuffix("resolution") }
+    }
+
     /// "Everyone", "Questionable" or "Mature".
-    var ratingTag: String? { tags.first { ["Everyone", "Questionable", "Mature"].contains($0) } }
+    static func rating(in tags: [String]) -> String? { tags.first { ratings.contains($0) } }
+
+    /// The tags that name neither the kind (`kind`, "scene" or "video"), the resolution nor the rating.
+    static func topics(in tags: [String], kind: String) -> [String] {
+        let other = Set([resolution(in: tags), rating(in: tags), kind].compactMap { $0?.lowercased() })
+        return tags.filter { !other.contains($0.lowercased()) }
+    }
 }
 
 enum WorkshopFix: Equatable {
@@ -903,6 +928,7 @@ extension WorkshopKit {
             let title: String?
             let summary: String
             let updated: Int64?
+            let created: Int64?
             let visibility: Int64
             let banned: Bool
             let banReason: String
@@ -913,6 +939,7 @@ extension WorkshopKit {
                 case id = "publishedfileid", result, creator, title, visibility, banned, subscriptions, tags
                 case consumerApp = "consumer_app_id", consumerAppAlt = "consumer_appid"
                 case size = "file_size", previewURL = "preview_url", updated = "time_updated", banReason = "ban_reason"
+                case created = "time_created"
                 case shortDescription = "short_description", fileDescription = "file_description", description
             }
             private struct TagBox: Decodable { let tag: String? }
@@ -934,6 +961,7 @@ extension WorkshopKit {
                 summary = [Keys.shortDescription, .fileDescription, .description]
                     .compactMap { string($0).map(Wire.stripBBCode) }.first { !$0.isEmpty } ?? ""
                 updated = flexible(.updated)
+                created = flexible(.created)
                 visibility = flexible(.visibility) ?? 0
                 banned = (flexible(.banned) ?? 0) != 0
                 banReason = string(.banReason) ?? ""
@@ -959,6 +987,7 @@ extension WorkshopKit {
                     previewURL: previewURL.flatMap(URL.init(string:)), sizeBytes: size, tags: tags,
                     kind: Wire.kind(of: tags), creatorSteamID: creator,
                     updated: updated.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                    created: created.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                     subscriptions: subscriptions.map { Int($0) })
             }
         }
@@ -1009,6 +1038,8 @@ extension WorkshopKit {
     enum API {
         static let base = "https://api.steampowered.com"
         static let pageSize = 24
+        /// The most items one GetPublishedFileDetails request asks for.
+        static let detailsBatch = 100
 
         /// Ephemeral: no URL cache, no cookies (QueryFiles URLs carry the user's key).
         static let session: URLSession = {
@@ -1034,18 +1065,32 @@ extension WorkshopKit {
 
         /// E1: public, no key. POST form body built by hand.
         static func details(id: String) async throws -> WorkshopItem {
-            guard let file = try await send(detailsRequest(id: id), keyed: false).files.first else {
+            guard let file = try await send(detailsRequest(ids: [id]), keyed: false).files.first else {
                 throw WorkshopError.itemNotFound
             }
             return try file.workshopItem()
         }
 
-        static func detailsRequest(id: String) -> URLRequest {
+        static func detailsRequest(ids: [String]) -> URLRequest {
             var request = URLRequest(url: URL(string: base + "/ISteamRemoteStorage/GetPublishedFileDetails/v1/")!)
             request.httpMethod = "POST"
             request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-            request.httpBody = Data(query([("itemcount", "1"), ("publishedfileids[0]", id)]).utf8)
+            let items = ids.enumerated().map { ("publishedfileids[\($0.offset)]", $0.element) }
+            request.httpBody = Data(query([("itemcount", String(ids.count))] + items).utf8)
             return request
+        }
+
+        /// E1 for many items, `detailsBatch` per request: when each was published. Items Steam has no date for are
+        /// left out.
+        static func creationDates(ids: [String]) async throws -> [String: Date] {
+            var dates: [String: Date] = [:]
+            for start in stride(from: 0, to: ids.count, by: detailsBatch) {
+                let batch = Array(ids[start..<min(start + detailsBatch, ids.count)])
+                for file in try await send(detailsRequest(ids: batch), keyed: false).files {
+                    if let created = file.created { dates[file.id] = Date(timeIntervalSince1970: TimeInterval(created)) }
+                }
+            }
+            return dates
         }
 
         /// E2: needs the user's own Web API key.
@@ -1644,7 +1689,9 @@ extension WorkshopKit {
             let projectFile = content.appendingPathComponent("project.json")
             let project = parseProject((try? Data(contentsOf: projectFile)) ?? Data())
             if (project.type ?? item.kind.rawValue) == "scene" {
-                return try await importScene(item, project: project, content: content)
+                var scene = try await importScene(item, project: project, content: content)
+                scene.created = item.created
+                return scene
             }
             if let type = project.type, type != "video" {
                 throw WorkshopError.unsupportedType(WorkshopItem.Kind(rawValue: type) ?? .unknown)
@@ -1674,7 +1721,7 @@ extension WorkshopKit {
                 path: folder.appendingPathComponent("video." + ext).standardizedFileURL.path,
                 title: project.title ?? item.title, author: item.author, workshopID: item.id,
                 previewPath: previewName.map { folder.appendingPathComponent($0).standardizedFileURL.path },
-                tags: item.tags.isEmpty ? nil : item.tags)
+                tags: item.tags.isEmpty ? nil : item.tags, created: item.created)
         }
 
         /// AVFoundation must be able to play it (no VP9/AV1 surprises); nothing is ever converted.

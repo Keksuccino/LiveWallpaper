@@ -54,7 +54,6 @@ public struct WallpaperOptions: Codable, Equatable, Sendable {
 
     public var fps: Int                  // 10...120, frames per second; lowered on battery (PowerOptions)
     public var renderScale: Double       // 0.25...1, share of the display's pixels the scene is drawn at
-    public var audioResponse: Bool       // the scene reacts to what the Mac plays
     public var antialiasing: Bool        // smoother edges (multisampling)
     public var properties: [String: ScenePropertyValue]
 
@@ -62,7 +61,7 @@ public struct WallpaperOptions: Codable, Equatable, Sendable {
                 alignX: Double = 0.5, alignY: Double = 0.5, zoom: Double = 1, flip: Bool = false,
                 blurBars: Bool = true, colorAdjust: Bool = false, brightness: Double = 0.5, contrast: Double = 0.5,
                 saturation: Double = 0.5, hue: Double = 0.5, filter: String? = nil, filterStrength: Double = 1,
-                mouseParallax: Bool = true, fps: Int = WallpaperOptions.defaultFPS, renderScale: Double = 1, audioResponse: Bool = false,
+                mouseParallax: Bool = true, fps: Int = WallpaperOptions.defaultFPS, renderScale: Double = 1,
                 antialiasing: Bool = false, properties: [String: ScenePropertyValue] = [:]) {
         let unit = { (v: Double) in min(max(v, 0), 1) }
         self.volume = unit(volume)
@@ -85,7 +84,6 @@ public struct WallpaperOptions: Codable, Equatable, Sendable {
         self.mouseParallax = mouseParallax
         self.fps = Self.clampedFPS(fps)
         self.renderScale = min(max(renderScale, 0.25), 1)
-        self.audioResponse = audioResponse
         self.antialiasing = antialiasing
         self.properties = properties
     }
@@ -104,9 +102,11 @@ public struct WallpaperOptions: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case volume, muted, rate, alignment, position, alignX, alignY, zoom, flip, blurBars, colorAdjust, brightness,
-             contrast, saturation, hue, filter, filterStrength, mouseParallax, fps, renderScale, audioResponse,
-             antialiasing, properties
+             contrast, saturation, hue, filter, filterStrength, mouseParallax, fps, renderScale, antialiasing,
+             properties
         // Older files: a fit mode in place of the alignment; their zoom and pan meant something else and are dropped.
+        // They may also hold an `audioResponse`, which is ignored: LibraryState.audioResponse applies to every
+        // wallpaper.
         case fitMode
     }
 
@@ -138,7 +138,6 @@ public struct WallpaperOptions: Codable, Equatable, Sendable {
                   mouseParallax: try value(.mouseParallax, d.mouseParallax),
                   fps: try value(.fps, d.fps),
                   renderScale: try value(.renderScale, d.renderScale),
-                  audioResponse: try value(.audioResponse, d.audioResponse),
                   antialiasing: try value(.antialiasing, d.antialiasing),
                   properties: try value(.properties, d.properties))
     }
@@ -165,7 +164,6 @@ public struct WallpaperOptions: Codable, Equatable, Sendable {
         try c.encode(mouseParallax, forKey: .mouseParallax)
         try c.encode(fps, forKey: .fps)
         try c.encode(renderScale, forKey: .renderScale)
-        try c.encode(audioResponse, forKey: .audioResponse)
         try c.encode(antialiasing, forKey: .antialiasing)
         try c.encode(properties, forKey: .properties)
     }
@@ -173,13 +171,13 @@ public struct WallpaperOptions: Codable, Equatable, Sendable {
 
 extension WallpaperOptions {
     /// These options with every setting taken from `other` except the scene's own properties, which stay. The scene
-    /// performance settings (frame rate, render scale, audio response, antialiasing) come along only with
-    /// `performance`; otherwise these keep theirs. "Apply to all wallpapers" uses it.
+    /// performance settings (frame rate, render scale, antialiasing) come along only with `performance`; otherwise
+    /// these keep theirs. "Apply to all wallpapers" uses it.
     public func withSettings(of other: WallpaperOptions, performance: Bool) -> WallpaperOptions {
         var o = other
         o.properties = properties
         if !performance {
-            (o.fps, o.renderScale, o.audioResponse, o.antialiasing) = (fps, renderScale, audioResponse, antialiasing)
+            (o.fps, o.renderScale, o.antialiasing) = (fps, renderScale, antialiasing)
         }
         return o
     }

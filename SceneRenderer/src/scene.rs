@@ -133,6 +133,31 @@ pub fn floats(v: &Value) -> Vec<f32> {
     }
 }
 
+/// Wallpaper Engine's `alignment` values and the offset of the box centre each gives, in sizes,
+/// y up: the named point of the box sits on the layer's origin.
+const ALIGNMENTS: [(&str, [f32; 2]); 9] = [
+    ("center", [0.0, 0.0]),
+    ("top", [0.0, -0.5]),
+    ("topright", [-0.5, -0.5]),
+    ("right", [-0.5, 0.0]),
+    ("bottomright", [-0.5, 0.5]),
+    ("bottom", [0.0, 0.5]),
+    ("bottomleft", [0.5, 0.5]),
+    ("left", [0.5, 0.0]),
+    ("topleft", [0.5, -0.5]),
+];
+
+/// An image layer's `alignment` as an offset; an unknown or missing value is the centre.
+pub(crate) fn alignment(value: &Value) -> [f32; 2] {
+    let name = value.as_str().unwrap_or("");
+    ALIGNMENTS.iter().find(|(n, _)| *n == name).map_or([0.0; 2], |(_, o)| *o)
+}
+
+/// The `alignment` name of an offset.
+pub(crate) fn alignment_name(offset: [f32; 2]) -> &'static str {
+    ALIGNMENTS.iter().find(|(_, o)| *o == offset).map_or("center", |(n, _)| n)
+}
+
 fn vec_n<const N: usize>(v: Option<&Value>, default: [f32; N]) -> [f32; N] {
     let f = v.map(floats).unwrap_or_default();
     let mut out = default;
@@ -357,6 +382,15 @@ pub struct Layer {
     /// The image's model file says `fullscreen`: in a perspective scene the layer covers the
     /// whole target instead of being placed in 3D.
     pub fullscreen: bool,
+    /// The image's model file says `passthrough` (a compose layer): its children draw into its
+    /// own buffer, which its effects then work on.
+    pub passthrough: bool,
+    /// A compose layer starts its buffer from what is behind it (`copybackground`, the default)
+    /// rather than empty.
+    pub copy_background: bool,
+    /// Where the layer's box sits on its origin, as an offset of its centre in sizes, y up
+    /// (`alignment`: `"left"` puts the left edge on the origin, an offset of half a width).
+    pub alignment: [f32; 2],
     pub effects: Vec<Effect>,
 }
 
@@ -634,11 +668,13 @@ impl Scene {
             });
         let mut puppet = None;
         let mut fullscreen = false;
+        let mut passthrough = false;
         let material = if group || text.is_some() || particles.is_some() {
             None
         } else {
             let model = vfs.json(obj["image"].as_str().unwrap_or(""))?;
             fullscreen = model["fullscreen"].as_bool() == Some(true);
+            passthrough = model["passthrough"].as_bool() == Some(true);
             if let Some(path) = model["puppet"].as_str() {
                 let animations = obj["animationlayers"]
                     .as_array()
@@ -712,12 +748,15 @@ impl Scene {
                 .copied()
                 .unwrap_or(1.0),
             visible: Bound::parse(obj.get("visible"), Value::Bool(true)),
-            material,
             text,
             particles,
             puppet,
             model: None,
             fullscreen,
+            passthrough,
+            copy_background: obj["copybackground"].as_bool().unwrap_or(true),
+            alignment: if material.is_some() { alignment(&obj["alignment"]) } else { [0.0; 2] },
+            material,
             effects,
         })
     }

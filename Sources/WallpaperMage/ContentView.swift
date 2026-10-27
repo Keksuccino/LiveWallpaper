@@ -4,16 +4,17 @@ import AppKit
 import UniformTypeIdentifiers
 import Core
 
-// Home: the connected displays (DisplayArrangementView) above the library: the playlists, then the wallpapers.
-// Clicking one puts it on the selected display at once; the inspector holds that display's settings. A playlist's
-// editor (PlaylistEditorView) takes the library's place while it is open.
+// Home: the connected displays (DisplayArrangementView) above the library of playlists and wallpapers, in the order
+// the user sorts it by (LibraryOrder). Clicking one puts it on the selected display at once; the inspector holds that
+// display's settings. A playlist's editor (PlaylistEditorView) takes the library's place while it is open.
 
 enum LibraryLayout: String, CaseIterable {
     case grid, list
 }
 
-/// A kind of content the library lists; a button in the library's title row shows or hides each kind.
-enum LibraryKind: CaseIterable, Identifiable {
+/// A kind of content the library lists; a button in the library's title row shows or hides each kind. Sorted by type
+/// (descending), the library lists the kinds in this order.
+enum LibraryKind: CaseIterable, Identifiable, Comparable {
     case playlist, scene, video
 
     /// A wallpaper's kind: Workshop videos and the user's own videos are videos alike.
@@ -66,8 +67,25 @@ enum LibraryEntry: Identifiable, Equatable {
         }
     }
 
-    /// The library as Home lists it: the playlists, then the wallpapers, without the `hidden` kinds and without what
-    /// does not match `search` (a playlist's name, a wallpaper's name or author).
+    /// When the entry itself was made (VideoItem.created, Playlist.created).
+    var created: Date? {
+        switch self {
+        case .playlist(let playlist, _): return playlist.created
+        case .wallpaper(let item): return item.created
+        }
+    }
+
+    /// When the entry came into the library or last changed (VideoItem.updated, Playlist.updated).
+    var updated: Date? {
+        switch self {
+        case .playlist(let playlist, _): return playlist.updated
+        case .wallpaper(let item): return item.updated
+        }
+    }
+
+    /// The library in its own order: the playlists, then the wallpapers as they were added, without the `hidden` kinds
+    /// and without what does not match `search` (a playlist's name, a wallpaper's name or author). Home lists it as
+    /// LibraryOrder sorts it.
     static func library(videos: [VideoItem], playlists: [Playlist], search: String,
                         hiding hidden: Set<LibraryKind>) -> [LibraryEntry] {
         func matches(_ text: String?) -> Bool {
@@ -93,6 +111,9 @@ struct HomeView: View {
     let openWorkshop: () -> Void
 
     @State private var searchText = ""
+    @AppStorage("librarySort") private var sort: LibrarySort = .updated
+    /// One direction for every sort (LibraryOrder.ascending).
+    @AppStorage("librarySortAscending") private var sortAscending = false
     @State private var layout: LibraryLayout = .grid
     @State private var isTargeted = false
     @State private var skippedCount = 0
@@ -113,20 +134,8 @@ struct HomeView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task(id: previewDemand) { await makeMissingPreviews() }
         .dropDestination(for: URL.self) { urls, _ in add(urls); return true } isTargeted: { isTargeted = $0 }
-        // A standard toolbar control with fixed labels, so nothing in the toolbar swaps its image while the page
-        // animates.
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Picker("Layout", selection: $layout) {
-                    Label("Grid", systemImage: "square.grid.2x2").tag(LibraryLayout.grid)
-                    Label("List", systemImage: "list.bullet").tag(LibraryLayout.list)
-                }
-                .pickerStyle(.segmented)
-                .help("Show the library as a grid or a list")
-                .redrawnOnWindowActivation()
-            }
-        }
         .alert(skippedTitle, isPresented: $showSkipped) { Button("OK", role: .cancel) {} }
         .alert("Some wallpapers couldn’t be imported", isPresented: $showFailures) {
             Button("OK", role: .cancel) {}
@@ -152,10 +161,11 @@ struct HomeView: View {
 
     // MARK: Data
 
-    /// The playlists, then the wallpapers, of the kinds shown that match the search.
+    /// The playlists and wallpapers of the kinds shown that match the search, in the order chosen.
     private var entries: [LibraryEntry] {
-        LibraryEntry.library(videos: model.videos, playlists: model.playlists, search: searchText,
-                             hiding: model.hiddenLibraryKinds)
+        let library = LibraryEntry.library(videos: model.videos, playlists: model.playlists, search: searchText,
+                                           hiding: model.hiddenLibraryKinds)
+        return LibraryOrder(sort: sort, ascending: sortAscending).sorted(library)
     }
 
     /// What the selected display is set to; its card is ringed.
@@ -165,6 +175,31 @@ struct HomeView: View {
 
     private func isBroken(_ item: VideoItem) -> Bool {
         !FileManager.default.fileExists(atPath: item.path)
+    }
+
+    // MARK: Previews
+
+    /// The library's wallpapers while the service answers: it makes the previews they miss.
+    private var previewDemand: [VideoItem.ID]? {
+        model.client.state == .connected ? model.videos.map(\.id) : nil
+    }
+
+    /// Asks for the missing previews, those of the wallpapers listed first, in the order they are listed.
+    private func makeMissingPreviews() async {
+        guard previewDemand != nil else { return }
+        let listed = entries.compactMap { entry -> VideoItem? in
+            if case .wallpaper(let item) = entry { return item }
+            return nil
+        }
+        let listedIDs = Set(listed.map(\.id))
+        let items = listed + model.videos.filter { !listedIDs.contains($0.id) }
+        await LibraryPreviewStore.shared.makeMissing(items, options: previewOptions)
+    }
+
+    /// A preview shows the wallpaper with the options it has on the selected display on its own, as a click on its
+    /// card puts it there.
+    private func previewOptions(_ id: VideoItem.ID) -> WallpaperOptions {
+        model.selectedDisplayID.map { model.config(for: $0).options(for: id) } ?? .standard
     }
 
     // MARK: Content
@@ -225,14 +260,16 @@ struct HomeView: View {
         }
     }
 
-    /// The library's title, kind filters, search and Add menu in one row where they fit; in a narrow window, the title
-    /// and the Add menu above the filters and the search.
+    /// The library's title, kind filters, sort controls, layout picker, search and Add menu in one row where they fit;
+    /// in a narrow window, the title and the Add menu above the others.
     private func libraryHeader(count: Int) -> some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 10) {
                 libraryTitle(count: count)
                 Spacer(minLength: 16)
                 kindFilters
+                sortControls
+                layoutPicker
                 searchField
                 addMenu
             }
@@ -244,10 +281,17 @@ struct HomeView: View {
                 }
                 HStack(spacing: 10) {
                     kindFilters
+                    sortControls
+                    layoutPicker
                     Spacer(minLength: 16)
                     searchField
                 }
             }
+        }
+        // The sort menu is as wide as the sort's name: the controls around it move over smoothly.
+        .animation(WMMotion.content, value: sort)
+        .task(id: sort) {
+            if sort == .created { model.fillCreationDates() }
         }
     }
 
@@ -264,7 +308,7 @@ struct HomeView: View {
 
     /// A button per kind of content; a kind that is off leaves the library.
     private var kindFilters: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: WMTheme.chipSpacing) {
             ForEach(LibraryKind.allCases) { kind in
                 WMTopicChip(title: kind.label, selected: !model.hiddenLibraryKinds.contains(kind)) {
                     if model.hiddenLibraryKinds.remove(kind) == nil { model.hiddenLibraryKinds.insert(kind) }
@@ -273,6 +317,27 @@ struct HomeView: View {
         }
         .fixedSize()
         .help("Show or hide playlists, scenes and videos")
+    }
+
+    /// What the library is sorted by, and which way.
+    private var sortControls: some View {
+        HStack(spacing: 4) {
+            WMSortMenu(title: "Sort By", selection: $sort, options: LibrarySort.allCases, label: \.label)
+                .help("Order of the library")
+            WMIconPicker(title: "Sort Order", selection: $sortAscending, options: [
+                .init(value: true, title: "Ascending", systemImage: "arrow.up"),
+                .init(value: false, title: "Descending", systemImage: "arrow.down"),
+            ])
+            .help("Sort the library ascending or descending")
+        }
+    }
+
+    private var layoutPicker: some View {
+        WMIconPicker(title: "Layout", selection: $layout, options: [
+            .init(value: .grid, title: "Grid", systemImage: "square.grid.2x2"),
+            .init(value: .list, title: "List", systemImage: "list.bullet"),
+        ])
+        .help("Show the library as a grid or a list")
     }
 
     private var searchField: some View {
@@ -365,6 +430,9 @@ struct HomeView: View {
                                    }
                                },
                                showInFinder: { NSWorkspace.shared.activateFileViewerSelecting([item.url]) },
+                               refreshPreview: isBroken(item) ? nil : {
+                                   LibraryPreviewStore.shared.refresh(item, options: previewOptions(item.id))
+                               },
                                remove: { remove(item) })
         }
     }
@@ -505,6 +573,8 @@ struct CardActions {
     /// Wallpapers.
     var addToPlaylist: AddToPlaylist? = nil
     var showInFinder: (() -> Void)? = nil
+    /// Wallpapers that can play: has the service make the library's preview again.
+    var refreshPreview: (() -> Void)? = nil
     /// Removes the wallpaper from the library or deletes the playlist, asking first where that deletes files.
     let remove: () -> Void
 }
@@ -533,6 +603,9 @@ private struct CardMenu: View {
         }
         if let showInFinder = actions.showInFinder {
             Button("Show in Finder", action: showInFinder)
+        }
+        if let refreshPreview = actions.refreshPreview {
+            Button("Refresh Preview", action: refreshPreview)
         }
         Divider()
         if actions.edit != nil {
@@ -775,12 +848,12 @@ struct DisplayInspectorView: View {
             switch model.content(on: screen.id) {
             case .wallpaper:
                 if let item = model.shownItem(on: screen.id) {
-                    InspectorHeader(title: item.name,
-                                    subtitle: item.isScene ? "Scene · \(screen.name)" : "Video · \(screen.name)") {
+                    InspectorHeader(title: item.name) {
                         ItemThumbnail(item: item, broken: !FileManager.default.fileExists(atPath: item.path),
                                       cornerRadius: 8)
                     }
                     errorLine(screen)
+                    WallpaperInfoSection(item: item)
                     WallpaperSettingsCard(model: model, scope: .display(screen.id), item: item)
                     energy(screen)
                 }
@@ -803,7 +876,7 @@ struct DisplayInspectorView: View {
         }
         .padding(18)
         // The panel starts at the window's top edge, in the toolbar strip (see `wmInspectorPanel`).
-        .padding(.top, 22)
+        .padding(.top, WMTheme.toolbarStripPadding)
     }
 
     @ViewBuilder private func errorLine(_ screen: ScreenInfo) -> some View {
@@ -825,20 +898,16 @@ struct DisplayInspectorView: View {
     }
 }
 
-/// The top of an inspector: a square picture, a name and a line under it.
+/// The top of an inspector: a square picture and a name.
 struct InspectorHeader<Picture: View>: View {
     let title: String
-    let subtitle: LocalizedStringKey
     @ViewBuilder let picture: () -> Picture
 
     var body: some View {
         HStack(spacing: 11) {
             picture()
                 .frame(width: 76, height: 76)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.callout.weight(.semibold)).lineLimit(2).truncationMode(.middle)
-                Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
+            Text(title).font(.callout.weight(.semibold)).lineLimit(3).truncationMode(.middle)
         }
     }
 }
@@ -853,7 +922,7 @@ private struct PlaylistSummary: View {
     var body: some View {
         let items = model.items(of: playlist)
         VStack(alignment: .leading, spacing: 20) {
-            InspectorHeader(title: playlist.name, subtitle: "Playlist · \(screen.name)") {
+            InspectorHeader(title: playlist.name) {
                 PlaylistArtwork(playlist: playlist, items: items, cornerRadius: 8)
             }
             if let item = model.liveItem(on: screen.id) {

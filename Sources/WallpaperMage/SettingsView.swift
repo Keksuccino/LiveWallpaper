@@ -156,6 +156,12 @@ private struct GeneralSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                WMSwitchRow("Wallpapers react to system audio", isOn: $model.audioResponse)
+                    .padding(.top, 6)
+                Text("Lets audio visualisers in scene wallpapers follow what your Mac plays.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

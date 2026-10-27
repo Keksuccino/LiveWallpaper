@@ -1,6 +1,7 @@
 import AppKit
 import Core
 import IOKit.ps
+import os
 import SceneBridge
 
 // A scene on one display. Our own renderer (SceneRenderer/, a Rust library) draws it with Metal into the
@@ -18,7 +19,6 @@ final class RendererBox: @unchecked Sendable {
     private var renderer: Renderer?
     private let windows: DisplayWindow<MetalView>
     private let power = PowerSource()
-    private var audio: SystemAudioTap?
     private var pointerMonitor: Any?
     private var generation = 0
     /// The renderer has drawn its first frame. Until then it runs (silently) even on a paused display, so the window
@@ -29,6 +29,7 @@ final class RendererBox: @unchecked Sendable {
     private var appliedOptions: WallpaperOptions?
     private var appliedVolume: Double?
     private var appliedSilent: Bool?
+    private var appliedAudioResponse: Bool?
     private var appliedFPS: Int?
     private var appliedScale: Double?
     private var appliedPaused: Bool?
@@ -143,6 +144,7 @@ final class RendererBox: @unchecked Sendable {
     }
 
     private func stopRenderer() {
+        setAudioCapture(false)
         firstFrame?.cancel()
         firstFrame = nil
         drawn = false
@@ -151,10 +153,10 @@ final class RendererBox: @unchecked Sendable {
         attached = nil
         renderer?.stop()
         renderer = nil
-        setAudioCapture(false)
         appliedOptions = nil
         appliedVolume = nil
         appliedSilent = nil
+        appliedAudioResponse = nil
         appliedFPS = nil
         appliedScale = nil
         appliedPaused = nil
@@ -270,8 +272,8 @@ final class RendererBox: @unchecked Sendable {
         if silent != appliedSilent {
             renderer.setMuted(muted: silent)
         }
-        if new.audioResponse != old?.audioResponse {
-            renderer.setAudioResponse(enabled: new.audioResponse)
+        if state.audioResponse != appliedAudioResponse {
+            renderer.setAudioResponse(enabled: state.audioResponse)
         }
         for (key, value) in new.properties where old?.properties[key] != value {
             renderer.applyProperty(name: key, valueJson: value.json)
@@ -282,29 +284,53 @@ final class RendererBox: @unchecked Sendable {
         if pause != appliedPaused {
             if pause { renderer.pause() } else { renderer.play() }
         }
-        setAudioCapture(new.audioResponse && !pause)
+        setAudioCapture(state.audioResponse && !pause)
         appliedOptions = new
         appliedVolume = volume
         appliedSilent = silent
+        appliedAudioResponse = state.audioResponse
         appliedFPS = fps
         appliedScale = scale
         appliedPaused = pause
     }
 
-    /// System audio is captured only while a playing scene asks for audio response.
+    /// The renderer hears the system audio only while audio response is on and the scene plays.
     private func setAudioCapture(_ on: Bool) {
-        if on, audio == nil, let renderer {
-            let tap = SystemAudioTap()
-            tap.onSpectrum = { left, right in renderer.setAudioSpectrum(left: left, right: right) }
+        guard let renderer else { return }
+        SharedAudioTap.shared.set(renderer, listening: on)
+    }
+}
+
+/// The system audio for audio response, captured once for every display: one SystemAudioTap runs while any renderer
+/// listens, and each of its spectra goes to all of them.
+@MainActor private final class SharedAudioTap {
+    static let shared = SharedAudioTap()
+
+    private var tap: SystemAudioTap?
+    /// The listening renderers, read on the tap's queue for every spectrum. The spectrum is handed out under the lock,
+    /// so none reaches a renderer once `set` has removed it. Unchecked: Renderer is thread-safe but not marked Sendable.
+    private let listeners = OSAllocatedUnfairLock(uncheckedState: [ObjectIdentifier: Renderer]())
+
+    /// Adds or removes `renderer`. The tap starts with the first listener (a failed start is tried again on the next
+    /// call) and stops with the last.
+    func set(_ renderer: Renderer, listening: Bool) {
+        let count = listeners.withLockUnchecked { renderers in
+            renderers[ObjectIdentifier(renderer)] = listening ? renderer : nil
+            return renderers.count
+        }
+        if count > 0, tap == nil {
+            let tap = SystemAudioTap { [listeners] left, right in
+                listeners.withLockUnchecked { $0.values.forEach { $0.setAudioSpectrum(left: left, right: right) } }
+            }
             do {
                 try tap.start()
-                audio = tap
+                self.tap = tap
             } catch {
                 NSLog("WallpaperMage: audio response unavailable: \(error)")
             }
-        } else if !on, let tap = audio {
+        } else if count == 0, let tap {
             tap.stop()
-            audio = nil
+            self.tap = nil
         }
     }
 }

@@ -130,14 +130,14 @@ final class CoreTests: XCTestCase {
             volume: 0.3, muted: true, rate: 1.5, alignment: .free, position: 0.2, alignX: 0.1, alignY: 0.9, zoom: 1.5, flip: true,
             blurBars: false, colorAdjust: true, brightness: 0.7, contrast: 0.4, saturation: 0.6, hue: 0.1,
             filter: "lutx32_amber", filterStrength: 0.5, mouseParallax: false, fps: 45, renderScale: 0.5,
-            audioResponse: true, antialiasing: true, properties: ["clock": .bool(true), "tint": .color(red: 1, green: 0, blue: 0)])
+            antialiasing: true, properties: ["clock": .bool(true), "tint": .color(red: 1, green: 0, blue: 0)])
         let playlist = Playlist(name: "Night", items: [item.id],
                                 wallpaperOptions: [item.id.uuidString: WallpaperOptions(volume: 0.1)],
                                 intervalValue: 30, intervalUnit: .seconds, transition: .blur, transitionDuration: 2.5,
                                 image: "picture.jpg")
         var state = LibraryState(videos: [item], playlists: [playlist],
                                  displays: ["D1": config, "D2": DisplayConfig(content: .playlist(playlist.id))],
-                                 masterVolume: 0.4, muted: true)
+                                 masterVolume: 0.4, muted: true, audioResponse: false)
         state.revision = 3
         let back = try JSONDecoder().decode(LibraryState.self, from: JSONEncoder().encode(state))
         XCTAssertEqual(back, state)
@@ -147,6 +147,15 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(back.config(for: "D2").content, .playlist(playlist.id))
         XCTAssertEqual(back.playlists, [playlist])
         XCTAssertEqual(back.masterVolume, 0.4)
+        XCTAssertFalse(back.audioResponse)
+    }
+
+    func testAudioResponseIsOnUnlessTurnedOff() throws {
+        let a = UUID().uuidString
+        XCTAssertTrue(LibraryState().audioResponse)
+        let older = try decode(#"{"schema":6,"videos":[],"displays":{"D1":{"sceneOptions":{"\#(a)":{"audioResponse":false}}}}}"#)
+        XCTAssertTrue(older.audioResponse, "older files held it per wallpaper, off by default")
+        XCTAssertFalse(try decode(#"{"schema":6,"videos":[],"audioResponse":false}"#).audioResponse)
     }
 
     func testOlderFilesLeaveTheSoundOnAndKeepTheirLook() throws {
@@ -189,14 +198,14 @@ final class CoreTests: XCTestCase {
     func testSettingsApplyWithoutTheScenesOwnProperties() {
         let mine = WallpaperOptions(fps: 24, renderScale: 0.5, properties: ["clock": .bool(true)])
         let other = WallpaperOptions(volume: 0.2, alignment: .free, flip: true, colorAdjust: true, fps: 60,
-                                     audioResponse: true, antialiasing: true, properties: ["rain": .bool(false)])
+                                     antialiasing: true, properties: ["rain": .bool(false)])
         let fromScene = mine.withSettings(of: other, performance: true)
         XCTAssertEqual(fromScene.volume, 0.2)
         XCTAssertEqual(fromScene.alignment, .free)
         XCTAssertTrue(fromScene.flip && fromScene.colorAdjust)
         XCTAssertEqual(fromScene.fps, 60)
         XCTAssertEqual(fromScene.renderScale, 1)
-        XCTAssertTrue(fromScene.audioResponse && fromScene.antialiasing)
+        XCTAssertTrue(fromScene.antialiasing)
         XCTAssertEqual(fromScene.properties, ["clock": .bool(true)])
 
         let fromVideo = mine.withSettings(of: other, performance: false)
@@ -204,7 +213,7 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(fromVideo.alignment, .free)
         XCTAssertEqual(fromVideo.fps, 24)
         XCTAssertEqual(fromVideo.renderScale, 0.5)
-        XCTAssertFalse(fromVideo.audioResponse || fromVideo.antialiasing)
+        XCTAssertFalse(fromVideo.antialiasing)
         XCTAssertEqual(fromVideo.properties, ["clock": .bool(true)])
     }
 
@@ -370,5 +379,36 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(item.contentStamp, first)
         try Data("longer content".utf8).write(to: file)
         XCTAssertNotEqual(item.contentStamp, first)
+    }
+
+    func testLibraryPreviewFileFollowsTheWallpaper() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("wm-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: file) }
+        try Data("one".utf8).write(to: file)
+        let item = VideoItem(path: file.path)
+        let name = LibraryPreview.fileName(for: item)
+        XCTAssertEqual(LibraryPreview.fileName(for: item), name)
+        XCTAssertEqual(LibraryPreview.itemID(ofFile: name), item.id)
+        XCTAssertNotEqual(LibraryPreview.fileName(for: VideoItem(path: file.path)), name)
+
+        try Data("longer content".utf8).write(to: file)
+        let changed = LibraryPreview.fileName(for: item)
+        XCTAssertNotEqual(changed, name)
+        XCTAssertEqual(LibraryPreview.itemID(ofFile: changed), item.id)
+    }
+
+    func testOnlyFinishedPreviewsBelongToAWallpaper() {
+        let id = UUID()
+        XCTAssertNil(LibraryPreview.itemID(ofFile: "\(id.uuidString)_0123456789abcdef.heic.partial"))
+        XCTAssertNil(LibraryPreview.itemID(ofFile: "\(id.uuidString).jpg"))
+        XCTAssertNil(LibraryPreview.itemID(ofFile: "not-a-uuid_0123456789abcdef.heic"))
+        XCTAssertNil(LibraryPreview.itemID(ofFile: ".DS_Store"))
+    }
+
+    func testStatusOfAServiceWithoutPreviewsDecodes() throws {
+        let status = try JSONDecoder().decode(
+            ServiceStatus.self, from: Data(#"{"paused":false,"muted":true,"displays":[],"stateRevision":4}"#.utf8))
+        XCTAssertEqual(status, ServiceStatus(muted: true, stateRevision: 4))
+        XCTAssertNil(status.previews)
     }
 }

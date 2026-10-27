@@ -59,10 +59,15 @@ public struct Playlist: Identifiable, Codable, Equatable, Sendable {
     public var transitionDuration: Double
     /// The playlist's own picture: a file name in AppPaths.playlistImagesDirectory. nil = its wallpapers' previews.
     public var image: String?
+    /// When the user made the playlist; nil for one made before playlists kept this.
+    public var created: Date?
+    /// When the user made or last edited the playlist; nil for one not edited since before playlists kept this.
+    public var updated: Date?
 
     public init(id: UUID = UUID(), name: String, items: [UUID] = [], wallpaperOptions: [String: WallpaperOptions] = [:],
                 intervalValue: Int = 5, intervalUnit: IntervalUnit = .minutes, transition: PlaylistTransition = .fade,
-                transitionDuration: Double = Playlist.defaultTransitionDuration, image: String? = nil) {
+                transitionDuration: Double = Playlist.defaultTransitionDuration, image: String? = nil,
+                created: Date? = nil, updated: Date? = nil) {
         self.id = id
         self.name = name
         self.items = items
@@ -72,6 +77,8 @@ public struct Playlist: Identifiable, Codable, Equatable, Sendable {
         self.transition = transition
         self.transitionDuration = Playlist.clampedTransitionDuration(transitionDuration)
         self.image = image
+        self.created = created
+        self.updated = updated
     }
 
     public static func clampedInterval(_ value: Int) -> Int { min(max(value, 1), 999) }
@@ -98,6 +105,7 @@ public struct Playlist: Identifiable, Codable, Equatable, Sendable {
     // Every key but the id and the name may be missing, so a playlist written before a setting existed still loads.
     private enum CodingKeys: String, CodingKey {
         case id, name, items, wallpaperOptions, intervalValue, intervalUnit, transition, transitionDuration, image
+        case created, updated
     }
 
     public init(from decoder: Decoder) throws {
@@ -112,6 +120,8 @@ public struct Playlist: Identifiable, Codable, Equatable, Sendable {
                   transition: try c.decodeIfPresent(PlaylistTransition.self, forKey: .transition) ?? .fade,
                   transitionDuration: try c.decodeIfPresent(Double.self, forKey: .transitionDuration)
                       ?? Playlist.defaultTransitionDuration,
-                  image: try c.decodeIfPresent(String.self, forKey: .image))
+                  image: try c.decodeIfPresent(String.self, forKey: .image),
+                  created: try c.decodeIfPresent(Date.self, forKey: .created),
+                  updated: try c.decodeIfPresent(Date.self, forKey: .updated))
     }
 }

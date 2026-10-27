@@ -82,6 +82,9 @@ pub struct Tex {
     /// Mip chains, one per image. Sprite sheets may have several images.
     pub images: Vec<Vec<Mip>>,
     pub frames: Vec<Frame>,
+    /// A video texture's MP4 file (Wallpaper Engine's animated GIFs become these); `images` is
+    /// empty then.
+    pub video: Option<Vec<u8>>,
 }
 
 pub fn decode(data: &[u8]) -> Result<Tex, Error> {
@@ -129,9 +132,7 @@ pub fn decode(data: &[u8]) -> Result<Tex, Error> {
     if version >= 4 {
         mp4 = r.i32()?;
     }
-    if flags & 32 != 0 || image_format == 35 || (version >= 4 && mp4 == 1 && image_format == -1) {
-        return Err(Error::Unsupported("video textures".into()));
-    }
+    let video = flags & 32 != 0 || image_format == 35 || (version >= 4 && mp4 == 1 && image_format == -1);
 
     let mut format = Format::from_raw(format_raw);
     let mut images = Vec::with_capacity(image_count);
@@ -168,6 +169,23 @@ pub fn decode(data: &[u8]) -> Result<Tex, Error> {
             });
         }
         images.push(mips);
+    }
+
+    // A video texture's first mip is the whole MP4 file.
+    if video {
+        let data = images.into_iter().next().and_then(|m| m.into_iter().next()).map(|m| m.data);
+        return Ok(Tex {
+            texture_width: dims[0],
+            texture_height: dims[1],
+            image_width: dims[2],
+            image_height: dims[3],
+            format: Format::Rgba8,
+            clamp: flags & 2 != 0,
+            nearest: flags & 1 != 0,
+            images: Vec::new(),
+            frames: Vec::new(),
+            video: data.filter(|d| d.len() > 8 && &d[4..8] == b"ftyp"),
+        });
     }
 
     // Embedded PNG/JPEG: decode the first mip of each image to RGBA; the GPU builds no extra mips.
@@ -210,6 +228,7 @@ pub fn decode(data: &[u8]) -> Result<Tex, Error> {
         nearest: flags & 1 != 0,
         images,
         frames,
+        video: None,
     })
 }
 
@@ -369,6 +388,25 @@ mod tests {
         let mip = &t.images[0][0];
         assert_eq!((mip.width, mip.height), (2, 4));
         assert_eq!(mip.data[31], 31);
+    }
+
+    #[test]
+    fn a_video_texture_carries_its_mp4() {
+        // Flag 32 and image format -1 (TEXB0003): the one mip is an MP4 file.
+        let mut f = b"TEXV0005\0TEXI0001\0".to_vec();
+        for v in [0i32, 0x22, 960, 540, 960, 540, 0] {
+            f.extend(v.to_le_bytes());
+        }
+        f.extend(b"TEXB0003\0");
+        let mp4 = b"\0\0\0\x20ftypisom".to_vec();
+        for v in [1i32, -1, 1, 960, 540, 0, 0, mp4.len() as i32] {
+            f.extend(v.to_le_bytes());
+        }
+        f.extend(&mp4);
+        let t = decode(&f).unwrap();
+        assert_eq!(t.video.as_deref(), Some(&mp4[..]));
+        assert!(t.images.is_empty() && t.clamp);
+        assert_eq!((t.texture_width, t.texture_height), (960, 540));
     }
 
     #[test]

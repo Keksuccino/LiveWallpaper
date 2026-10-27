@@ -446,11 +446,11 @@ private struct PlaylistItemInspector: View {
             Group {
                 if let item {
                     VStack(alignment: .leading, spacing: 20) {
-                        InspectorHeader(title: item.name,
-                                        subtitle: item.isScene ? "Scene · \(playlist.name)" : "Video · \(playlist.name)") {
+                        InspectorHeader(title: item.name) {
                             ItemThumbnail(item: item, broken: !FileManager.default.fileExists(atPath: item.path),
                                           cornerRadius: 8)
                         }
+                        WallpaperInfoSection(item: item)
                         WallpaperSettingsCard(model: model, scope: .playlist(playlist.id), item: item)
                     }
                     .id(item.id)  // folded groups and dialogs of one wallpaper never carry over
@@ -467,7 +467,7 @@ private struct PlaylistItemInspector: View {
             }
             .padding(18)
             // The panel starts at the window's top edge, in the toolbar strip (see `wmInspectorPanel`).
-            .padding(.top, 22)
+            .padding(.top, WMTheme.toolbarStripPadding)
         }
         .scrollIndicators(.visible)
         .animation(WMMotion.content, value: itemID)

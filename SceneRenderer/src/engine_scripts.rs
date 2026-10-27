@@ -4,6 +4,7 @@
 use serde_json::{json, Map, Value};
 
 use super::{Engine, FrameInput};
+use crate::anim_layer::{AnimLayer, Mode};
 use crate::particles;
 use crate::scene::{floats, Bound, Scene};
 use crate::script::{Created, Events, FrameState, Host};
@@ -28,6 +29,11 @@ impl Engine {
         if self.scene.scripts.is_empty() {
             return;
         }
+        self.scripts_use_puppets = self
+            .scene
+            .scripts
+            .iter()
+            .any(|s| PUPPET_CALLS.iter().any(|call| s.source.contains(call)));
         let mut host = match Host::new() {
             Ok(h) => h,
             Err(e) => {
@@ -97,6 +103,10 @@ impl Engine {
     pub(super) fn run_scripts(&mut self, input: FrameInput, screen: [f32; 2]) {
         // The pointer in scene units (y up), through the same view the frame is drawn with.
         let (l, r, t, b) = self.view_rect(screen[0], screen[1]);
+        if self.script_host.is_none() {
+            return;
+        }
+        let puppets = if self.scripts_use_puppets { self.puppet_frames() } else { Value::Null };
         let Some(host) = self.script_host.as_mut() else { return };
         let (w, h) = (self.scene.width, self.scene.height);
         let [px, py] = input.pointer;
@@ -112,6 +122,7 @@ impl Engine {
             left: self.audio[0].clone(),
             right: self.audio[1].clone(),
             playing: self.sounds.playing(),
+            puppets,
         };
         let events = match host.frame(&state) {
             Ok(e) => e,
@@ -141,8 +152,9 @@ impl Engine {
             .scene
             .layers
             .iter()
-            .map(|l| {
-                json!({
+            .enumerate()
+            .map(|(index, l)| {
+                let mut view = json!({
                     "id": l.id,
                     "name": l.name,
                     "parent": l.parent,
@@ -155,6 +167,7 @@ impl Engine {
                     "text": l.text.as_ref().map(|t| t.value.clone()).unwrap_or_default(),
                     "size": format!("{} {}", l.size[0], l.size[1]),
                     "parallaxDepth": text3(&l.parallax_depth.get(&self.props)),
+                    "alignment": crate::scene::alignment_name(l.alignment),
                     "animations": l.timelines().map(|t| json!({
                         "name": t.name,
                         "fps": t.fps,
@@ -172,11 +185,160 @@ impl Engine {
                                 .collect::<Map<_, _>>()
                         }).collect::<Vec<_>>(),
                     })).collect::<Vec<_>>(),
-                })
+                });
+                if let Some(p) = self.puppets.iter().find(|p| p.layer == index) {
+                    view["puppet"] = json!({
+                        "bones": p.model.bones.iter().map(|b| json!({
+                            "name": b.name,
+                            "parent": b.parent.map_or(-1, |p| p as i64),
+                        })).collect::<Vec<_>>(),
+                        "shapes": p.model.morphs.iter().flat_map(|m| &m.targets).map(|t| t.name.clone()).collect::<Vec<_>>(),
+                        "animations": p.model.animations.iter().map(|a| json!({
+                            "id": a.id,
+                            "name": a.name,
+                            "fps": a.fps,
+                            "frames": a.duration_frames,
+                            "mode": a.flag,
+                        })).collect::<Vec<_>>(),
+                    });
+                }
+                view
             })
             .chain(sounds)
             .collect();
         Value::Array(layers)
+    }
+
+    /// This frame's pose of every puppet, for scripts: the layer's placement (Wallpaper Engine's
+    /// layer matrix, y up), each bone's model matrix and each morph target's weight (row-vector
+    /// matrices, as `Mat4.m` holds them), the animation layers and which of them ended.
+    fn puppet_frames(&self) -> Value {
+        let mut out = Map::new();
+        for p in &self.puppets {
+            let id = self.scene.layers[p.layer].id;
+            // Our placement is y down; Wallpaper Engine's scene and the puppet are y up.
+            let flip = super::scale(1.0, -1.0, 1.0);
+            let world = super::mul(
+                &super::mul(&super::mul(&super::translate(0.0, self.scene.height, 0.0), &flip), &self.world(p.layer, 0)),
+                &flip,
+            );
+            let model: Vec<f32> = p.rig.world.iter().flat_map(|m| m.iter().flatten().copied()).collect();
+            let layers: Vec<Value> = p
+                .animations
+                .iter()
+                .map(|a| {
+                    let anim = a.animation.and_then(|i| p.model.animations.get(i));
+                    let fps = anim.map_or(0.0, |x| x.fps);
+                    json!({
+                        "uid": a.uid,
+                        "name": a.name,
+                        "animation": anim.map(|x| x.id),
+                        "rate": a.rate,
+                        "blend": a.blend,
+                        "visible": a.visible,
+                        "additive": a.additive,
+                        "blendin": a.blend_in,
+                        "blendout": a.blend_out,
+                        "blendtime": a.blend_time,
+                        "fps": fps,
+                        "frameCount": anim.map_or(0, |x| x.duration_frames),
+                        "duration": anim.map_or(0.0, |x| x.duration_seconds()),
+                        "frame": a.time * fps,
+                        "playing": a.playing(),
+                    })
+                })
+                .collect();
+            let _ = out.insert(id.to_string(), json!({
+                "world": world.to_vec(),
+                "model": model,
+                "weights": p.rig.extras.morphs.iter().map(|m| m.0).collect::<Vec<_>>(),
+                "layers": layers,
+                "ended": p.ended,
+            }));
+        }
+        Value::Object(out)
+    }
+
+    /// Applies one frame's puppet calls of the scripts, in order: bone and morph target
+    /// overrides for this frame, physics pushes and resets, and changes to animation layers.
+    fn apply_puppet_calls(&mut self, index: usize, calls: &Value) {
+        let Some(p) = self.puppets.iter_mut().find(|p| p.layer == index) else { return };
+        // The calls arrive as JSON text: the scripts' change list flattens arrays.
+        let parsed;
+        let calls = match calls.as_str() {
+            Some(text) => {
+                parsed = serde_json::from_str::<Value>(text).unwrap_or_default();
+                &parsed
+            }
+            None => calls,
+        };
+        let vec3 = |v: &Value| -> [f32; 3] {
+            let f = floats(v);
+            [0, 1, 2].map(|k| f.get(k).copied().unwrap_or(0.0))
+        };
+        for call in calls.as_array().into_iter().flatten() {
+            let bone = call["i"].as_u64().map(|i| i as usize);
+            let uid = call["uid"].as_u64().map(|u| u as u32);
+            match call["op"].as_str().unwrap_or("") {
+                "bone" => {
+                    let m = floats(&call["model"]);
+                    if let (Some(i), true) = (bone, m.len() == 16) {
+                        if let Some(w) = p.rig.world.get_mut(i) {
+                            *w = std::array::from_fn(|r| std::array::from_fn(|c| m[r * 4 + c]));
+                        }
+                    }
+                }
+                "shape" => {
+                    if let Some(i) = bone {
+                        p.rig.set_morph(i, call["w"].as_f64().unwrap_or(0.0) as f32);
+                    }
+                }
+                "impulse" => {
+                    if let Some(i) = bone {
+                        p.rig.physics_mut().impulse(i, vec3(&call["t"]), vec3(&call["r"]));
+                    }
+                }
+                "reset" => {
+                    if let Some(i) = bone {
+                        p.rig.physics_mut().reset_bone(i);
+                    }
+                }
+                "create" => {
+                    let cfg = &call["cfg"];
+                    let id = cfg["animation"].as_i64();
+                    let Some(animation) = p.model.animations.iter().position(|a| Some(a.id as i64) == id) else { continue };
+                    let mut layer = AnimLayer::new(uid.unwrap_or(u32::MAX), Some(animation));
+                    // Wallpaper Engine fades a script's layer in, and out only when it plays once.
+                    layer.blend_in = true;
+                    layer.blend_out = Mode::of(&p.model.animations[animation].flag) == Mode::Single;
+                    layer.once = cfg["once"] == Value::Bool(true);
+                    set_layer(&mut layer, cfg);
+                    let n = p.animations.len();
+                    let at = if cfg["autosort"] == Value::Bool(true) {
+                        n - p.animations.iter().rev().take_while(|a| a.additive).count()
+                    } else if let Some(i) = cfg["index"].as_f64() {
+                        (i.max(0.0) as usize).min(n.saturating_sub(1))
+                    } else {
+                        n
+                    };
+                    p.animations.insert(at, layer);
+                }
+                "destroy" => p.animations.retain(|a| Some(a.uid) != uid),
+                "layer" => {
+                    let Some(a) = p.animations.iter_mut().find(|a| Some(a.uid) == uid) else { continue };
+                    set_layer(a, &call["set"]);
+                    let fps = a.animation.and_then(|i| p.model.animations.get(i)).map_or(0.0, |x| x.fps);
+                    match call["call"].as_str() {
+                        Some("play") => a.play(),
+                        Some("pause") => a.pause(),
+                        Some("stop") => a.stop(),
+                        Some("frame") => a.set_frame(call["f"].as_f64().unwrap_or(0.0) as f32, fps),
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     fn layer_index(&self, id: i64) -> Option<usize> {
@@ -287,6 +449,10 @@ impl Engine {
             return;
         }
         let Some(index) = self.layer_index(layer_id) else { return };
+        if field == "puppet" {
+            self.apply_puppet_calls(index, &value);
+            return;
+        }
         // `animation:<name>` carries an IAnimation's commands of this frame, in order.
         if let Some(name) = field.strip_prefix("animation:") {
             let commands = value.as_str().unwrap_or("");
@@ -362,6 +528,13 @@ impl Engine {
                 };
                 if slot.get(props) != value {
                     *slot = fixed(value);
+                    changes.place = true;
+                }
+            }
+            "alignment" if layer.material.is_some() => {
+                let offset = crate::scene::alignment(&value);
+                if layer.alignment != offset {
+                    layer.alignment = offset;
                     changes.place = true;
                 }
             }
@@ -532,6 +705,41 @@ fn angles_to_script(v: &Value) -> String {
 fn angles_from_script(v: &Value) -> Value {
     let f: Vec<f32> = floats(v).iter().map(|a| a.to_radians()).collect();
     Value::String(text3(&Value::from(f)))
+}
+
+/// Calls that make a script read or change puppets; scenes whose scripts use none get no
+/// puppet data each frame.
+const PUPPET_CALLS: [&str; 7] =
+    ["Bone", "BlendShape", "AnimationLayer", "playSingleAnimation", "getAnimationLayer", "setFrame", "addEndedCallback"];
+
+/// Applies an animation layer's settable fields a script gave (`rate`, `visible`, ...).
+fn set_layer(layer: &mut AnimLayer, fields: &Value) {
+    let num = |k: &str| fields[k].as_f64().map(|v| v as f32);
+    let flag = |k: &str| fields[k].as_bool();
+    if let Some(v) = num("rate") {
+        layer.rate = v;
+    }
+    if let Some(v) = num("blend") {
+        layer.blend = v;
+    }
+    if let Some(v) = num("blendtime") {
+        layer.blend_time = v;
+    }
+    if let Some(v) = flag("visible") {
+        layer.visible = v;
+    }
+    if let Some(v) = flag("additive") {
+        layer.additive = v;
+    }
+    if let Some(v) = flag("blendin") {
+        layer.blend_in = v;
+    }
+    if let Some(v) = flag("blendout") {
+        layer.blend_out = v;
+    }
+    if let Some(v) = fields["name"].as_str() {
+        layer.name = v.to_string();
+    }
 }
 
 #[cfg(test)]

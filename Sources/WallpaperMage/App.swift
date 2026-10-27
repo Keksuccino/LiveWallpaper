@@ -36,6 +36,7 @@ struct WallpaperMageApp: App {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if yieldToRunningSettings() { return }
+        OutsideClickEditing.install()
         WorkshopModel.shared.connect(
             onImport: { SettingsModel.shared.addImported($0) },
             isInLibrary: { SettingsModel.shared.hasWorkshopItem($0) })
@@ -235,10 +236,15 @@ struct RootView: View {
 
     // MARK: Detail
 
-    // Pages switch without a transition: a page's toolbar items (Home's) would fade with it, and AppKit can leave
-    // them half transparent, looking disabled, until the pointer passes over them.
+    // Pages switch without a transition: toolbar items a page adds would fade with it, and AppKit can leave them half
+    // transparent, looking disabled, until the pointer passes over them.
+    // No page shows the toolbar's background: side panels (Home's inspector, the Workshop's detail pane) reach up into
+    // the toolbar strip, where it would blur them. Page headers are pinned above what scrolls; the playlist editor's
+    // page fades out under the strip.
     private var detail: some View {
-        content.background(WMBackground())
+        content
+            .background(WMBackground())
+            .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
     }
 
     @ViewBuilder private var content: some View {
@@ -255,9 +261,6 @@ struct RootView: View {
                         }
                 }
             }
-            // The inspector panel reaches up into the toolbar strip, where the toolbar's background would blur it.
-            // Home's header is pinned above its scrolling library; the editor's page fades out under the strip.
-            .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         case .workshop:
             WorkshopView(model: model, workshop: workshop,
                          openSteamSetup: openSteamSettings,

@@ -71,9 +71,127 @@ class Vec4 {
 function __vec2(o) { return typeof o === 'number' ? new Vec2(o, o) : o; }
 function __vec3(o) { return typeof o === 'number' ? new Vec3(o, o, o) : o; }
 
+// 4x4 matrices as Wallpaper Engine's puppet calls hand them out: row vectors (a point is
+// multiplied from the left), `m` in memory order, the translation in m[12..14]; angles in
+// degrees. `a.multiply(b)` applies a, then b.
+function __mul4(a, b) {
+	const r = new Array(16);
+	for (let i = 0; i < 4; i++) {
+		for (let j = 0; j < 4; j++) {
+			let sum = 0;
+			for (let k = 0; k < 4; k++) sum += a[i * 4 + k] * b[k * 4 + j];
+			r[i * 4 + j] = sum;
+		}
+	}
+	return r;
+}
+function __inv4(m) {
+	const a = m.slice(), r = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+	for (let c = 0; c < 4; c++) {
+		let p = c;
+		for (let i = c + 1; i < 4; i++) if (Math.abs(a[i * 4 + c]) > Math.abs(a[p * 4 + c])) p = i;
+		if (Math.abs(a[p * 4 + c]) < 1e-12) return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+		for (let k = 0; k < 4; k++) {
+			[a[c * 4 + k], a[p * 4 + k]] = [a[p * 4 + k], a[c * 4 + k]];
+			[r[c * 4 + k], r[p * 4 + k]] = [r[p * 4 + k], r[c * 4 + k]];
+		}
+		const d = a[c * 4 + c];
+		for (let k = 0; k < 4; k++) { a[c * 4 + k] /= d; r[c * 4 + k] /= d; }
+		for (let i = 0; i < 4; i++) {
+			if (i === c) continue;
+			const f = a[i * 4 + c];
+			for (let k = 0; k < 4; k++) { a[i * 4 + k] -= f * a[c * 4 + k]; r[i * 4 + k] -= f * r[c * 4 + k]; }
+		}
+	}
+	return r;
+}
+// Rows of the rotation about x, then y, then z (radians).
+function __eulerRows(x, y, z) {
+	const [sx, cx, sy, cy, sz, cz] = [Math.sin(x), Math.cos(x), Math.sin(y), Math.cos(y), Math.sin(z), Math.cos(z)];
+	return [
+		cy * cz, cy * sz, -sy,
+		sx * sy * cz - cx * sz, sx * sy * sz + cx * cz, sx * cy,
+		cx * sy * cz + sx * sz, cx * sy * sz - sx * cz, cx * cy,
+	];
+}
+// The angles (radians) of a matrix's rotation, x then y then z.
+function __eulerOf(m) {
+	const z = Math.atan2(m[1], m[0]);
+	const y = Math.atan2(-m[2], Math.sqrt(m[6] * m[6] + m[10] * m[10]));
+	const x = Math.atan2(Math.sin(z) * m[8] - Math.cos(z) * m[9], Math.cos(z) * m[5] - Math.sin(z) * m[4]);
+	return new Vec3(x, y, z);
+}
+const __IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+const __DEG = Math.PI / 180;
+
+class Mat4 {
+	constructor(arg) {
+		if (arg instanceof Mat4) this.m = arg.m.slice();
+		else if (Array.isArray(arg) && arg.length === 16) this.m = arg.map((v) => __num(v, 0));
+		else if (typeof arg === 'string' && arg.trim().split(/\s+/).length === 16) this.m = arg.trim().split(/\s+/).map(Number);
+		else this.m = __IDENTITY.slice();
+	}
+	static identity() { return new Mat4(); }
+	static fromTranslation(v) { v = __vec3(v); const r = new Mat4(); r.m[12] = v.x; r.m[13] = v.y; r.m[14] = v.z; return r; }
+	static fromScale(v) { v = __vec3(v); const r = new Mat4(); r.m[0] = v.x; r.m[5] = v.y; r.m[10] = v.z; return r; }
+	static fromRotation(angle, axis) {
+		const a = (axis ? __vec3(axis) : new Vec3(0, 0, 1)).normalize();
+		const t = __num(angle, 0) * __DEG, c = Math.cos(t), s = Math.sin(t), k = 1 - c;
+		return new Mat4([
+			c + a.x * a.x * k, a.x * a.y * k + a.z * s, a.x * a.z * k - a.y * s, 0,
+			a.x * a.y * k - a.z * s, c + a.y * a.y * k, a.y * a.z * k + a.x * s, 0,
+			a.x * a.z * k + a.y * s, a.y * a.z * k - a.x * s, c + a.z * a.z * k, 0,
+			0, 0, 0, 1,
+		]);
+	}
+	static fromEuler(x, y, z) {
+		if (x instanceof Vec3) ({ x, y, z } = x);
+		const r = __eulerRows(__num(x, 0) * __DEG, __num(y, 0) * __DEG, __num(z, 0) * __DEG);
+		return new Mat4([r[0], r[1], r[2], 0, r[3], r[4], r[5], 0, r[6], r[7], r[8], 0, 0, 0, 0, 1]);
+	}
+	translation(v) {
+		if (v === undefined) return new Vec3(this.m[12], this.m[13], this.m[14]);
+		v = __vec3(v);
+		this.m[12] = v.x; this.m[13] = v.y; this.m[14] = v.z;
+		return this;
+	}
+	right() { return new Vec3(this.m[0], this.m[1], this.m[2]); }
+	up() { return new Vec3(this.m[4], this.m[5], this.m[6]); }
+	forward() { return new Vec3(this.m[8], this.m[9], this.m[10]); }
+	add(f) { return new Mat4(this.m.map((v, i) => v + f.m[i])); }
+	subtract(f) { return new Mat4(this.m.map((v, i) => v - f.m[i])); }
+	multiply(f) { return f instanceof Mat4 ? new Mat4(__mul4(this.m, f.m)) : new Mat4(this.m.map((v) => v * __num(f, 1))); }
+	translate(v) { return this.multiply(Mat4.fromTranslation(v)); }
+	rotate(angle, axis) { return this.multiply(Mat4.fromRotation(angle, axis)); }
+	scale(v) { return this.multiply(Mat4.fromScale(v)); }
+	transformPoint(v) {
+		const m = this.m;
+		return new Vec3(v.x * m[0] + v.y * m[4] + v.z * m[8] + m[12], v.x * m[1] + v.y * m[5] + v.z * m[9] + m[13], v.x * m[2] + v.y * m[6] + v.z * m[10] + m[14]);
+	}
+	transformDirection(v) {
+		const m = this.m;
+		return new Vec3(v.x * m[0] + v.y * m[4] + v.z * m[8], v.x * m[1] + v.y * m[5] + v.z * m[9], v.x * m[2] + v.y * m[6] + v.z * m[10]);
+	}
+	transpose() { const m = this.m; return new Mat4([0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15].map((i) => m[i])); }
+	inverse() { return new Mat4(__inv4(this.m)); }
+	determinant() {
+		const m = this.m;
+		const d3 = (a, b, c, d, e, f, g, h, i) => a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+		return m[0] * d3(m[5], m[6], m[7], m[9], m[10], m[11], m[13], m[14], m[15])
+			- m[1] * d3(m[4], m[6], m[7], m[8], m[10], m[11], m[12], m[14], m[15])
+			+ m[2] * d3(m[4], m[5], m[7], m[8], m[9], m[11], m[12], m[13], m[15])
+			- m[3] * d3(m[4], m[5], m[6], m[8], m[9], m[10], m[12], m[13], m[14]);
+	}
+	extractEuler() { const e = __eulerOf(this.m); return new Vec3(e.x / __DEG, e.y / __DEG, e.z / __DEG); }
+	copy() { return new Mat4(this); }
+	equals(f) { return f instanceof Mat4 && this.m.every((v, i) => Math.abs(v - f.m[i]) < 1e-6); }
+	toString() { return this.m.join(' '); }
+}
+
 globalThis.Vec2 = Vec2;
 globalThis.Vec3 = Vec3;
 globalThis.Vec4 = Vec4;
+globalThis.Mat4 = Mat4;
 
 // Scene values arrive as strings ("1 2 3"); scripts see vectors for the vector fields.
 const __vecFields = { origin: 3, scale: 3, angles: 3, color: 3, parallaxDepth: 2 };
@@ -84,7 +202,7 @@ function __toScript(field, v) {
 	return v;
 }
 function __fromScript(v) {
-	if (v instanceof Vec2 || v instanceof Vec3 || v instanceof Vec4) return v.toString();
+	if (v instanceof Vec2 || v instanceof Vec3 || v instanceof Vec4 || v instanceof Mat4) return v.toString();
 	if (Array.isArray(v)) return v.join(' ');
 	return v;
 }
@@ -195,9 +313,9 @@ class Layer {
 	set text(v) { this._s.text = String(v); __mark(this, 'text', this._s.text); }
 	get parallaxDepth() { return Vec2.fromString(this._s.parallaxDepth || '0 0'); }
 	set parallaxDepth(v) { this._s.parallaxDepth = __fromScript(__vec2(v)); __mark(this, 'parallaxDepth', this._s.parallaxDepth); }
-	// Kept for scripts that set it; this renderer centres layers on their origin.
+	// Which point of an image layer's box sits on its origin.
 	get alignment() { return this._s.alignment || 'center'; }
-	set alignment(v) { this._s.alignment = String(v); }
+	set alignment(v) { this._s.alignment = String(v); __mark(this, 'alignment', this._s.alignment); }
 	getEffectCount() { return (this._s.effects || []).length; }
 	getEffect(key) {
 		const list = this._s.effects || [];
@@ -230,6 +348,230 @@ class Layer {
 		__mark(this, 'sound', command);
 	}
 }
+
+// Puppet calls of a layer, as Wallpaper Engine runs them: puppets are posed before scripts run,
+// so the getters read this frame's pose, and every bone or morph target setter overrides this
+// frame only (scripts set them again each frame). Bones are found by index or by exact name.
+const __puppets = new Map();      // layer id -> this frame's pose (from the renderer)
+const __puppetCalls = new Map();  // layer id -> calls of this frame
+const __animLayers = new Map();   // uid -> AnimationLayer
+let __nextAnimUid = 1 << 20;
+
+function __puppetCall(layer, call) {
+	const list = __puppetCalls.get(layer.id) || [];
+	list.push(call);
+	__puppetCalls.set(layer.id, list);
+	__mark(layer, 'puppet', JSON.stringify(list));
+}
+
+function __pose(layer) {
+	let p = __puppets.get(layer.id);
+	if (!p && layer._s.puppet) {
+		p = { stub: true, world: __IDENTITY.slice(), model: [], weights: [], layers: [], ended: [] };
+		__puppets.set(layer.id, p);
+	}
+	return p;
+}
+
+Object.assign(Layer.prototype, {
+	__bones() { return (this._s.puppet && this._s.puppet.bones) || []; },
+	__bone(b) {
+		const bones = this.__bones(), p = __puppets.get(this.id);
+		if (!p || p.stub) return -1;
+		if (typeof b === 'number') return b >= 0 && b < bones.length ? Math.trunc(b) : -1;
+		return typeof b === 'string' && b ? bones.findIndex((x) => x.name === b) : -1;
+	},
+	__model(i) { return __puppets.get(this.id).model.slice(i * 16, i * 16 + 16); },
+	__setModel(i, m) {
+		const p = __puppets.get(this.id);
+		for (let k = 0; k < 16; k++) p.model[i * 16 + k] = m[k];
+		__puppetCall(this, { op: 'bone', i, model: m });
+	},
+	// Local matrices (parent space), taken from this frame's pose the first time they are needed.
+	__locals() {
+		const p = __puppets.get(this.id);
+		if (!p.local) {
+			const bones = this.__bones();
+			p.local = bones.map((b, i) => (b.parent < 0 ? this.__model(i) : __mul4(this.__model(i), __inv4(this.__model(b.parent)))));
+		}
+		return p.local;
+	},
+	// A local matrix changed: the bone and every bone below it follow.
+	__propagate(i) {
+		const bones = this.__bones(), local = this.__locals(), moved = new Set([i]);
+		for (let j = i; j < bones.length; j++) {
+			if (j !== i && !moved.has(bones[j].parent)) continue;
+			const parent = bones[j].parent;
+			this.__setModel(j, parent < 0 ? local[j].slice() : __mul4(local[j], this.__model(parent)));
+			moved.add(j);
+		}
+	},
+	getBoneCount() { return this.__bones().length; },
+	getBoneIndex(name) { return typeof name === 'string' && name ? this.__bones().findIndex((b) => b.name === name) : -1; },
+	getBoneParentIndex(b) { const i = this.__bone(b); return i < 0 ? -1 : this.__bones()[i].parent; },
+	getBoneTransform(b) {
+		const i = this.__bone(b);
+		return i < 0 ? new Mat4() : new Mat4(__mul4(this.__model(i), __puppets.get(this.id).world));
+	},
+	setBoneTransform(b, m) {
+		const i = this.__bone(b);
+		if (i >= 0 && m instanceof Mat4) this.__setModel(i, __mul4(m.m, __inv4(__puppets.get(this.id).world)));
+	},
+	getLocalBoneTransform(b) { const i = this.__bone(b); return i < 0 ? new Mat4() : new Mat4(this.__locals()[i]); },
+	setLocalBoneTransform(b, m) {
+		const i = this.__bone(b);
+		if (i < 0 || !(m instanceof Mat4)) return;
+		this.__locals()[i] = m.m.slice();
+		this.__propagate(i);
+	},
+	// Radians, unlike most script angles.
+	getLocalBoneAngles(b) { const i = this.__bone(b); return i < 0 ? new Vec3(0, 0, 0) : __eulerOf(this.__locals()[i]); },
+	setLocalBoneAngles(b, v) {
+		const i = this.__bone(b);
+		if (i < 0) return;
+		v = __vec3(v);
+		const r = __eulerRows(v.x, v.y, v.z), l = this.__locals()[i];
+		// The rotation replaces the matrix's axes, scale included; the translation stays.
+		for (let row = 0; row < 3; row++) {
+			for (let c = 0; c < 3; c++) l[row * 4 + c] = r[row * 3 + c];
+			l[row * 4 + 3] = 0;
+		}
+		this.__propagate(i);
+	},
+	getLocalBoneOrigin(b) { const i = this.__bone(b); if (i < 0) return new Vec3(0, 0, 0); const l = this.__locals()[i]; return new Vec3(l[12], l[13], l[14]); },
+	setLocalBoneOrigin(b, v) {
+		const i = this.__bone(b);
+		if (i < 0) return;
+		v = __vec3(v);
+		const l = this.__locals()[i];
+		l[12] = v.x; l[13] = v.y; l[14] = v.z;
+		this.__propagate(i);
+	},
+	// `translation` in scene units, `angles` in degrees; the push acts in the next physics step.
+	applyBonePhysicsImpulse(b, translation, angles) {
+		const i = b === '' ? 0 : this.__bone(b);
+		if (i < 0) return;
+		const t = __vec3(translation || 0), r = __vec3(angles || 0);
+		__puppetCall(this, { op: 'impulse', i, t: [t.x, t.y, t.z], r: [r.x, r.y, r.z] });
+	},
+	resetBonePhysicsSimulation(b) { const i = this.__bone(b); if (i >= 0) __puppetCall(this, { op: 'reset', i }); },
+	__shapes() { return (this._s.puppet && this._s.puppet.shapes) || []; },
+	__shape(b) { return typeof b === 'number' ? Math.trunc(b) : this.__shapes().indexOf(b); },
+	getBlendShapeIndex(name) { return this.__shapes().indexOf(name); },
+	getBlendShapeWeight(b) { const p = __pose(this), i = this.__shape(b); return (p && p.weights[i]) || 0; },
+	// Replaces what the animations gave the target this frame.
+	setBlendShapeWeight(b, w) {
+		const p = __pose(this), i = this.__shape(b);
+		if (!p || i < 0 || i >= this.__shapes().length) return;
+		p.weights[i] = __num(w, 0);
+		__puppetCall(this, { op: 'shape', i, w: p.weights[i] });
+	},
+	getAnimationLayerCount() { const p = __pose(this); return p ? p.layers.length : 0; },
+	getAnimationLayer(key) {
+		const p = __pose(this);
+		if (!p) return null;
+		let s = null;
+		if (typeof key === 'number') s = p.layers[Math.trunc(key)] || null;
+		else for (const l of p.layers) if (l.name === key) s = l;  // the last match
+		return s ? __animLayer(this, s.uid) : null;
+	},
+	createAnimationLayer(animation, options) { return __createAnimLayer(this, animation, options, false); },
+	// Like createAnimationLayer; the layer goes once it ends (wraps, turns or finishes).
+	playSingleAnimation(animation, options) { return __createAnimLayer(this, animation, options, true); },
+	destroyAnimationLayer(key) {
+		const p = __pose(this);
+		if (!p) return false;
+		const gone = key instanceof AnimationLayer ? p.layers.filter((l) => l.uid === key._uid)
+			: typeof key === 'number' ? [p.layers[Math.trunc(key)]].filter(Boolean)
+			: p.layers.filter((l) => l.name === key);
+		for (const l of gone) {
+			p.layers.splice(p.layers.indexOf(l), 1);
+			__puppetCall(this, { op: 'destroy', uid: l.uid });
+		}
+		return gone.length > 0;
+	},
+});
+
+function __createAnimLayer(layer, animation, options, once) {
+	const p = __pose(layer);
+	const list = (layer._s.puppet && layer._s.puppet.animations) || [];
+	if (!p || animation === undefined || animation === null || animation === '') return null;
+	let opts = options;
+	if (typeof opts === 'string') { try { opts = JSON.parse(opts); } catch (e) { opts = {}; } }
+	opts = { ...(opts || {}) };
+	if (!opts.blendin) opts.blendin = true;
+	if (!opts.blendout) opts.blendout = true;
+	let cfg;
+	if (typeof animation === 'string') {
+		const a = list.find((x) => x.name === animation);
+		if (!a) return null;
+		cfg = { ...opts, animation: a.id };
+	} else {
+		cfg = { ...animation, ...opts };
+	}
+	const a = list.find((x) => x.id === cfg.animation);
+	if (typeof cfg.animation !== 'number' || !a) return null;
+	cfg.once = once;
+	const uid = __nextAnimUid++;
+	const s = {
+		uid, name: String(cfg.name || ''), animation: a.id, rate: __num(cfg.rate, 1), blend: __num(cfg.blend, 1),
+		visible: cfg.visible === undefined ? true : !!cfg.visible, additive: !!cfg.additive, blendin: true,
+		blendout: a.mode === 'single', blendtime: __num(cfg.blendtime, 0.5), fps: a.fps, frameCount: a.frames,
+		duration: a.fps > 0 ? a.frames / a.fps : 0, frame: 0, playing: true,
+	};
+	const n = p.layers.length;
+	let at = n;
+	if (cfg.autosort === true) { at = n; while (at > 0 && p.layers[at - 1].additive) at--; }
+	else if (typeof cfg.index === 'number') at = Math.min(Math.max(0, Math.trunc(cfg.index)), Math.max(n - 1, 0));
+	p.layers.splice(at, 0, s);
+	__puppetCall(layer, { op: 'create', uid, cfg });
+	return __animLayer(layer, uid);
+}
+
+function __animLayer(layer, uid) {
+	let a = __animLayers.get(uid);
+	if (!a) { a = new AnimationLayer(layer, uid); __animLayers.set(uid, a); }
+	return a;
+}
+
+// IAnimationLayer: one of a puppet's animation layers. Changes reach the renderer with the frame
+// and apply from the next one.
+class AnimationLayer {
+	constructor(layer, uid) { this._layer = layer; this._uid = uid; this._ended = []; }
+	get _s() {
+		const p = __puppets.get(this._layer.id);
+		return (p && p.layers.find((l) => l.uid === this._uid)) || { uid: this._uid };
+	}
+	__set(field, v) { this._s[field] = v; __puppetCall(this._layer, { op: 'layer', uid: this._uid, set: { [field]: v } }); }
+	__call(call, f) { __puppetCall(this._layer, { op: 'layer', uid: this._uid, call, f }); }
+	get name() { return this._s.name || ''; }
+	set name(v) { this.__set('name', String(v)); }
+	get rate() { return __num(this._s.rate, 1); }
+	set rate(v) { this.__set('rate', __num(v, 1)); }
+	get blend() { return __num(this._s.blend, 1); }
+	set blend(v) { this.__set('blend', __num(v, 1)); }
+	get blendtime() { return __num(this._s.blendtime, 0.5); }
+	set blendtime(v) { this.__set('blendtime', __num(v, 0.5)); }
+	get visible() { return this._s.visible !== false; }
+	set visible(v) { this.__set('visible', !!v); }
+	get additive() { return !!this._s.additive; }
+	set additive(v) { this.__set('additive', !!v); }
+	get blendin() { return !!this._s.blendin; }
+	set blendin(v) { this.__set('blendin', !!v); }
+	get blendout() { return !!this._s.blendout; }
+	set blendout(v) { this.__set('blendout', !!v); }
+	get fps() { return __num(this._s.fps, 0); }
+	get frameCount() { return __num(this._s.frameCount, 0); }
+	get duration() { return __num(this._s.duration, 0); }
+	play() { this._s.playing = true; this.__call('play'); }
+	pause() { this._s.playing = false; this.__call('pause'); }
+	stop() { this._s.playing = false; this._s.frame = 0; this.__call('stop'); }
+	isPlaying() { return !!this._s.playing; }
+	getFrame() { return __num(this._s.frame, 0); }
+	setFrame(f) { this._s.frame = __num(f, 0); this.__call('frame', this._s.frame); }
+	addEndedCallback(fn) { if (typeof fn === 'function') this._ended.push(fn); }
+}
+globalThis.AnimationLayer = AnimationLayer;
 
 // IEffect: one material effect on a layer. `visible` is applied by the renderer each frame.
 class Effect {
@@ -529,6 +871,7 @@ function __takeEvents(out) {
 	for (const [id, d] of __dirty) out.dirty[id] = d;
 	__dirty.clear();
 	__animationQueue.clear();
+	__puppetCalls.clear();
 	out.scene = { ...__sceneDirty };
 	for (const k of Object.keys(__sceneDirty)) delete __sceneDirty[k];
 	out.created = __created.splice(0);
@@ -616,6 +959,19 @@ globalThis.__wm_frame = function (json) {
 	engine.canvasSize = new Vec2(f.canvas[0], f.canvas[1]);
 	input.cursorScreenPosition = new Vec2(f.cursor[0], f.cursor[1]);
 	input.cursorWorldPosition = new Vec3(f.cursorWorld[0], f.cursorWorld[1], 0);
+	// This frame's puppet poses; animation layers that ended call back first, as the puppet
+	// update does before scripts run.
+	__puppets.clear();
+	for (const [id, pose] of Object.entries(f.puppets || {})) {
+		__puppets.set(Number(id), pose);
+		for (const uid of pose.ended) {
+			const a = __animLayers.get(uid);
+			if (!a) continue;
+			for (const fn of a._ended) {
+				try { fn(a); } catch (e) { __wm_log(`animation ended callback: ${e}`); }
+			}
+		}
+	}
 	__cursorEvents(!!f.down);
 	for (const b of __audio) {
 		__fill(b.left, f.left);

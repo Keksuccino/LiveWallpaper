@@ -99,6 +99,7 @@ enum ServiceEntry {
         case .pause: orchestrator.setPaused(true)
         case .resume: orchestrator.setPaused(false)
         case .setMuted(let muted): orchestrator.setMuted(muted)
+        case .makePreviews(let requests): orchestrator.makePreviews(requests)
         case .status: break
         case .quit:
             // After the reply has gone out.

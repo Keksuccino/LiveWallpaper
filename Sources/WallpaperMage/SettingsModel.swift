@@ -20,6 +20,8 @@ import SceneFormat
     @Published var stillDelay: Double = LibraryState.defaultStillDelay { didSet { persist() } }
     /// Scales every wallpaper's own volume (LibraryState.masterVolume).
     @Published var masterVolume: Double = 1 { didSet { persist() } }
+    /// Scenes react to what the Mac plays (LibraryState.audioResponse).
+    @Published var audioResponse = true { didSet { persist() } }
     /// Saved presets per wallpaper (LibraryState.presets).
     @Published private(set) var presets: [String: [WallpaperPreset]] = [:] { didSet { persist() } }
     /// Every wallpaper is silent (LibraryState.muted). The service owns it (its menu toggles it too): it changes
@@ -56,6 +58,7 @@ import SceneFormat
         state.displays = displays
         state.stillDelay = stillDelay
         state.masterVolume = masterVolume
+        state.audioResponse = audioResponse
         state.presets = presets
         return state
     }
@@ -202,13 +205,14 @@ import SceneFormat
             name = String(localized: "New Playlist \(number)")
             number += 1
         }
-        let playlist = Playlist(name: name, items: Self.unique(items))
+        let now = Date()
+        let playlist = Playlist(name: name, items: Self.unique(items), created: now, updated: now)
         playlists.append(playlist)
         return playlist.id
     }
 
-    /// Edits a playlist and commits it. A wallpaper stays in a playlist once, and the options of wallpapers that left
-    /// it go with them.
+    /// Edits a playlist and commits it (dated, see Playlist.updated). A wallpaper stays in a playlist once, and the
+    /// options of wallpapers that left it go with them.
     func updatePlaylist(_ id: Playlist.ID, _ change: (inout Playlist) -> Void) {
         guard let index = playlists.firstIndex(where: { $0.id == id }) else { return }
         var playlist = playlists[index]
@@ -218,7 +222,9 @@ import SceneFormat
         playlist.wallpaperOptions = playlist.wallpaperOptions.filter { kept.contains($0.key) }
         playlist.intervalValue = Playlist.clampedInterval(playlist.intervalValue)
         playlist.transitionDuration = Playlist.clampedTransitionDuration(playlist.transitionDuration)
-        if playlist != playlists[index] { playlists[index] = playlist }
+        guard playlist != playlists[index] else { return }
+        playlist.updated = Date()
+        playlists[index] = playlist
     }
 
     /// Adds wallpapers to the end of a playlist (those already in it stay where they are).
@@ -299,10 +305,13 @@ import SceneFormat
 
     var editingPlaylistID: Playlist.ID? { playlistEdit?.original.id }
 
-    /// The playlist differs from what it was when the editor opened.
+    /// The playlist differs from what it was when the editor opened. An edit the user took back still left its date,
+    /// which alone is no change.
     var editHasChanges: Bool {
         guard let session = playlistEdit else { return false }
-        return playlist(session.original.id) != session.original
+        guard var current = playlist(session.original.id) else { return true }
+        current.updated = session.original.updated
+        return current != session.original
     }
 
     func editPlaylist(_ id: Playlist.ID) {
@@ -319,6 +328,11 @@ import SceneFormat
     /// Done: the playlist keeps its changes and the editor closes.
     func finishEditing() {
         guard let session = playlistEdit else { return }
+        // Edits the user took back leave the playlist as it was, its date included.
+        if !editHasChanges, let index = playlists.firstIndex(where: { $0.id == session.original.id }),
+           playlists[index] != session.original {
+            playlists[index] = session.original
+        }
         playlistEdit = nil
         let kept = playlist(session.original.id)?.image
         let unused = session.images.union([session.original.image].compactMap { $0 })
@@ -388,6 +402,8 @@ import SceneFormat
     /// A commit could not be sent because the service was not connected; it goes out once the service answers.
     private var commitPending = false
     private var lastCommit: Task<Void, Never>?
+    /// `fillCreationDates` ran (or runs) in this launch.
+    private var creationDatesRequested = false
     private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     private var clientWatch: [AnyCancellable] = []
 
@@ -422,13 +438,18 @@ import SceneFormat
 
     // MARK: Library intents
 
-    /// Filters non-video, dedupes by path and appends. Returns the number added.
+    /// Filters non-video, dedupes by path and appends (dated, see VideoItem.created and .updated). Returns the number
+    /// added.
     @discardableResult func addVideos(urls: [URL]) -> Int {
         var knownPaths = Set(videos.map(\.path))
         var added: [VideoItem] = []
+        let now = Date()
         for url in urls where VideoItem.isVideo(url) {
-            let item = VideoItem(url: url)
-            if knownPaths.insert(item.path).inserted { added.append(item) }
+            var item = VideoItem(url: url)
+            guard knownPaths.insert(item.path).inserted else { continue }
+            item.created = url.creationDate
+            item.updated = now
+            added.append(item)
         }
         guard !added.isEmpty else { return 0 }
         videos += added
@@ -436,8 +457,11 @@ import SceneFormat
     }
 
     /// Called by the Workshop importer with a finished item (files already in AppPaths.libraryDirectory).
-    /// A re-download replaces the earlier copy of the same Workshop item in place, on every display that shows it.
+    /// A re-download replaces the earlier copy of the same Workshop item in place, on every display that shows it;
+    /// either way the item is dated now (VideoItem.updated).
     func addImported(_ item: VideoItem) {
+        var item = item
+        item.updated = Date()
         let old = videos.first { $0.workshopID != nil && $0.workshopID == item.workshopID }
         edit { state in
             if let old {
@@ -510,6 +534,43 @@ import SceneFormat
         }
     }
 
+    /// Looks up the creation dates the library does not know yet (VideoItem.created), off the main actor: the user's
+    /// own wallpapers' from their files, Workshop items' from Steam in one request. Items Steam no longer has stay
+    /// unknown. Once per launch (again after Steam could not be reached), when Home first sorts by creation date.
+    func fillCreationDates() {
+        guard !creationDatesRequested else { return }
+        creationDatesRequested = true
+        let missing = videos.filter { $0.created == nil }
+        guard !missing.isEmpty else { return }
+        Task { @MainActor [weak self] in
+            let own = await Task.detached(priority: .utility) {
+                Dictionary(missing.filter { $0.workshopID == nil }.compactMap { item in
+                    item.url.creationDate.map { (item.id, $0) }
+                }, uniquingKeysWith: { first, _ in first })
+            }.value
+            var published: [String: Date] = [:]
+            let workshopIDs = Array(Set(missing.compactMap(\.workshopID)))
+            if !workshopIDs.isEmpty {
+                do {
+                    published = try await WorkshopKit.API.creationDates(ids: workshopIDs)
+                } catch {
+                    self?.creationDatesRequested = false
+                }
+            }
+            self?.setCreationDates(own: own, published: published)
+        }
+    }
+
+    /// One change of `videos`, so the library is published and committed once.
+    private func setCreationDates(own: [UUID: Date], published: [String: Date]) {
+        var dated = videos
+        for index in dated.indices where dated[index].created == nil {
+            let item = dated[index]
+            dated[index].created = item.workshopID.flatMap { published[$0] } ?? own[item.id]
+        }
+        if dated != videos { videos = dated }
+    }
+
     private func replace(_ items: [VideoItem]) {
         batch {
             for item in items {
@@ -524,6 +585,7 @@ import SceneFormat
         displays = state.displays
         stillDelay = state.stillDelay
         masterVolume = state.masterVolume
+        audioResponse = state.audioResponse
         presets = state.presets
         muted = state.muted
     }

@@ -66,6 +66,7 @@ flowchart TB
     STATE[("state.json<br/>service writes · Settings reads")]
     PROJECT[("Library/{id}/project.json")]
     STILLFILES[("WallpaperStills/*.jpg<br/>system wallpaper of each display")]
+    PREVIEWFILES[("LibraryPreviews/*.heic<br/>a preview of each library wallpaper")]
     AV["AVPlayerLayer"]
 
     CLIENT -->|"Unix socket"| SOCK
@@ -76,6 +77,8 @@ flowchart TB
     THREAD -.->|"reads scene.pkg"| PROJECT
     VIDEO --> AV
     STILLS --> STILLFILES
+    ORCH -->|"previews Settings asks for"| PREVIEWFILES
+    UI -.->|"library cards"| PREVIEWFILES
 ```
 
 ## Processes and IPC
@@ -100,6 +103,7 @@ NSXPC was not used because launchd would not spawn the ad-hoc-signed nested serv
 | `state.json` | Service (normal operation) | Library, playlists, the still's update delay, and per display (`displays`, keyed by the display's UUID): its wallpaper or playlist, its wallpaper options and power settings. Settings reads it and sends `.commit`. |
 | `agent.json` | Service | The still each display was last given, and the Aerial records older versions left (cleaned up at launch). |
 | `WallpaperStills/*.jpg` | Service (`WallpaperStills`) | The still each display shows as its system wallpaper, named after a digest of what it shows. |
+| `LibraryPreviews/*.heic` | Service (`LibraryPreviews`) | A 768×432 preview of each library wallpaper (`LibraryPreview`), named `<item id>_<digest of its file and content>`. |
 | `PlaylistImages/*` | Settings (`PlaylistImage`) | The pictures users chose for their playlists, scaled down to 1200 pixels, each under a new name. |
 | `Library/{id}/project.json` | Workshop import / user library | Scene description read by both Settings and the renderer. |
 
@@ -126,7 +130,7 @@ It reads the item's options with `LibraryState.options(for:on:)`: its playlist's
 
 `VideoRenderService` extends it with an AVPlayer window (`AVPlayerLayer`) on its display.
 
-`SceneRenderService` also extends it, with a `Renderer` of its own. It pushes only changed values to the renderer, and applies the battery rule itself (on battery or in Low Power Mode: pause, or lower FPS and render scale). A paused scene still draws its first frame, silently, so its window has a picture. While the screen is locked the renderer draws nothing and its sounds stop. The pointer drives parallax relative to its own display. When a playing scene has audio response on, it also runs `SystemAudioTap` (a Core Audio process tap) and hands the spectrum to the renderer.
+`SceneRenderService` also extends it, with a `Renderer` of its own. It pushes only changed values to the renderer, and applies the battery rule itself (on battery or in Low Power Mode: pause, or lower FPS and render scale). A paused scene still draws its first frame, silently, so its window has a picture. While the screen is locked the renderer draws nothing and its sounds stop. The pointer drives parallax relative to its own display. While audio response is on (`LibraryState.audioResponse`) and the scene plays, its renderer also gets the spectrum of `SystemAudioTap` (a Core Audio process tap). One tap serves every display (`SharedAudioTap`): it runs while any scene listens.
 
 Both render services draw into a `DisplayWindow`: one desktop-level window on their display, kept for as long as the display stays connected. A change of the screen parameters (resolution, arrangement, the menu bar's background) only moves or resizes the window; `SceneRenderService` then attaches the layer again when its size changed. The window's content view is a `StageView` holding the view the renderer or player draws into. A window opens transparent, so whatever it replaces stays visible under it, and turns opaque when it is presented.
 
@@ -134,9 +138,11 @@ Both render services draw into a `DisplayWindow`: one desktop-level window on th
 
 `WallpaperStills` is separate from the playback hierarchy. The menu bar's background, Mission Control and the lock screen show the system wallpaper, never our windows, so it sets every display's system wallpaper to a still of the live wallpaper at that display's pixel size: for a scene, a second, off-screen `Renderer` with the live scene's framing and properties; for a video, a frame filled and centred like the player's layer. A still is made only when the wallpaper, a display or the scene's framing changes, after the update delay set in Settings (`LibraryState.stillDelay`, 2 s by default, so a slider drag ends in one still), and it stays when the service quits. Displays that show the same wallpaper at the same size share one file and one render. A display whose wallpaper is taken away (or deleted from the library) gets macOS's default wallpaper back (`/System/Library/CoreServices/DefaultDesktop.heic`). `agent.json` remembers each display's last still, so a display that is not connected keeps its file. The menu bar refreshes its copy of the wallpaper only when the wallpaper is drawn, which never happens behind the opaque live windows, so after setting a still the display's window lets it through at 1% for half a second (`DisplayWindow.revealSystemWallpaper`; during a transition, after it). `LegacyLockScreen` puts back Apple's Aerial files that older versions swapped for their lock-screen video and deletes their lock-screen leftovers at launch.
 
+`LibraryPreviews` makes the picture each wallpaper's card shows in the library: a still drawn like a display's (`StillRendering`, which `WallpaperStills` uses too), a scene at 1920×1080 scaled down, at 768×432 as HEIC (about 40 KB). Settings asks for the previews it misses while Home is open (`ServiceCommand.makePreviews`, with the options each wallpaper has on the selected display on its own) and for a new one when the user picks Refresh Preview on a card. They are made one at a time at utility priority, refreshes first. A preview never expires: it is made again only on a refresh or when the wallpaper's file changes (the digest in its name), and deleted when the wallpaper leaves the library. A preview that cannot be made is not tried again until the service restarts or the user refreshes it. `ServiceStatus.previews` reports a revision that goes up with every new file, upon which Settings (`LibraryPreviewStore`) reads the directory again, and the wallpapers being refreshed, whose thumbnails show a spinner meanwhile. Until a wallpaper has its preview, its thumbnail shows the wallpaper's own preview image or a frame of its video.
+
 `Orchestrator` owns a `DisplayPlayer` for every connected display that has a wallpaper or a playlist, and one `WallpaperStills`. It follows displays as they come and go, keeps each display's still in step with what it shows, and is the normal writer of `state.json`.
 
-`ServiceDelegate` owns the socket server, the menu bar item and the orchestrator. Settings has no playback classes and never imports `SceneBridge`. Its Home page shows the displays as arranged in System Settings (`DisplayPicker`, from `NSScreen` frames); clicking one picks the display the library and the inspector work on. The library lists the playlists, then the wallpapers (`LibraryEntry.library`), without the kinds its title row's filter buttons hide (`SettingsModel.hiddenLibraryKinds`: playlists, scenes, videos; UI state only); a click puts one on that display, and a checkmark marks the one it shows. A playlist's editor (`PlaylistEditorView`) takes the library's place while it is open, with the settings of the wallpaper selected in it in the inspector. Its edits are committed live; `SettingsModel` keeps the playlist as it was when the editor opened, so Done keeps the edit and every other way out of the editor (Cancel, another page, Settings, quitting) undoes it, after asking when there is something to undo (`leaveEditor`). The window's close button is off while the editor is open. A display's tile shows its system wallpaper, which the service reports per display (`DisplayStatus.systemWallpaper`, with the item it is a still of), so the tile looks like the display itself.
+`ServiceDelegate` owns the socket server, the menu bar item and the orchestrator. Settings has no playback classes and never imports `SceneBridge`. Its Home page shows the displays as arranged in System Settings (`DisplayPicker`, from `NSScreen` frames); clicking one picks the display the library and the inspector work on. The library lists the playlists and the wallpapers (`LibraryEntry.library`) in the order its title row's sort menu and order picker choose (`LibraryOrder`: last added or updated, by type, or by creation date, with one direction for every sort, descending by default; both remembered in UserDefaults), without the kinds its filter buttons hide (`SettingsModel.hiddenLibraryKinds`: playlists, scenes, videos; UI state only); a click puts one on that display, and a checkmark marks the one it shows. A playlist's editor (`PlaylistEditorView`) takes the library's place while it is open, with the settings of the wallpaper selected in it in the inspector. Its edits are committed live; `SettingsModel` keeps the playlist as it was when the editor opened, so Done keeps the edit and every other way out of the editor (Cancel, another page, Settings, quitting) undoes it, after asking when there is something to undo (`leaveEditor`). The window's close button is off while the editor is open. A display's tile shows its system wallpaper, which the service reports per display (`DisplayStatus.systemWallpaper`, with the item it is a still of), so the tile looks like the display itself.
 
 ## Scene renderer
 
@@ -161,12 +167,14 @@ The exported type is `Renderer` in `SceneRenderer/src/api.rs`. Every call is a m
 Each display's `DisplayConfig` stores:
 
 - `content: DisplayContent?` (JSON key `wallpaperID` or `playlistID`) — what the display shows: a wallpaper, a playlist or nothing.
-- `wallpaperOptions: [String: WallpaperOptions]` (JSON key `sceneOptions`) — per wallpaper the display shows on its own, keyed by the item's UUID: Wallpaper Engine's own options, which every wallpaper has (volume, playback rate, alignment with position/horizontal/vertical/zoom, flip, blurred bars, colour options, image filter, mouse parallax), and for scenes the frame rate, render scale, antialiasing, audio response and the scene's own property values.
+- `wallpaperOptions: [String: WallpaperOptions]` (JSON key `sceneOptions`) — per wallpaper the display shows on its own, keyed by the item's UUID: Wallpaper Engine's own options, which every wallpaper has (volume, playback rate, alignment with position/horizontal/vertical/zoom, flip, blurred bars, colour options, image filter, mouse parallax), and for scenes the frame rate, render scale, antialiasing and the scene's own property values.
 - `power: PowerOptions` — the display's battery mode and battery render scale/FPS.
 
 Each `Playlist` in `LibraryState.playlists` stores its name, its wallpapers in order (`items`, each at most once), `wallpaperOptions` of its own for them (used on every display that plays it), how long each wallpaper stays (`intervalValue`/`intervalUnit`, at least 5 seconds), its `transition` and `transitionDuration`, and the file name of its own picture (`image`, in `PlaylistImages/`; without one Settings shows a collage of its first wallpapers' previews).
 
-`LibraryState` also holds `masterVolume` (scales every wallpaper's volume) and `presets` (named sets of a wallpaper's options, per `VideoItem.presetKey`).
+Library items and playlists carry two dates Home can sort its library by: `created` (when the wallpaper itself was made: a Workshop item's publication, the creation of the user's own file or folder; a playlist's making) and `updated` (when it came into the library, was downloaded again or, for a playlist, last edited). Items from before the library kept `created` get it when Home is first sorted by creation date (`SettingsModel.fillCreationDates`: from their files, or from Steam's GetPublishedFileDetails for Workshop items).
+
+`LibraryState` also holds `masterVolume` (scales every wallpaper's volume), `audioResponse` (every scene's audio visualisers follow the system audio; on by default) and `presets` (named sets of a wallpaper's options, per `VideoItem.presetKey`).
 
 The Settings app lists a wallpaper's options the way Wallpaper Engine does (`WallpaperSettingsCard`): Wallpaper Engine's built-in options (`WallpaperProperty.builtIn`, the same keys, orders, ranges and conditions; which ones a scene gets depends on `SceneFeatures`: sound, 2D, camera parallax) merged with the scene's own properties from project.json (`ProjectProperties`: bool, slider, colour, combo, text input, text labels, groups, per-wallpaper translations), sorted by order. Each property's `condition` (a JavaScript expression) is evaluated by `PropertyCondition`. Labels go through `PropertyText`: the wallpaper's own translation, the app's translation of Wallpaper Engine's `ui_…` keys, or a readable form of the key.
 
@@ -182,7 +190,7 @@ The Settings app lists a wallpaper's options the way Wallpaper Engine does (`Wal
 | Frame rate, battery FPS | `set_fps_cap` (the battery FPS when it is lower and applies) | — |
 | Render scale, battery render scale | `set_render_scale` | — |
 | Antialiasing | `apply_antialiasing` (4× multisampling) | — |
-| Audio response | `set_audio_response`, plus `set_audio_spectrum` from `SystemAudioTap` | — |
+| Audio response (Settings > General) | `set_audio_response`, plus `set_audio_spectrum` from `SystemAudioTap` | — |
 | Scene properties | `apply_property` (JSON value); scripts hear of it through `applyUserProperties` | — |
 | Battery rule "Pause", app pause | `pause` / `play` | `pause` / `play` |
 

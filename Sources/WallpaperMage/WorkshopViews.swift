@@ -133,12 +133,6 @@ struct WorkshopChip: View {
     }
 }
 
-/// The tags of an item that are not meta chips (kind, resolution, rating), capped to keep cards tidy.
-private func topicTags(of item: WorkshopItem, limit: Int) -> [String] {
-    let shown = Set([item.resolutionTag, item.ratingTag, item.kind.rawValue].compactMap { $0?.lowercased() })
-    return item.tags.filter { !shown.contains($0.lowercased()) }.prefix(limit).map { $0 }
-}
-
 @MainActor
 private struct ChipRow: View {
     let item: WorkshopItem
@@ -328,7 +322,8 @@ private struct CompactCard<Actions: View>: View {
                 .animation(WMMotion.hover, value: hovering)
             Text(item.title).font(.subheadline.weight(.semibold)).lineLimit(2, reservesSpace: true)
             HStack(spacing: 5) {
-                ForEach(topicTags(of: item, limit: 2), id: \.self) { tag in
+                // Two at most, to keep cards tidy.
+                ForEach(item.topicTags.prefix(2), id: \.self) { tag in
                     WMChip(text: tag)
                 }
             }
@@ -356,6 +351,8 @@ struct WorkshopView: View {
     let openDownloads: () -> Void
     @State private var browsed = false
     @State private var detail: WorkshopItem?   // the result whose detail pane is open
+    @State private var resultsScrolledDown = false   // folds the top part away (see `foldingPart`)
+    @State private var foldingHeight: CGFloat = 0    // the top part's natural height
 
     // RootView (another file) builds this view; spelling the init out keeps the private @State from affecting it.
     init(model: SettingsModel, workshop: WorkshopModel,
@@ -383,6 +380,7 @@ struct WorkshopView: View {
     /// between branches would rebuild its scroll view and jump back to the top of the list. A narrow window hides it
     /// under the detail pane instead of removing it, and disables it so its controls ignore the keyboard.
     /// Its width changes without animation, which AnchoredScrollView needs to keep the same wallpapers in view.
+    /// Like Home's inspector (`wmInspectorPanel`), the detail pane reaches up into the toolbar strip, in both widths.
     @ViewBuilder private func content(wide: Bool) -> some View {
         let covered = detail != nil && !wide
         HStack(spacing: 0) {
@@ -392,7 +390,7 @@ struct WorkshopView: View {
                 .disabled(covered)
                 .accessibilityHidden(covered)
             if wide, let item = detail {
-                Divider()
+                Divider().ignoresSafeArea(.container, edges: .top)
                 detailPane(item).frame(width: 380).zIndex(1)
             }
         }
@@ -405,32 +403,92 @@ struct WorkshopView: View {
         WorkshopDetailView(model: model, workshop: workshop, item: item, close: { detail = nil },
                            openSteamSetup: openSteamSetup, openLibrary: openLibrary)
             .id(item.id)
+            .ignoresSafeArea(.container, edges: .top)
+    }
+
+    /// The page header, the folding part and the browse controls stay put, as Home's header does; only the results
+    /// below them scroll. Without an API key there are no results, and the folding part holds the whole page.
+    private var resultsColumn: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            WMPageHeader(
+                title: "Workshop",
+                subtitle: "Video and scene wallpapers from Steam, downloaded with your own account.",
+                trailing: { downloadsStrip })
+                .padding([.horizontal, .top], WMTheme.contentPadding)
+            foldingPart
+            if workshop.canBrowse {
+                browseHeader
+                    .padding(.horizontal, WMTheme.contentPadding)
+                    .padding(.bottom, 8)
+                results
+            }
+        }
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(WMBackground())
+        .onChange(of: workshop.canBrowse) { resultsScrolledDown = false }
+    }
+
+    private var isFolded: Bool { resultsScrolledDown && workshop.canBrowse }
+
+    /// The setup banner, the paste field and what it looked up, between the page header and the browse controls. It
+    /// folds away once the results are scrolled down, leaving them the room, and unfolds when they are back at the top;
+    /// it stays in the view tree meanwhile, so the paste field keeps its text and lookup.
+    /// A scroll view of its own, sized to its content (`foldingHeight`): in a short window the stack gives it at most
+    /// half of the free height, and a tall lookup result scrolls in it. Its padding holds the section gaps above and
+    /// below it and the room for the cards' shadows, which it clips; folded, it keeps one gap.
+    private var foldingPart: some View {
+        let folded = isFolded
+        return ScrollView {
+            VStack(alignment: .leading, spacing: WMTheme.sectionSpacing) {
+                if !workshop.setup.canDownload { setupBanner }
+                pasteRow
+                lookupSection
+                if !workshop.canBrowse { keyHint }
+            }
+            .padding(.horizontal, WMTheme.contentPadding)
+            .padding(.vertical, WMTheme.sectionSpacing)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { foldingHeight = $0 }
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(maxHeight: folded ? WMTheme.sectionSpacing : foldingHeight)
+        .opacity(folded ? 0 : 1)
+        .disabled(folded)
+        .accessibilityHidden(folded)
     }
 
     /// Anchored, so the grid keeps showing the same wallpapers, and the one whose details are open, when the detail
     /// pane narrows or widens it. Nearing the end of the grid loads the next page (WorkshopListEnd); after a failed
     /// page only Retry loads again, as retrying on every scroll would keep hitting a failing API.
-    private var resultsColumn: some View {
+    private var results: some View {
         AnchoredScrollView(order: workshop.results.map(\.id), keepingVisible: detail?.id) {
-            VStack(alignment: .leading, spacing: WMTheme.sectionSpacing) {
-                WMPageHeader(
-                    title: "Workshop",
-                    subtitle: "Video and scene wallpapers from Steam, downloaded with your own account.",
-                    trailing: { downloadsStrip })
-
-                if !workshop.setup.canDownload { setupBanner }
-                pasteRow
-                lookupSection
-                if workshop.canBrowse { browseSection } else { keyHint }
+            VStack(alignment: .leading, spacing: 14) {
+                browseResults
             }
-            .padding(WMTheme.contentPadding)
+            .padding([.horizontal, .bottom], WMTheme.contentPadding)
+            // With the browse controls' bottom padding, the gap between them and the grid.
+            .padding(.top, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.visible)
+        .scrollEdgeEffectStyle(.soft, for: .top)
         .onScrollGeometryChange(for: WorkshopListEnd.self, of: WorkshopListEnd.init) { _, end in
             if end.isNear, workshop.listState == .loaded { workshop.loadMore() }
         }
-        .background(WMBackground())
+        .onScrollGeometryChange(for: Bool?.self, of: scrolledDown) { _, scrolledDown in
+            guard let scrolledDown, scrolledDown != resultsScrolledDown else { return }
+            withAnimation(WMMotion.content) { resultsScrolledDown = scrolledDown }
+        }
+    }
+
+    /// Whether the results count as scrolled down, which folds the part above them: no at the top, yes a little further
+    /// down, unchanged (nil) in between. Only results that would still scroll with the room folding frees count as
+    /// scrolled down: shorter ones would snap back to the top as it folds, and unfold it again.
+    private func scrolledDown(_ geometry: ScrollGeometry) -> Bool? {
+        let offset = geometry.contentOffset.y + geometry.contentInsets.top
+        if offset < 1 { return false }
+        let scrollRange = geometry.contentSize.height - geometry.containerSize.height
+        return offset > 12 && scrollRange > foldingHeight ? true : nil
     }
 
     /// Live "N downloads in progress" strip in the header; jumps to the Downloads page.
@@ -476,45 +534,26 @@ struct WorkshopView: View {
     }
 
     private var pasteRow: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Image(systemName: "link")
-                    .foregroundStyle(.secondary)
-                TextField("Paste a Workshop link or item number", text: $workshop.pastedText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 16, weight: .medium))
-                    .onSubmit { workshop.lookUp() }
-                if !workshop.pastedText.isEmpty {
-                    Button { workshop.pastedText = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.tertiary)
-                    .accessibilityLabel("Clear")
+        HStack(spacing: 10) {
+            Image(systemName: "link")
+                .foregroundStyle(.secondary)
+            TextField("Paste a Workshop link or item number", text: $workshop.pastedText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 16, weight: .medium))
+                .onSubmit { workshop.lookUp() }
+            if !workshop.pastedText.isEmpty {
+                Button { workshop.pastedText = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
                 }
-                Button { paste() } label: {
-                    Image(systemName: "doc.on.clipboard")
-                }
-                .buttonStyle(.borderless)
-                .help("Paste from the clipboard")
-                .accessibilityLabel("Paste from the clipboard")
-                Button("Look Up") { workshop.lookUp() }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(workshop.pastedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-            .padding(14)
-            .background { glassShape(radius: 15) }
-            Text("Paste a link from the Steam Workshop and it looks up automatically.")
-                .font(.caption)
+                .buttonStyle(.plain)
                 .foregroundStyle(.tertiary)
-                .padding(.leading, 4)
+                .accessibilityLabel("Clear")
+            }
         }
+        .padding(14)
+        .background { glassShape(radius: 15) }
+        .textFieldClickArea()
         .task(id: workshop.pastedText) { await lookUpPastedText() }
-    }
-
-    private func paste() {
-        if let text = NSPasteboard.general.string(forType: .string) { workshop.pastedText = text }
     }
 
     /// Looks a plausible link or number up once typing or pasting has paused.
@@ -598,25 +637,20 @@ struct WorkshopView: View {
         .background { glassShape(radius: 12) }
     }
 
-    private var browseSection: some View {
+    /// The topics and the controls above the results. Its height is fixed to its content: the topics' horizontal
+    /// scroll view would otherwise share the column's free height with the results.
+    private var browseHeader: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("Browse").font(.title3.weight(.semibold))
-                Text(workshop.results.count, format: .number)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.tertiary)
-                Spacer()
-            }
             topicRow
             browseControls
-            browseResults
         }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     /// Curated topics. A topic is the ranked text search on its name; "All" clears the text search.
     private var topicRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            HStack(spacing: WMTheme.chipSpacing) {
                 WMTopicChip(title: String(localized: "All"),
                             selected: workshop.searchText.isEmpty) {
                     workshop.searchText = ""
@@ -642,23 +676,15 @@ struct WorkshopView: View {
 
     private var browseControls: some View {
         HStack(spacing: 10) {
-            Menu {
-                ForEach(WorkshopSort.allCases) { sort in
-                    Button(sort.label) { workshop.sort = sort }
-                }
-            } label: {
-                Label(workshop.sort.label, systemImage: "arrow.up.arrow.down")
-                    .font(.callout.weight(.medium))
-            }
-            .fixedSize()
-            .disabled(!workshop.searchText.isEmpty)
-            .help(workshop.searchText.isEmpty
-                  ? "Order of the browse grid"
-                  : "Steam decides the order while a search is active")
+            WMSortMenu(title: "Sort By", selection: $workshop.sort, options: WorkshopSort.allCases, label: \.label)
+                .disabled(!workshop.searchText.isEmpty)
+                .help(workshop.searchText.isEmpty
+                      ? "Order of the browse grid"
+                      : "Steam decides the order while a search is active")
 
             WMSearchField(prompt: "Search wallpapers", text: $workshop.searchText)
 
-            HStack(spacing: 2) {
+            HStack(spacing: WMTheme.chipSpacing) {
                 ForEach(WorkshopKindFilter.allCases) { kind in
                     WMTopicChip(title: kind.label,
                                 selected: workshop.kindFilter == kind) {
@@ -667,10 +693,11 @@ struct WorkshopView: View {
                 }
             }
 
-            Toggle("Mature", isOn: $workshop.includeMature)
+            Toggle("NSFW", isOn: $workshop.includeMature)
                 .toggleStyle(.checkbox)
                 .help("Include questionable and mature items")
         }
+        .animation(WMMotion.content, value: workshop.sort)
     }
 
     @ViewBuilder private var browseResults: some View {

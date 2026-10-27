@@ -39,12 +39,12 @@ struct WallpaperSettingsCard: View {
                 } else {
                     ProgressView().controlSize(.small).frame(maxWidth: .infinity)
                 }
-                Divider()
-                presetButtons
                 if item.isScene {
                     Divider()
                     performance
                 }
+                Divider()
+                presetButtons
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -411,8 +411,6 @@ struct WallpaperSettingsCard: View {
                 .help("Share of the display’s pixels the scene is drawn at. Lower is lighter on the GPU.")
                 WMSwitchRow("Antialiasing", isOn: binding(\.antialiasing))
                     .help("Smooths jagged edges. Costs some GPU time.")
-                WMSwitchRow("Scene responds to music", isOn: binding(\.audioResponse))
-                    .help("Lets audio visualisers in the scene follow what your Mac plays.")
             }
         }
     }

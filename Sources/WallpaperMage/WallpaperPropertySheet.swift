@@ -43,7 +43,7 @@ struct WallpaperSheet: Sendable {
     }
 
     /// The size a video is shown at: its track's size, turned by its transform.
-    private static func videoSize(_ url: URL) async -> CGSize? {
+    static func videoSize(_ url: URL) async -> CGSize? {
         guard let track = try? await AVURLAsset(url: url).loadTracks(withMediaType: .video).first,
               let (size, transform) = try? await track.load(.naturalSize, .preferredTransform) else { return nil }
         let turned = size.applying(transform)
@@ -159,8 +159,7 @@ extension WallpaperOptions {
                                 alignY: alignY, zoom: zoom, flip: flip, blurBars: blurBars, colorAdjust: colorAdjust,
                                 brightness: brightness, contrast: contrast, saturation: saturation, hue: hue,
                                 filter: filter, filterStrength: filterStrength, mouseParallax: mouseParallax, fps: fps,
-                                renderScale: renderScale, audioResponse: audioResponse, antialiasing: antialiasing,
-                                properties: properties)
+                                renderScale: renderScale, antialiasing: antialiasing, properties: properties)
         return true
     }
 }

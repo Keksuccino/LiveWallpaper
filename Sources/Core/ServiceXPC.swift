@@ -14,6 +14,37 @@ public enum ServiceCommand: Codable, Equatable, Sendable {
     case setMuted(Bool)                          // the whole app's mute (LibraryState.muted)
     case quit                                    // stop and terminate the service
     case status                                  // no-op: just reply with the current status
+    /// Previews of library wallpapers (LibraryPreview). The ones made again on request go first; the others replace
+    /// those asked for before that are still waiting, in the order given.
+    case makePreviews([PreviewRequest])
+}
+
+/// A library wallpaper's preview the service should make.
+public struct PreviewRequest: Codable, Equatable, Sendable {
+    public var item: VideoItem
+    /// The options it is drawn with: those it has on the display the library works on.
+    public var options: WallpaperOptions
+    /// Made again even when it exists (the library's Refresh Preview).
+    public var refresh: Bool
+
+    public init(item: VideoItem, options: WallpaperOptions, refresh: Bool) {
+        self.item = item
+        self.options = options
+        self.refresh = refresh
+    }
+}
+
+/// Where the service's work on the library's previews stands.
+public struct PreviewStatus: Codable, Equatable, Sendable {
+    /// Goes up whenever a preview file was written or deleted.
+    public var revision: Int
+    /// The wallpapers whose previews are being made again on request, waiting or in the making.
+    public var refreshing: [UUID]
+
+    public init(revision: Int = 0, refreshing: [UUID] = []) {
+        self.revision = revision
+        self.refreshing = refreshing
+    }
 }
 
 /// What one connected display shows.
@@ -44,14 +75,17 @@ public struct ServiceStatus: Codable, Equatable, Sendable {
     public var displays: [DisplayStatus]  // every connected display
     public var stateRevision: Int         // revision of state.json the service last wrote or loaded
     public var message: String?           // latest user-facing message about the service as a whole
+    /// The library's previews; nil from a service that makes none.
+    public var previews: PreviewStatus?
 
     public init(paused: Bool = false, muted: Bool = false, displays: [DisplayStatus] = [], stateRevision: Int = 0,
-                message: String? = nil) {
+                message: String? = nil, previews: PreviewStatus? = nil) {
         self.paused = paused
         self.muted = muted
         self.displays = displays
         self.stateRevision = stateRevision
         self.message = message
+        self.previews = previews
     }
 
     public func display(_ id: String) -> DisplayStatus? { displays.first { $0.id == id } }
