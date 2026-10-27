@@ -72,7 +72,6 @@ struct DownloadsView: View {
         WMEmptyState(
             icon: "arrow.down.circle",
             title: "Nothing downloading",
-            message: "Wallpapers you download from the Workshop appear here with their progress.",
             actionTitle: "Browse the Workshop",
             action: openWorkshop)
     }

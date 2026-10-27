@@ -119,7 +119,7 @@ private struct GeneralSettingsView: View {
                     }
                     .labelsHidden().fixedSize()
                 }
-                Text("The language of Wallpaper Mage and its menu bar item. System Default follows the order of your languages in System Settings > General > Language & Region.")
+                Text("System Default follows the order of your languages in System Settings > General > Language & Region.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

@@ -747,7 +747,7 @@ struct ItemThumbnail: View {
 struct WMEmptyState: View {
     let icon: String
     let title: LocalizedStringKey
-    let message: LocalizedStringKey
+    var message: LocalizedStringKey? = nil
     var actionTitle: LocalizedStringKey? = nil
     var action: (() -> Void)? = nil
     var secondaryTitle: LocalizedStringKey? = nil
@@ -772,10 +772,12 @@ struct WMEmptyState: View {
             // height. Next to the Library inspector, AppKit then re-solves the window's constraints until it throws
             // ("more Update Constraints in Window passes than there are views") and the app terminates at launch (seen
             // on macOS 27). Unpinned, the text still wraps in full: the card always gets the height it asks for.
-            Text(message)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+            if let message {
+                Text(message)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
             HStack(spacing: 10) {
                 if let actionTitle, let action {
                     Button(actionTitle, action: action)

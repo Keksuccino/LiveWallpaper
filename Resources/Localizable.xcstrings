@@ -34941,6 +34941,89 @@
         }
       }
     },
+    "System Default follows the order of your languages in System Settings > General > Language & Region." : {
+      "comment" : "Explanation under the app language setting. “System Default” is the option of that name; use macOS's own names for System Settings > General > Language & Region.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "„Systemstandard“ folgt der Reihenfolge deiner Sprachen in „Systemeinstellungen“ > „Allgemein“ > „Sprache & Region“."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Η «Προεπιλογή συστήματος» ακολουθεί τη σειρά των γλωσσών σας στις Ρυθμίσεις συστήματος > Γενικά > Γλώσσα και περιοχή."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“Predeterminado del sistema” sigue el orden de tus idiomas en Ajustes del Sistema > General > Idioma y región."
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Predeterminado del sistema sigue el orden de tus idiomas en Configuración del Sistema > General > Idioma y región."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "« Langue du système » suit l’ordre de vos langues dans Réglages Système > Général > Langue et région."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「システムのデフォルト」は、「システム設定」>「一般」>「言語と地域」の言語の順序に従います。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "시스템 기본값은 시스템 설정 > 일반 > 언어 및 지역에 있는 언어 순서를 따릅니다."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "„Język systemu” jest zgodny z kolejnością języków w Ustawieniach systemowych > Ogólne > Język i region."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Padrão do sistema segue a ordem dos seus idiomas em Ajustes do Sistema > Geral > Idioma e Região."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«Язык системы» следует порядку ваших языков в разделе «Системные настройки» > «Основные» > «Язык и регион»."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sistem varsayılanı, Sistem Ayarları > Genel > Dil ve Bölge’deki dil sıranızı izler."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«Мова системи» відповідає порядку ваших мов у «Системних параметрах» > «Загальні» > «Мова й регіон»."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“系统默认”遵循“系统设置”>“通用”>“语言与地区”中的语言顺序。"
+          }
+        }
+      }
+    },
     "That Steam Guard code didn’t work" : {
       "comment" : "Error title.",
       "localizations" : {
@@ -35684,89 +35767,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "文件已下载，但无法存储到你的资料库。（%@）"
-          }
-        }
-      }
-    },
-    "The language of Wallpaper Mage and its menu bar item. System Default follows the order of your languages in System Settings > General > Language & Region." : {
-      "comment" : "Explanation under the app language setting. “System Default” is the option of that name; use macOS's own names for System Settings > General > Language & Region.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Die Sprache von Wallpaper Mage und seinem Symbol in der Menüleiste. „Systemstandard“ folgt der Reihenfolge deiner Sprachen in „Systemeinstellungen“ > „Allgemein“ > „Sprache & Region“."
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Η γλώσσα του Wallpaper Mage και του εικονιδίου του στη γραμμή μενού. Η «Προεπιλογή συστήματος» ακολουθεί τη σειρά των γλωσσών σας στις Ρυθμίσεις συστήματος > Γενικά > Γλώσσα και περιοχή."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "El idioma de Wallpaper Mage y de su icono en la barra de menús. “Predeterminado del sistema” sigue el orden de tus idiomas en Ajustes del Sistema > General > Idioma y región."
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "El idioma de Wallpaper Mage y de su ícono en la barra de menús. Predeterminado del sistema sigue el orden de tus idiomas en Configuración del Sistema > General > Idioma y región."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La langue de Wallpaper Mage et de son icône dans la barre des menus. « Langue du système » suit l’ordre de vos langues dans Réglages Système > Général > Langue et région."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wallpaper Mageとそのメニューバー項目の言語です。「システムのデフォルト」は、「システム設定」>「一般」>「言語と地域」の言語の順序に従います。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wallpaper Mage와 메뉴 막대 항목의 언어입니다. 시스템 기본값은 시스템 설정 > 일반 > 언어 및 지역에 있는 언어 순서를 따릅니다."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Język aplikacji Wallpaper Mage i jej ikony na pasku menu. „Język systemu” jest zgodny z kolejnością języków w Ustawieniach systemowych > Ogólne > Język i region."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O idioma do Wallpaper Mage e do seu ícone na barra de menus. Padrão do sistema segue a ordem dos seus idiomas em Ajustes do Sistema > Geral > Idioma e Região."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Язык Wallpaper Mage и его значка в строке меню. «Язык системы» следует порядку ваших языков в разделе «Системные настройки» > «Основные» > «Язык и регион»."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wallpaper Mage’in ve menü çubuğundaki simgesinin dili. Sistem varsayılanı, Sistem Ayarları > Genel > Dil ve Bölge’deki dil sıranızı izler."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Мова Wallpaper Mage і його значка на смузі меню. «Мова системи» відповідає порядку ваших мов у «Системних параметрах» > «Загальні» > «Мова й регіон»."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wallpaper Mage 及其菜单栏图标的语言。“系统默认”遵循“系统设置”>“通用”>“语言与地区”中的语言顺序。"
           }
         }
       }
@@ -41909,89 +41909,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "墙纸响应系统音频"
-          }
-        }
-      }
-    },
-    "Wallpapers you download from the Workshop appear here with their progress." : {
-      "comment" : "Text of the empty Downloads page.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hintergrundbilder, die du aus dem Workshop herunterlädst, erscheinen hier mit ihrem Fortschritt."
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Οι ταπετσαρίες που λαμβάνετε από το Workshop εμφανίζονται εδώ μαζί με την πρόοδό τους."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Los fondos de pantalla que descargues del Workshop aparecerán aquí con su progreso."
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Los fondos que descargues del Workshop aparecerán aquí con su progreso."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les fonds d’écran que vous téléchargez depuis le Workshop apparaissent ici avec leur progression."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ワークショップからダウンロードした壁紙が、進行状況とともにここに表示されます。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "창작마당에서 다운로드하는 배경화면이 진행률과 함께 여기에 표시됩니다."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tapety pobierane z Warsztatu pojawią się tutaj wraz z postępem pobierania."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Os papéis de parede que você baixar da Oficina aparecem aqui com o progresso."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Обои, загружаемые из Мастерской, появляются здесь вместе с ходом загрузки."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Atölye’den indirdiğiniz duvar kâğıtları, ilerleme durumlarıyla birlikte burada görünür."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Тут показуватимуться шпалери, які ви викачуєте з Майстерні, і перебіг їх викачування."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "你从创意工坊下载的墙纸及其进度将显示在此处。"
           }
         }
       }
