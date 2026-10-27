@@ -1,6 +1,5 @@
 import SwiftUI
 import AppKit
-import ImageIO
 import Core
 
 // The top of Home: the connected displays, placed and sized as in System Settings > Displays, each showing its
@@ -98,6 +97,8 @@ private struct DisplayTile: View {
     @State private var still: LoadedStill?
 
     private static let radius: CGFloat = 9
+    /// The display-sized still is scaled down to this for the tile.
+    private static let stillPixelSize = 960
 
     private struct LoadedStill {
         let url: URL
@@ -123,7 +124,9 @@ private struct DisplayTile: View {
                 .disabled(model.content(on: screen.id) == nil)
         }
         .task(id: wallpaper?.url) {
-            guard let wallpaper, let image = await DisplayStillCache.shared.image(at: wallpaper.url) else { return }
+            guard let wallpaper,
+                  let image = await ThumbnailCache.shared.image(at: wallpaper.url, maxPixelSize: Self.stillPixelSize)
+            else { return }
             withAnimation(WMMotion.content) {
                 still = LoadedStill(url: wallpaper.url, stillOf: wallpaper.stillOf, image: image)
             }
@@ -216,32 +219,5 @@ private struct WallpaperPreview: View {
             }
         }
         .scaleEffect(x: options.flip ? -1 : 1, y: 1)
-    }
-}
-
-/// The display-sized pictures of system wallpapers, scaled down for the tiles and decoded once, off the main thread.
-@MainActor
-private final class DisplayStillCache {
-    static let shared = DisplayStillCache()
-    nonisolated private static let maxPixelSize = 960
-    private let cache = NSCache<NSURL, NSImage>()
-
-    func image(at url: URL) async -> NSImage? {
-        if let cached = cache.object(forKey: url as NSURL) { return cached }
-        let decoded = await Task.detached(priority: .userInitiated) { Self.thumbnail(of: url) }.value
-        guard let decoded else { return nil }
-        let image = NSImage(cgImage: decoded, size: .zero)
-        cache.setObject(image, forKey: url as NSURL)
-        return image
-    }
-
-    nonisolated private static func thumbnail(of url: URL) -> CGImage? {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
-        ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 }

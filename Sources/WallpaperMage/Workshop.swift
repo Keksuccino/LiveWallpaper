@@ -1753,7 +1753,7 @@ extension WorkshopKit {
         }
 
         /// The item's preview_url (https only, at most 8 MB, type from the bytes).
-        private static func remotePreview(_ remote: URL?) async -> (data: Data, ext: String)? {
+        static func remotePreview(_ remote: URL?) async -> (data: Data, ext: String)? {
             let request = remote.map { URLRequest(url: $0, timeoutInterval: 20) }
             guard let request, request.url?.scheme == "https", let (data, response) = try? await API.fetch(request),
                   (response as? HTTPURLResponse)?.statusCode == 200, data.count <= 8_000_000,

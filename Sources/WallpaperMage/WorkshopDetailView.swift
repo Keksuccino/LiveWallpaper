@@ -2,51 +2,9 @@ import SwiftUI
 import AppKit
 import Core
 
-// The Workshop detail pane: opens when a result is clicked. Large preview that ANIMATES (Workshop
-// previews are often GIFs), title, the Info box (WallpaperInfoView.swift), description, Download; after the download
-// the pane shows the library item's own preview (the muted looping video, or the scene preview).
-
-/// NSImageView with `animates = true`, so animated GIF previews play. SwiftUI's Image and AsyncImage show frame 1.
-struct AnimatedImageView: NSViewRepresentable {
-    let image: NSImage?
-
-    func makeNSView(context: Context) -> NSImageView {
-        let view = NSImageView()
-        view.imageScaling = .scaleProportionallyUpOrDown
-        view.animates = true
-        view.isEditable = false
-        return view
-    }
-
-    func updateNSView(_ view: NSImageView, context: Context) {
-        if view.image !== image { view.image = image }
-    }
-
-    /// An NSImageView asks for the image's pixel size, which for a 4K preview pushes the whole pane apart.
-    /// The view takes the size SwiftUI proposes and scales the image into it instead.
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSImageView, context: Context) -> CGSize? {
-        proposal.replacingUnspecifiedDimensions()
-    }
-}
-
-/// Loads a preview image from a URL (http(s) or file) once; keeps the original bytes so GIFs keep their frames.
-@MainActor final class WorkshopPreviewLoader: ObservableObject {
-    @Published private(set) var image: NSImage?
-    @Published private(set) var failed = false
-
-    func load(_ url: URL?) async {
-        image = nil
-        failed = false
-        guard let url else { return }
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            if Task.isCancelled { return }
-            if let loaded = NSImage(data: data) { image = loaded } else { failed = true }
-        } catch {
-            if !Task.isCancelled { failed = true }
-        }
-    }
-}
+// The Workshop detail pane: opens when a result is clicked. Large preview that animates when it is an animation
+// (WorkshopPreviews, shared with the result cards; also once the item is in the library), title, the Info box
+// (WallpaperInfoView.swift), description, Download; a downloaded scene adds the way to Wallpaper Engine's shared files.
 
 @MainActor
 struct WorkshopDetailView: View {
@@ -56,7 +14,8 @@ struct WorkshopDetailView: View {
     let close: () -> Void
     let openSteamSetup: () -> Void
     let openLibrary: () -> Void
-    @StateObject private var preview = WorkshopPreviewLoader()
+    @State private var preview: AnimatedPicture?
+    @State private var previewFailed = false
 
     init(model: SettingsModel, workshop: WorkshopModel, item: WorkshopItem, close: @escaping () -> Void,
          openSteamSetup: @escaping () -> Void, openLibrary: @escaping () -> Void) {
@@ -92,7 +51,6 @@ struct WorkshopDetailView: View {
                 Text(item.title)
                     .font(.system(size: 26, weight: .semibold))
                     .textSelection(.enabled)
-                // The page link is in the top row already.
                 WallpaperInfoBox(rows: infoRows, tags: item.topicTags)
                 Text(item.summary.isEmpty ? String(localized: "No description.") : item.summary)
                     .font(.callout)
@@ -107,42 +65,45 @@ struct WorkshopDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(WMBackground())
-        .task(id: item.id) { await preview.load(item.previewURL) }
+        .task(id: item.id) {
+            guard let url = item.previewURL else { return }
+            preview = await WorkshopPreviews.shared.picture(at: url)
+            previewFailed = preview == nil
+        }
     }
 
     // MARK: Preview
 
-    @ViewBuilder private var previewArea: some View {
-        previewImage
-            .shadow(color: .black.opacity(0.16), radius: 20, y: 10)
+    private var previewArea: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            previewImage
+                .shadow(color: .black.opacity(0.16), radius: 20, y: 10)
+            if let info = libraryItem?.scene { SharedFilesHint(info: info, openSteamSetup: openSteamSetup) }
+        }
     }
 
-    @ViewBuilder private var previewImage: some View {
-        if let video = libraryItem {
-            ItemPreviewPane(item: video, broken: !FileManager.default.fileExists(atPath: video.path),
-                            openSteamSetup: openSteamSetup)
-        } else {
-            ZStack {
-                Rectangle().fill(.quaternary)
-                if let image = preview.image {
-                    AnimatedImageView(image: image)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if preview.failed || item.previewURL == nil {
-                    Image(systemName: "photo").font(.system(size: 32)).foregroundStyle(.secondary)
-                } else {
-                    ProgressView().controlSize(.small)
-                }
+    private var previewImage: some View {
+        ZStack {
+            Rectangle().fill(.quaternary)
+            // The card's picture is usually at hand already.
+            if let picture = preview ?? WorkshopPreviews.shared.cached(item.previewURL) {
+                AnimatedPictureView(picture: picture)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if previewFailed || item.previewURL == nil {
+                Image(systemName: "photo").font(.system(size: 32)).foregroundStyle(.secondary)
+            } else {
+                ProgressView().controlSize(.small)
             }
-            .aspectRatio(16 / 9, contentMode: .fit)
-            .frame(maxHeight: 360)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(item.title)
         }
+        .aspectRatio(16 / 9, contentMode: .fit)
+        .frame(maxHeight: 360)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(item.title)
     }
 
     // MARK: Info
@@ -200,5 +161,24 @@ struct WorkshopDetailView: View {
     private func showInLibrary() {
         if let video = libraryItem { model.focusedID = video.id }
         openLibrary()
+    }
+}
+
+/// Below a downloaded scene's preview: the way to Wallpaper Engine's shared files while they are missing or the scene
+/// uses them.
+@MainActor
+private struct SharedFilesHint: View {
+    let info: SceneInfo
+    let openSteamSetup: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if !SceneImporter.hasSharedAssets {
+                Text("Scenes need Wallpaper Engine’s shared files to play.").font(.callout).foregroundStyle(.secondary)
+            }
+            if info.needsSharedAssets || !SceneImporter.hasSharedAssets {
+                Button("Get Wallpaper Engine’s shared files", action: openSteamSetup).buttonStyle(.link)
+            }
+        }
     }
 }

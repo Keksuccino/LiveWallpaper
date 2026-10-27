@@ -97,13 +97,7 @@ enum PlaylistImage {
     /// Reads the picture at `url`, scales it down and writes it; returns the new file's name (Playlist.image), nil when
     /// `url` is not a picture or the copy could not be written. Off the main actor: decoding can take a moment.
     static func store(_ url: URL) -> String? {
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
-        ]
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        guard let image = ThumbnailCache.decode(url, maxPixelSize: maxPixelSize) else { return nil }
         // JPEG is far smaller for photos; a picture with transparency keeps it as PNG.
         let opaque: [CGImageAlphaInfo] = [.none, .noneSkipFirst, .noneSkipLast]
         let type: UTType = opaque.contains(image.alphaInfo) ? .jpeg : .png

@@ -1,5 +1,4 @@
 import SwiftUI
-import AVKit
 import AppKit
 import UniformTypeIdentifiers
 import Core
@@ -848,7 +847,7 @@ struct DisplayInspectorView: View {
             switch model.content(on: screen.id) {
             case .wallpaper:
                 if let item = model.shownItem(on: screen.id) {
-                    InspectorHeader(title: item.name) {
+                    InspectorHeader(title: item.name, steamPage: item.workshopID.flatMap(WorkshopItem.pageURL(id:))) {
                         ItemThumbnail(item: item, broken: !FileManager.default.fileExists(atPath: item.path),
                                       cornerRadius: 8)
                     }
@@ -898,16 +897,26 @@ struct DisplayInspectorView: View {
     }
 }
 
-/// The top of an inspector: a square picture and a name.
+/// The top of an inspector: a square picture, a name and, when given, a link to the Workshop page under the name.
 struct InspectorHeader<Picture: View>: View {
     let title: String
+    var steamPage: URL? = nil
     @ViewBuilder let picture: () -> Picture
 
     var body: some View {
         HStack(spacing: 11) {
             picture()
                 .frame(width: 76, height: 76)
-            Text(title).font(.callout.weight(.semibold)).lineLimit(3).truncationMode(.middle)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title).font(.callout.weight(.semibold)).lineLimit(3).truncationMode(.middle)
+                if let steamPage {
+                    Link(destination: steamPage) {
+                        Label("Open in Steam", systemImage: "arrow.up.right.square")
+                    }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                }
+            }
         }
     }
 }
@@ -954,156 +963,6 @@ private struct PlaylistSummary: View {
                     .controlSize(.small)
                     .help("Change the playlist’s wallpapers, their order and settings, its timing and its transition.")
                 }
-            }
-        }
-    }
-}
-
-// MARK: - Preview player
-
-@MainActor
-final class PreviewPlayer: ObservableObject {
-    @Published private(set) var player: AVQueuePlayer?
-    private var looper: AVPlayerLooper?
-    private var url: URL?
-    private var isActive = true
-
-    func load(_ url: URL?) {
-        guard url != self.url else {
-            setActive(isActive)
-            return
-        }
-        self.url = url
-        player?.pause()
-        looper = nil
-        player = nil
-        guard let url else { return }
-        let queue = AVQueuePlayer()
-        queue.isMuted = true
-        looper = AVPlayerLooper(player: queue, templateItem: AVPlayerItem(url: url))
-        player = queue
-        setActive(isActive)
-    }
-
-    func setActive(_ active: Bool) {
-        isActive = active
-        if active { player?.play() } else { player?.pause() }
-    }
-}
-
-struct PlayerSurface: NSViewRepresentable {
-    let player: AVPlayer?
-
-    func makeNSView(context: Context) -> AVPlayerView {
-        let view = AVPlayerView()
-        view.controlsStyle = .none
-        return view
-    }
-
-    func updateNSView(_ view: AVPlayerView, context: Context) { view.player = player }
-}
-
-struct ItemPreviewPane: View {
-    let item: VideoItem?
-    let broken: Bool
-    let openSteamSetup: () -> Void
-    @StateObject private var preview = PreviewPlayer()
-    @State private var sceneImage: NSImage?
-
-    init(item: VideoItem?, broken: Bool, openSteamSetup: @escaping () -> Void) {
-        self.item = item
-        self.broken = broken
-        self.openSteamSetup = openSteamSetup
-    }
-
-    private var playbackURL: URL? { broken || item?.isScene == true ? nil : item?.url }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            stage
-            if let info = item?.scene { SharedFilesHint(info: info, openSteamSetup: openSteamSetup) }
-        }
-    }
-
-    private var stage: some View {
-        MediaStage(item: item, broken: broken, preview: preview, sceneImage: sceneImage)
-            .aspectRatio(16 / 9, contentMode: .fit)
-            .frame(maxWidth: .infinity)
-            .task(id: playbackURL) { preview.load(playbackURL) }
-            .task(id: item?.previewPath) {
-                sceneImage = item?.previewPath.flatMap { NSImage(contentsOfFile: $0) }
-            }
-            .onAppear { preview.setActive(true) }
-            .onDisappear { preview.setActive(false) }
-            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didChangeOcclusionStateNotification)) { note in
-                if let window = note.object as? NSWindow, window.styleMask.contains(.titled) {
-                    preview.setActive(window.occlusionState.contains(.visible))
-                }
-            }
-    }
-}
-
-private struct MediaStage: View {
-    let item: VideoItem?
-    let broken: Bool
-    @ObservedObject var preview: PreviewPlayer
-    let sceneImage: NSImage?
-
-    var body: some View {
-        ZStack {
-            Color.black
-            content
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(item.map { Text("Preview of \($0.name)") } ?? Text("No wallpaper selected"))
-    }
-
-    @ViewBuilder private var content: some View {
-        if broken {
-            VStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 30)).foregroundStyle(.orange)
-                Text(item?.isScene == true ? "Can’t show this wallpaper" : "Can’t play this video")
-                    .font(.headline)
-                Text("The file may have been moved or deleted.")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-            .foregroundStyle(.white)
-        } else if let item {
-            if item.isScene {
-                if let sceneImage {
-                    AnimatedImageView(image: sceneImage)
-                } else {
-                    Image(systemName: "photo").font(.system(size: 30)).foregroundStyle(.tertiary)
-                }
-            } else {
-                PlayerSurface(player: preview.player)
-            }
-        } else {
-            VStack(spacing: 8) {
-                Image(systemName: "play.rectangle.on.rectangle")
-                    .font(.system(size: 30, weight: .light))
-                Text("Select a wallpaper").font(.callout)
-            }
-            .foregroundStyle(.secondary)
-        }
-    }
-}
-
-/// Below a scene's preview: the way to Wallpaper Engine's shared files while they are missing or the scene uses them.
-@MainActor
-fileprivate struct SharedFilesHint: View {
-    let info: SceneInfo
-    let openSteamSetup: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if !SceneImporter.hasSharedAssets {
-                Text("Scenes need Wallpaper Engine’s shared files to play.").font(.callout).foregroundStyle(.secondary)
-            }
-            if info.needsSharedAssets || !SceneImporter.hasSharedAssets {
-                Button("Get Wallpaper Engine’s shared files", action: openSteamSetup).buttonStyle(.link)
             }
         }
     }

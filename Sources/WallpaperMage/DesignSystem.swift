@@ -604,58 +604,71 @@ private struct HoverLiftModifier: ViewModifier {
 
 // MARK: - Thumbnails
 
-/// Shared thumbnail loading. Decodes once, keeps the result, and never does disk work in `body`.
+/// Shared thumbnail loading. Reads and decodes off the main thread, scaled down to the size shown, once; never does disk
+/// work in `body`.
 @MainActor
 final class ThumbnailCache {
     static let shared = ThumbnailCache()
+    /// Longest side of a thumbnail in pixels: a library preview's width, enough for the largest card on a Retina display.
+    nonisolated static let maxPixelSize = LibraryPreview.width
     private let cache = NSCache<NSString, NSImage>()
 
     private init() {
-        // Counts the decoded library previews only (their cost is their bytes): a long library is never all in memory.
+        // Every picture costs its decoded bytes: a long library is never all in memory.
         cache.totalCostLimit = 192 << 20
     }
 
+    /// A wallpaper's own picture: its preview image, else a frame of its video.
     func image(for item: VideoItem) async -> NSImage? {
-        let key = (item.previewPath ?? item.path) as NSString
+        if let preview = item.previewPath, let image = await image(at: URL(fileURLWithPath: preview)) { return image }
+        guard !item.isScene else { return nil }
+        let key = item.path as NSString
         if let cached = cache.object(forKey: key) { return cached }
-
-        let image: NSImage?
-        if let preview = item.previewPath, let loaded = NSImage(contentsOfFile: preview) {
-            image = loaded
-        } else if !item.isScene,
-                  let cgImage = await VideoStills.cgImage(for: item.url,
-                                                          maxPixelSize: CGSize(width: 640, height: 360)) {
-            image = NSImage(cgImage: cgImage, size: .zero)
-        } else {
-            image = nil
-        }
-
-        if let image { cache.setObject(image, forKey: key) }
-        return image
+        let box = CGSize(width: Self.maxPixelSize, height: Self.maxPixelSize)
+        guard let frame = await VideoStills.cgImage(for: item.url, maxPixelSize: box) else { return nil }
+        return keep(frame, as: key)
     }
 
-    /// A picture file (a playlist's own picture), decoded once.
-    func image(at url: URL) async -> NSImage? {
-        let key = url.path as NSString
+    /// A picture file (a wallpaper's preview image, a playlist's own picture, a display's still), at most
+    /// `maxPixelSize` on its longest side.
+    func image(at url: URL, maxPixelSize: Int = ThumbnailCache.maxPixelSize) async -> NSImage? {
+        let key = "\(url.path)@\(maxPixelSize)" as NSString
         if let cached = cache.object(forKey: key) { return cached }
-        guard let image = NSImage(contentsOf: url) else { return nil }
-        cache.setObject(image, forKey: key)
-        return image
+        let decoded = await Task.detached(priority: .userInitiated) { Self.decode(url, maxPixelSize: maxPixelSize) }
+            .value
+        return decoded.map { keep($0, as: key) }
     }
 
-    /// A library preview (LibraryPreviewStore), decoded off the main thread; a refreshed one is decoded again.
+    /// A library preview (LibraryPreviewStore), already at thumbnail size; a refreshed one is decoded again.
     func image(of preview: LibraryPreviewStore.File) async -> NSImage? {
         let key = "\(preview.url.path)@\(preview.modified.timeIntervalSinceReferenceDate)" as NSString
         if let cached = cache.object(forKey: key) { return cached }
         let url = preview.url
-        let decoded = await Task.detached(priority: .userInitiated) { () -> CGImage? in
-            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-            return CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
-        }.value
-        guard let decoded else { return nil }
+        let decoded = await Task.detached(priority: .userInitiated) { Self.decode(url, maxPixelSize: nil) }.value
+        return decoded.map { keep($0, as: key) }
+    }
+
+    private func keep(_ decoded: CGImage, as key: NSString) -> NSImage {
         let image = NSImage(cgImage: decoded, size: .zero)
         cache.setObject(image, forKey: key, cost: decoded.bytesPerRow * decoded.height)
         return image
+    }
+
+    /// The picture at `url` (an animation's first frame), upright, at most `maxPixelSize` on its longest side and never
+    /// enlarged (nil = its own size), and decoded in full, so drawing it costs nothing. Reads the file: never call it
+    /// on the main thread.
+    nonisolated static func decode(_ url: URL, maxPixelSize: Int?) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        guard let maxPixelSize else {
+            return CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+            kCGImageSourceShouldCacheImmediately: true,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 }
 

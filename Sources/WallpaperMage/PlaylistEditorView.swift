@@ -446,7 +446,8 @@ private struct PlaylistItemInspector: View {
             Group {
                 if let item {
                     VStack(alignment: .leading, spacing: 20) {
-                        InspectorHeader(title: item.name) {
+                        InspectorHeader(title: item.name,
+                                        steamPage: item.workshopID.flatMap(WorkshopItem.pageURL(id:))) {
                             ItemThumbnail(item: item, broken: !FileManager.default.fileExists(atPath: item.path),
                                           cornerRadius: 8)
                         }

@@ -99,27 +99,73 @@ struct WorkshopFailureView: View {
     }
 }
 
+/// Workshop preview pictures (an item's preview_url: a GIF when its author made an animated one), downloaded once and
+/// kept while memory allows. The result cards and the detail pane share them.
+@MainActor
+final class WorkshopPreviews {
+    static let shared = WorkshopPreviews()
+    /// Longest side a preview is decoded at: enough for the widest card, and for the detail pane beside the results, on a
+    /// Retina display. The detail pane covering a narrow window shows it somewhat larger.
+    nonisolated private static let maxPixelSize = 720
+    private let cache = NSCache<NSURL, AnimatedPicture>()
+    private var loading: [URL: Task<AnimatedPicture?, Never>] = [:]
+
+    private init() {
+        // Each costs its decoded still or the bytes of its animation: a few pages of results.
+        cache.totalCostLimit = 96 << 20
+    }
+
+    /// The picture when it is at hand, without waiting: a card scrolled back into view shows it in its first frame.
+    func cached(_ url: URL?) -> AnimatedPicture? { url.flatMap { cache.object(forKey: $0 as NSURL) } }
+
+    /// The picture at `url`, downloaded once however many views ask for it; nil when there is none. A download goes on
+    /// when the view that asked goes away, so the picture is ready when it comes back.
+    func picture(at url: URL) async -> AnimatedPicture? {
+        if let cached = cached(url) { return cached }
+        let task = loading[url] ?? Task.detached(priority: .userInitiated) {
+            guard let data = await WorkshopKit.Import.remotePreview(url)?.data else { return nil }
+            return AnimatedPicture(data: data, maxPixelSize: Self.maxPixelSize)
+        }
+        loading[url] = task
+        let picture = await task.value
+        loading[url] = nil
+        if let picture { cache.setObject(picture, forKey: url as NSURL, cost: picture.cost) }
+        return picture
+    }
+}
+
+/// A result's preview, filling a 16:9 frame (most Workshop previews are square) and playing while it is on screen.
+/// Off screen it lets go of the picture, which the cache keeps while memory allows.
 @MainActor
 private struct PreviewImage: View {
     let url: URL?
+    @State private var picture: AnimatedPicture?
+    @State private var onScreen = true
 
     var body: some View {
+        let shown = picture ?? WorkshopPreviews.shared.cached(url)
         Rectangle().fill(Color.primary.opacity(0.05))
             .overlay {
-                AsyncImage(url: url) { phase in
-                    if let image = phase.image {
-                        image.resizable().scaledToFill()
-                    } else {
-                        Image(systemName: "film").foregroundStyle(.secondary)
-                    }
+                if let shown {
+                    AnimatedPictureView(picture: shown, playing: onScreen)
+                        .transition(.opacity)
+                } else {
+                    Image(systemName: "film").foregroundStyle(.secondary)
                 }
             }
+            .animation(WMMotion.content, value: shown != nil)
             .aspectRatio(16 / 9, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(Color.primary.opacity(0.07), lineWidth: 1)
             }
+            .onScrollVisibilityChange(threshold: 0.01) { onScreen = $0 }
+            .task(id: url) {
+                picture = nil
+                if let url { picture = await WorkshopPreviews.shared.picture(at: url) }
+            }
+            .onDisappear { picture = nil }
     }
 }
 
@@ -378,7 +424,8 @@ struct WorkshopView: View {
 
     /// The results column keeps one place in the view tree whether or not the detail pane is open: moving it
     /// between branches would rebuild its scroll view and jump back to the top of the list. A narrow window hides it
-    /// under the detail pane instead of removing it, and disables it so its controls ignore the keyboard.
+    /// under the detail pane instead of removing it, disables it so its controls ignore the keyboard, and pauses its
+    /// animated previews.
     /// Its width changes without animation, which AnchoredScrollView needs to keep the same wallpapers in view.
     /// Like Home's inspector (`wmInspectorPanel`), the detail pane reaches up into the toolbar strip, in both widths.
     @ViewBuilder private func content(wide: Bool) -> some View {
@@ -389,6 +436,7 @@ struct WorkshopView: View {
                 .opacity(covered ? 0 : 1)
                 .disabled(covered)
                 .accessibilityHidden(covered)
+                .environment(\.animatedPicturesPlay, !covered)
             if wide, let item = detail {
                 Divider().ignoresSafeArea(.container, edges: .top)
                 detailPane(item).frame(width: 380).zIndex(1)
@@ -455,6 +503,7 @@ struct WorkshopView: View {
         .opacity(folded ? 0 : 1)
         .disabled(folded)
         .accessibilityHidden(folded)
+        .environment(\.animatedPicturesPlay, !folded)
     }
 
     /// Anchored, so the grid keeps showing the same wallpapers, and the one whose details are open, when the detail

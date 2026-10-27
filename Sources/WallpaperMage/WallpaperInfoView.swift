@@ -71,12 +71,10 @@ struct InfoRow {
     let value: String?
 }
 
-/// The Info box under an "Info" title: rows of label and value, the topic tags as chips and, when given, a link to
-/// the Workshop page.
+/// The Info box under an "Info" title: rows of label and value and the topic tags as chips.
 struct WallpaperInfoBox: View {
     let rows: [InfoRow]
     let tags: [String]
-    var link: URL? = nil
 
     var body: some View {
         InspectorSection(title: "Info") {
@@ -101,13 +99,6 @@ struct WallpaperInfoBox: View {
                     WrappingRows {
                         ForEach(tags, id: \.self) { WMChip(text: $0) }
                     }
-                }
-                if let link {
-                    Link(destination: link) {
-                        Label("Open in Steam", systemImage: "arrow.up.right.square")
-                    }
-                    .buttonStyle(.link)
-                    .font(.caption)
                 }
             }
             .padding(12)
@@ -143,7 +134,7 @@ struct WallpaperInfoBox: View {
 }
 
 /// A library wallpaper's Info box: its type, resolution, length, size, age rating, author, when it was made and added
-/// (VideoItem.created, VideoItem.updated), topic tags and Workshop page.
+/// (VideoItem.created, VideoItem.updated) and topic tags. Its Workshop page is linked in the InspectorHeader above it.
 @MainActor
 struct WallpaperInfoSection: View {
     let item: VideoItem
@@ -157,8 +148,8 @@ struct WallpaperInfoSection: View {
 
     var body: some View {
         let tags = item.tags ?? []
-        WallpaperInfoBox(rows: rows(tags), tags: WorkshopTags.topics(in: tags, kind: item.kind.rawValue),
-                         link: item.workshopID.flatMap(WorkshopItem.pageURL(id:)))
+        WallpaperInfoBox(rows: rows(tags),
+                         tags: WorkshopTags.topics(in: tags, kind: item.kind.rawValue))
             .task(id: item.id) {
                 let id = item.id
                 let facts = await WallpaperFacts.load(for: item)
