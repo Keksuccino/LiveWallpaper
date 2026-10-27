@@ -64,8 +64,6 @@ final class WorkshopBrowseTests: XCTestCase {
             TagGroup(tags: ["Anime", "Nature"]),   // in the group's order
         ])
         XCTAssertNil(filters.allowed(in: .resolution))
-        XCTAssertTrue(filters.differsFromStandard(.type))
-        XCTAssertFalse(filters.differsFromStandard(.resolution))
     }
 
     func testShowOnlyTagsAreAllRequired() {
@@ -92,6 +90,48 @@ final class WorkshopBrowseTests: XCTestCase {
         XCTAssertEqual(WorkshopFilters(json: filters.json), filters)
         XCTAssertNil(WorkshopFilters(json: ""))
         XCTAssertNil(WorkshopFilters(json: "{\"off\":[1]}"))
+    }
+
+    // MARK: Age check
+
+    func testAdultsAreEighteenFromTheStartOfTheirEighteenthBirthday() throws {
+        let born = try XCTUnwrap(WorkshopAgeCheck.date(fromDay: "2008-03-15"))
+        let birthday = try XCTUnwrap(WorkshopAgeCheck.date(fromDay: "2026-03-15"))
+        XCTAssertTrue(WorkshopAgeCheck.isAdult(born: born, at: birthday))
+        XCTAssertTrue(WorkshopAgeCheck.isAdult(born: born.addingTimeInterval(15 * 3600), at: birthday))
+        XCTAssertFalse(WorkshopAgeCheck.isAdult(born: born, at: birthday.addingTimeInterval(-1)))
+        XCTAssertFalse(WorkshopAgeCheck.isAdult(born: born, at: born))
+
+        // Born on 29 February: an adult by the end of February in the eighteenth year, which has no 29th.
+        let leap = try XCTUnwrap(WorkshopAgeCheck.date(fromDay: "2008-02-29"))
+        XCTAssertFalse(WorkshopAgeCheck.isAdult(born: leap, at: try XCTUnwrap(WorkshopAgeCheck.date(fromDay: "2026-02-27"))))
+        XCTAssertTrue(WorkshopAgeCheck.isAdult(born: leap, at: try XCTUnwrap(WorkshopAgeCheck.date(fromDay: "2026-03-01"))))
+    }
+
+    func testABirthdateIsKeptAsItsCalendarDay() throws {
+        let day = try XCTUnwrap(WorkshopAgeCheck.date(fromDay: "1999-12-31"))
+        XCTAssertEqual(WorkshopAgeCheck.day(of: day), "1999-12-31")
+        XCTAssertEqual(WorkshopAgeCheck.day(of: day.addingTimeInterval(23 * 3600)), "1999-12-31")
+        XCTAssertNil(WorkshopAgeCheck.date(fromDay: ""))
+        XCTAssertNil(WorkshopAgeCheck.date(fromDay: "31.12.1999"))
+        XCTAssertNil(WorkshopAgeCheck.date(fromDay: "1999-02-31"))
+    }
+
+    func testATypedBirthdateIsARealDayInThePast() throws {
+        let now = try XCTUnwrap(WorkshopAgeCheck.date(fromDay: "2026-10-27"))
+        let typed = try XCTUnwrap(WorkshopAgeCheck.birthdate(day: "05", month: "6", year: "1990", now: now))
+        XCTAssertEqual(WorkshopAgeCheck.day(of: typed), "1990-06-05")
+        XCTAssertNotNil(WorkshopAgeCheck.birthdate(day: "29", month: "02", year: "2000", now: now))
+        XCTAssertNotNil(WorkshopAgeCheck.birthdate(day: "27", month: "10", year: "2026", now: now))
+
+        XCTAssertNil(WorkshopAgeCheck.birthdate(day: "29", month: "02", year: "2001", now: now))   // no 29 February
+        XCTAssertNil(WorkshopAgeCheck.birthdate(day: "31", month: "04", year: "1990", now: now))
+        XCTAssertNil(WorkshopAgeCheck.birthdate(day: "0", month: "06", year: "1990", now: now))
+        XCTAssertNil(WorkshopAgeCheck.birthdate(day: "15", month: "13", year: "1990", now: now))
+        XCTAssertNil(WorkshopAgeCheck.birthdate(day: "28", month: "10", year: "2026", now: now))   // tomorrow
+        XCTAssertNil(WorkshopAgeCheck.birthdate(day: "15", month: "06", year: "1899", now: now))
+        XCTAssertNil(WorkshopAgeCheck.birthdate(day: "15", month: "06", year: "990", now: now))
+        XCTAssertNil(WorkshopAgeCheck.birthdate(day: "", month: "06", year: "1990", now: now))
     }
 
     // MARK: Request

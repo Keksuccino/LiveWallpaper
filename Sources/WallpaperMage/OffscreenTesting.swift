@@ -33,18 +33,31 @@ enum OffscreenTesting {
         method_setImplementation(method, imp_implementationWithBlock(keep))
     }
 
-    /// Moves each titled window once, the first time it shows, so that a single point column of it stays on the
-    /// rightmost display: the window server draws (and lets capture) only windows that are on a display at least in
-    /// part, and one point at a display's edge goes unnoticed.
+    /// Keeps every titled window so that a single point column of it stays on the rightmost display: the window server
+    /// draws (and lets capture) only windows that are on a display at least in part, and one point at a display's edge
+    /// goes unnoticed. Kept there, not moved once: SwiftUI can still move a window after it first shows (restoring its
+    /// saved frame).
     private static func moveWindowsAway() {
         guard let screen = NSScreen.screens.max(by: { $0.frame.maxX < $1.frame.maxX }) else { return }
-        for window in NSApp.windows where window.styleMask.contains(.titled) && window.isVisible
-            && !moved.contains(window.windowNumber) {
-            moved.insert(window.windowNumber)
-            // Without its autosave name the window no longer saves its frame, so the next normal launch opens where
-            // the user left it, not off-screen.
-            window.setFrameAutosaveName("")
-            window.setFrameOrigin(NSPoint(x: screen.frame.maxX - 1, y: screen.frame.minY))
+        for window in NSApp.windows where window.styleMask.contains(.titled) && window.isVisible {
+            if moved.insert(window.windowNumber).inserted {
+                // Without its autosave name the window no longer saves its frame, so the next normal launch opens
+                // where the user left it, not off-screen.
+                window.setFrameAutosaveName("")
+            }
+            let origin = NSPoint(x: screen.frame.maxX - 1 - leadingInset(of: window), y: screen.frame.minY)
+            if window.frame.origin != origin { window.setFrameOrigin(origin) }
         }
+    }
+
+    /// How far inside its frame the window server draws the window: a window can have an invisible border around it
+    /// (15 points on macOS 27, not at every moment of its life), which would leave the one point meant to stay on the
+    /// display off it. Asked on every pass for that reason; test runs only, so the cost does not matter.
+    private static func leadingInset(of window: NSWindow) -> CGFloat {
+        let list = CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(window.windowNumber))
+        guard let info = (list as? [[String: Any]])?.first,
+              let bounds = info[kCGWindowBounds as String] as? NSDictionary,
+              let drawn = CGRect(dictionaryRepresentation: bounds) else { return 0 }
+        return max(0, drawn.minX - window.frame.minX)
     }
 }

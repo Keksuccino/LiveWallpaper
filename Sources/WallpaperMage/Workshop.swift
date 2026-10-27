@@ -815,6 +815,7 @@ enum WorkshopKit {
         case tokenShared = "WallpaperMage.steam.tokenShared"   // SteamCMD keeps its login outside the app's own HOME
         case sort = "WallpaperMage.workshop.sort"                     // WorkshopSort's raw value
         case filters = "WallpaperMage.workshop.filters"               // WorkshopFilters as JSON
+        case birthdate = "WallpaperMage.workshop.birthdate"           // an adult's birthdate (WorkshopAgeCheck)
         case includeMature = "WallpaperMage.workshop.includeMature"   // older versions' NSFW checkbox (storedFilters)
 
         var value: String {

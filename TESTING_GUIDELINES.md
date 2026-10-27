@@ -24,6 +24,8 @@ UI changes are checked in the real app without it covering the screen or taking 
 4. Drive and capture the window with tools that work on background windows: per-window screenshots (ScreenCaptureKit, `screencapture -l <window id>`) and accessibility actions (Claude's background `app_*` computer-use tools do both; they cannot open menus such as the sort menus, which would bring the app to the front).
 5. Quit it when done: `osascript -e 'tell application id "com.noob3301.WallpaperMage" to quit'`.
 
+Sheets (the birthdate dialog) open on their window and show in a capture of it; while one is open the app refuses to quit, so close it first. Typing reaches the app as key events posted to its process (`CGEvent.postToPid`), but keyboard shortcuts of buttons (Escape for Cancel) do not reach an app that is not active. Controls without an accessibility action of their own (the sidebar's pages) still answer `AXPress` sent through the accessibility API (`AXUIElementPerformAction`), and a date field takes its value through `AXUIElementSetAttributeValue`.
+
 Popovers (the Workshop's filters) are the exception: AppKit slides a popover onto the display next to its anchor, so it shows at the right edge of the rightmost display while it is open. Capture it with `screencapture -l <its window id>` (CGWindowListCopyWindowInfo lists it under the app's process id) and close it right away by pressing its capsule again.
 
 Preferences the test run changes (the Workshop's sort and filters, the library's order) are the real app's: put them back afterwards.

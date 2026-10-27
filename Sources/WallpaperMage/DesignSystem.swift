@@ -443,21 +443,17 @@ private struct IconPickerSegment: View {
     }
 }
 
-/// The label of the app's capsule menus (`WMSortMenu`, `WMFilterMenu`): a symbol, a title, what is chosen and a chevron
-/// on a glass capsule as tall as `WMIconPicker`, so it sits in a row of the app's capsule controls; on the accent while
-/// `highlighted`, like a selected `WMTopicChip`. It is as wide as its words, so a row around it animates what changes
-/// them to move its other controls over smoothly.
+/// The label of the app's capsule menus (`WMSortMenu`, `WMFilterMenu`): a symbol, a title and a chevron on a glass
+/// capsule as tall as `WMIconPicker`, so it sits in a row of the app's capsule controls. It is as wide as its title, so
+/// a row around it animates what changes it to move its other controls over smoothly.
 private struct MenuCapsuleLabel: View {
     var systemImage: String? = nil
     let title: String
-    var value: String? = nil
-    var highlighted = false
     let hovering: Bool
     @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
-        let secondary = highlighted ? AnyShapeStyle(Color.white.opacity(0.8)) : AnyShapeStyle(.secondary)
-        // New words take their place at once and the capsule, clipped, grows or shrinks around them: words that faded
+        // A new title takes its place at once and the capsule, clipped, grows or shrinks around it: titles that faded
         // in and out while the row moves its controls over would cross each other.
         HStack(spacing: 6) {
             Group {
@@ -468,31 +464,18 @@ private struct MenuCapsuleLabel: View {
                 }
             }
             .font(.callout.weight(.medium))
-            if let value {
-                Text(value)
-                    .font(.callout)
-                    .foregroundStyle(secondary)
-                    .transition(.identity)
-            }
             Image(systemName: "chevron.down")
                 .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(secondary)
+                .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
         }
         .contentTransition(.identity)
         .fixedSize()
-        .foregroundStyle(highlighted ? AnyShapeStyle(Color.white) : AnyShapeStyle(.primary))
         .padding(.horizontal, 12)
         .frame(height: 28)
         .background {
-            ZStack {
-                if highlighted {
-                    Capsule().fill(WMTheme.accent)
-                } else {
-                    WMControlCapsule()
-                }
-                Capsule().fill(Color.primary.opacity(hovering && isEnabled ? 0.07 : 0))
-            }
+            WMControlCapsule()
+                .overlay(Capsule().fill(Color.primary.opacity(hovering && isEnabled ? 0.07 : 0)))
         }
         .clipShape(Capsule())
         .contentShape(Capsule())
@@ -531,13 +514,10 @@ struct WMSortMenu<Value: Hashable>: View {
     }
 }
 
-/// A filter of a list on a capsule like `WMSortMenu`'s: its name and, while it narrows the list, what it lets through.
-/// A click opens its choices (`content`) in a popover, where every change applies at once. On the accent while
-/// `highlighted`.
+/// A filter of a list: its name on a capsule like `WMSortMenu`'s. A click opens its choices (`content`) in a popover,
+/// where every change applies at once.
 struct WMFilterMenu<Content: View>: View {
     let title: String
-    var value: String? = nil
-    var highlighted = false
     @ViewBuilder let content: () -> Content
     @State private var open = false
     @State private var closed = Date.distantPast
@@ -553,16 +533,14 @@ struct WMFilterMenu<Content: View>: View {
                 open = true
             }
         } label: {
-            MenuCapsuleLabel(title: title, value: value, highlighted: highlighted, hovering: hovering)
+            MenuCapsuleLabel(title: title, hovering: hovering)
         }
         .buttonStyle(.plain)
         .fixedSize()
         .onHover { inside in withAnimation(WMMotion.hover) { hovering = inside } }
         .popover(isPresented: $open, arrowEdge: .bottom, content: content)
         .onChange(of: open) { _, isOpen in if !isOpen { closed = Date() } }
-        .animation(WMMotion.hover, value: highlighted)
         .accessibilityLabel(Text(title))
-        .accessibilityValue(Text(value ?? ""))
     }
 }
 

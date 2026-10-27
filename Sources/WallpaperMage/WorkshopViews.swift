@@ -189,7 +189,7 @@ private struct ChipRow: View {
                 WorkshopChip(text: kind, tint: item.isImportable ? WMTheme.accent : Color.orange)
             }
             if let resolution = item.resolutionTag { WorkshopChip(text: resolution) }
-            if let rating = item.ratingTag { WorkshopChip(text: rating) }
+            if let rating = item.ratingTag { WorkshopChip(text: WallpaperInfoBox.rating(rating)) }
             if isHighResolution(item) {
                 WorkshopChip(text: String(localized: "High resolution"), tint: .orange)
                     .help("Large videos use more memory and battery")

@@ -154,9 +154,9 @@ struct WallpaperInfoBox: View {
     /// The Workshop's age rating tag in the app's language.
     static func rating(_ tag: String) -> String {
         switch tag {
-        case "Everyone": return String(localized: "Everyone")
+        case "Everyone": return String(localized: "No Age Restriction")
         case "Questionable": return String(localized: "Questionable")
-        case "Mature": return String(localized: "Mature")
+        case "Mature": return String(localized: "NSFW")
         default: return tag
         }
     }

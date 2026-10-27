@@ -4,13 +4,15 @@ import AppKit
 // The Workshop browser's controls above its results: the search field and the sort menu, then a capsule per filter of
 // Wallpaper Engine's browser (type, age rating, resolution, tags, show only) whose popover switches its tags on and off,
 // and Reset Filters while the filters differ from the standard ones. Both rows wrap rather than switch layouts, so the
-// search field keeps its focus and an open popover its capsule while what the rows show changes.
+// search field keeps its focus and an open popover its capsule while what the rows show changes. NSFW wallpapers come
+// on only after a birthdate check (BirthdateDialog, WorkshopAgeCheck).
 
 private let contentPreferencesPage = URL(string: "https://store.steampowered.com/account/preferences/")!
 
 @MainActor
 struct WorkshopBrowseControls: View {
     @ObservedObject var workshop: WorkshopModel
+    @State private var askingBirthdate = false
 
     var body: some View {
         // The gaps of Home's library title row: 10 between controls, `chipSpacing` within a group of them, 14 between
@@ -35,19 +37,16 @@ struct WorkshopBrowseControls: View {
                 }
             }
         }
-        // The capsules are as wide as what they show: the rows move their other controls over smoothly.
+        // The sort menu is as wide as its sort and Reset Filters comes and goes with the filters: the rows move their
+        // other controls over smoothly.
         .animation(WMMotion.content, value: workshop.sort)
         .animation(WMMotion.content, value: workshop.filters)
     }
 
-    private var filters: WorkshopFilters { workshop.filters }
-
     // MARK: Filters
 
     private var typeFilter: some View {
-        let groups: [WorkshopFilterGroup] = [.type, .category]
-        return WMFilterMenu(title: String(localized: "Type"), value: summary(of: groups),
-                            highlighted: groups.contains(where: filters.differsFromStandard)) {
+        WMFilterMenu(title: String(localized: "Type")) {
             FilterPopover {
                 TagChecklist(filters: $workshop.filters, group: .type)
                 Divider()
@@ -61,24 +60,17 @@ struct WorkshopBrowseControls: View {
     }
 
     private var ratingFilter: some View {
-        WMFilterMenu(title: String(localized: "Age Rating"), value: summary(of: [.rating]),
-                     highlighted: filters.differsFromStandard(.rating)) {
-            FilterPopover {
-                TagChecklist(filters: $workshop.filters, group: .rating)
-                Divider()
-                Link(destination: contentPreferencesPage) {
-                    Label("Steam Content Preferences", systemImage: "arrow.up.forward.square")
-                }
-                .font(.callout)
-                .help("Your Steam account’s own settings for mature content")
-            }
+        WMFilterMenu(title: String(localized: "Age Rating")) {
+            RatingPopover(filters: $workshop.filters) { askingBirthdate = true }
         }
         .help("Age ratings to show")
+        .sheet(isPresented: $askingBirthdate) {
+            BirthdateDialog { workshop.filters.set([WorkshopAgeCheck.tag], in: .rating, on: true) }
+        }
     }
 
     private var resolutionFilter: some View {
-        WMFilterMenu(title: String(localized: "Resolution"), value: summary(of: [.resolution]),
-                     highlighted: filters.differsFromStandard(.resolution)) {
+        WMFilterMenu(title: String(localized: "Resolution")) {
             FilterPopover {
                 HStack(spacing: 12) {
                     FilterHeading(title: String(localized: "Resolution"))
@@ -115,8 +107,7 @@ struct WorkshopBrowseControls: View {
     }
 
     private var genreFilter: some View {
-        WMFilterMenu(title: String(localized: "Tags"), value: summary(of: [.genre]),
-                     highlighted: filters.differsFromStandard(.genre)) {
+        WMFilterMenu(title: String(localized: "Tags")) {
             FilterPopover {
                 HStack(spacing: 12) {
                     FilterHeading(title: String(localized: "Tags"))
@@ -130,9 +121,7 @@ struct WorkshopBrowseControls: View {
     }
 
     private var showOnlyFilter: some View {
-        let required = filters.requiredTags.map { WorkshopTags.label($0) }
-        return WMFilterMenu(title: String(localized: "Show Only"), value: required.isEmpty ? nil : summary(required),
-                            highlighted: !required.isEmpty) {
+        WMFilterMenu(title: String(localized: "Show Only")) {
             FilterPopover {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(WorkshopFilters.showOnlyTags, id: \.self) { tag in
@@ -168,24 +157,6 @@ struct WorkshopBrowseControls: View {
         workshop.filters.set(tags, in: .resolution, on: false)
         workshop.filters.set(tags.filter(fitting.contains), in: .resolution, on: true)
     }
-
-    // MARK: Summaries
-
-    /// What `groups` let through while one of them differs from the standard filters; nil while they are as standard,
-    /// so every capsule shows only its name until the user changes it.
-    private func summary(of groups: [WorkshopFilterGroup]) -> String? {
-        guard groups.contains(where: filters.differsFromStandard) else { return nil }
-        let narrowed = groups.compactMap { filters.allowed(in: $0) }
-        guard !narrowed.isEmpty else { return String(localized: "All") }
-        if narrowed.contains(where: \.isEmpty) { return String(localized: "None") }
-        return summary(narrowed.flatMap { $0 }.map { WorkshopTags.label($0, detailed: false) })
-    }
-
-    /// The first of `labels` and how many more there are.
-    private func summary(_ labels: [String]) -> String {
-        guard let first = labels.first else { return String(localized: "None") }
-        return labels.count == 1 ? first : String(localized: "\(first) +\(labels.count - 1)")
-    }
 }
 
 /// A filter's popover: its choices, padded.
@@ -207,12 +178,14 @@ private struct FilterHeading: View {
     }
 }
 
-/// Checkboxes that switch tags of a filter group on and off, in `columns` columns filled from top to bottom.
+/// Checkboxes that switch tags of a filter group on and off, in `columns` columns filled from top to bottom. A tag
+/// comes on only when `mayTurnOn` lets it, which can ask the user first instead.
 private struct TagChecklist: View {
     @Binding var filters: WorkshopFilters
     let group: WorkshopFilterGroup
     var tags: [String]? = nil
     var columns = 1
+    var mayTurnOn: (String) -> Bool = { _ in true }
 
     var body: some View {
         let tags = tags ?? group.tags
@@ -223,12 +196,40 @@ private struct TagChecklist: View {
                     ForEach(tags[start..<min(start + perColumn, tags.count)], id: \.self) { tag in
                         Toggle(WorkshopTags.label(tag), isOn: Binding(
                             get: { filters.isOn(tag, in: group) },
-                            set: { filters.set([tag], in: group, on: $0) }))
+                            set: { on in
+                                guard !on || mayTurnOn(tag) else { return }
+                                filters.set([tag], in: group, on: on)
+                            }))
                     }
                 }
             }
         }
         .toggleStyle(.checkbox)
+    }
+}
+
+/// The Age Rating popover. NSFW comes on at once for a remembered adult; otherwise switching it on closes the popover
+/// and asks for the birthdate (`askBirthdate`, which shows `BirthdateDialog`).
+private struct RatingPopover: View {
+    @Binding var filters: WorkshopFilters
+    let askBirthdate: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        FilterPopover {
+            TagChecklist(filters: $filters, group: .rating, mayTurnOn: { tag in
+                guard tag == WorkshopAgeCheck.tag, !WorkshopAgeCheck.isConfirmedAdult else { return true }
+                dismiss()
+                askBirthdate()
+                return false
+            })
+            Divider()
+            Link(destination: contentPreferencesPage) {
+                Label("Steam Content Preferences", systemImage: "arrow.up.forward.square")
+            }
+            .font(.callout)
+            .help("Your Steam account’s own settings for mature content")
+        }
     }
 }
 

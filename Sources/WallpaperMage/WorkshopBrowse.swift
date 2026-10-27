@@ -12,7 +12,7 @@ enum WorkshopSort: String, CaseIterable, Identifiable {
     case topRated, popularYear, popularMonth, popularWeek, popularToday, mostRecent, mostUpVotes, mostSubscriptions
 
     /// A new browser's sort.
-    static let standard = WorkshopSort.popularWeek
+    static let standard = WorkshopSort.topRated
     /// The sort a new search switches to, as Wallpaper Engine does: with a search text, Steam ranks Top Rated by how
     /// well the items match it.
     static let search = WorkshopSort.topRated
@@ -151,11 +151,6 @@ struct WorkshopFilters: Codable, Hashable {
     /// Some group has all of its tags off, so no item can pass.
     var matchesNothing: Bool { WorkshopFilterGroup.allCases.contains { allowed(in: $0)?.isEmpty == true } }
 
-    /// Whether `group` lets through other tags than the standard filters do.
-    func differsFromStandard(_ group: WorkshopFilterGroup) -> Bool {
-        allowed(in: group) != Self.standard.allowed(in: group)
-    }
-
     /// Persisted form: JSON text (UserDefaults, WorkshopKit.Prefs.filters).
     var json: String {
         (try? JSONEncoder().encode(self)).map { String(decoding: $0, as: UTF8.self) } ?? ""
@@ -174,17 +169,15 @@ struct WorkshopFilters: Codable, Hashable {
 
 extension WorkshopTags {
     /// The words the filters show for a Workshop tag. Resolutions without their section's name, which their heading
-    /// shows, and only `detailed` with the name of their format (Full HD, 4K).
-    static func label(_ tag: String, detailed: Bool = true) -> String {
+    /// shows.
+    static func label(_ tag: String) -> String {
         switch tag {
         case "Scene": return String(localized: "Scene")
         case "Video": return String(localized: "Video")
         case "Web": return String(localized: "Web")
         case "Wallpaper": return String(localized: "Wallpaper")
         case "Preset": return String(localized: "Preset")
-        case "Everyone": return String(localized: "Everyone")
-        case "Questionable": return String(localized: "Questionable")
-        case "Mature": return String(localized: "Mature")
+        case "Everyone", "Questionable", "Mature": return WallpaperInfoBox.rating(tag)
         case "Other resolution": return String(localized: "Other resolution")
         case "Dynamic resolution": return String(localized: "Dynamic resolution")
         case "Abstract": return String(localized: "Abstract")
@@ -220,7 +213,6 @@ extension WorkshopTags {
         if tag.hasSuffix("Standard Definition") { return String(localized: "Standard definition") }
         guard let size = pixelSize(of: tag) else { return tag }
         let name = "\(Int(size.width)) × \(Int(size.height))"
-        guard detailed else { return name }
         switch size {
         case CGSize(width: 1920, height: 1080): return "\(name) · Full HD"
         case CGSize(width: 3840, height: 2160): return "\(name) · 4K"
@@ -254,6 +246,72 @@ extension WorkshopTags {
             }
         }
         return fitting
+    }
+}
+
+/// The birthdate check in front of NSFW wallpapers (Steam's "Mature" rating). An adult's birthdate is remembered
+/// (WorkshopKit.Prefs.birthdate), so it is asked for only once; a minor's is not, so it is asked for again the next
+/// time NSFW is switched on.
+enum WorkshopAgeCheck {
+    /// The age rating tag the check guards.
+    static let tag = "Mature"
+    static let adultAge = 18
+
+    /// Gregorian in the current time zone, so a birthdate is the same calendar day whatever calendar the user reads.
+    private static var calendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        return calendar
+    }
+
+    /// Whether someone born on `birthdate` is `adultAge` or older at `now`.
+    static func isAdult(born birthdate: Date, at now: Date = Date()) -> Bool {
+        let calendar = calendar
+        guard let adult = calendar.date(byAdding: .year, value: adultAge, to: calendar.startOfDay(for: birthdate)) else {
+            return false
+        }
+        return adult <= now
+    }
+
+    /// The remembered birthdate shows an adult, so NSFW can come on without asking.
+    static var isConfirmedAdult: Bool {
+        date(fromDay: WorkshopKit.Prefs.birthdate.value).map { isAdult(born: $0) } ?? false
+    }
+
+    /// Whether `birthdate` shows an adult; remembers it when it does.
+    static func confirm(_ birthdate: Date) -> Bool {
+        guard isAdult(born: birthdate) else { return false }
+        WorkshopKit.Prefs.birthdate.value = day(of: birthdate)
+        return true
+    }
+
+    /// The calendar day of `date` as stored ("2001-04-17").
+    static func day(of date: Date) -> String {
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+    }
+
+    /// The start of a stored calendar day; nil for anything else, a day that does not exist (31 February) included.
+    static func date(fromDay day: String) -> Date? {
+        let numbers = day.split(separator: "-").compactMap { Int($0) }
+        guard numbers.count == 3 else { return nil }
+        return date(year: numbers[0], month: numbers[1], day: numbers[2])
+    }
+
+    /// The day typed as `day`, `month` and a four-digit `year`, when it is a real day from 1900 up to `now`; nil
+    /// otherwise.
+    static func birthdate(day: String, month: String, year: String, now: Date = Date()) -> Date? {
+        guard year.count == 4, let year = Int(year), year >= 1900, let month = Int(month), let day = Int(day),
+              let date = date(year: year, month: month, day: day), date <= now else { return nil }
+        return date
+    }
+
+    /// The start of that day, nil when it does not exist: Calendar would roll 31 February over into March.
+    private static func date(year: Int, month: Int, day: Int) -> Date? {
+        let calendar = calendar
+        guard let date = calendar.date(from: DateComponents(year: year, month: month, day: day)) else { return nil }
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        return parts.year == year && parts.month == month && parts.day == day ? date : nil
     }
 }
 
