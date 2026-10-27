@@ -19,6 +19,7 @@ struct WallpaperSettingsCard: View {
     @State private var naming = false
     @State private var presetName = ""
     @State private var confirmingApplyToAll = false
+    @State private var confirmingReset = false
     @State private var pasteFailed = false
 
     private var options: WallpaperOptions { model.options(in: scope, for: item.id) }
@@ -32,8 +33,8 @@ struct WallpaperSettingsCard: View {
         return false
     }
 
-    /// The Wallpaper section, a display's Energy section and the Presets for both, last. The spacing matches the
-    /// inspectors' own sections.
+    /// The Wallpaper section, a display's Energy section, the Presets for both and Reset to Defaults, last. The
+    /// spacing matches the inspectors' own sections.
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             InspectorSection(title: "Wallpaper") {
@@ -53,6 +54,7 @@ struct WallpaperSettingsCard: View {
                 EnergySection(model: model, display: display)
             }
             presetButtons
+            resetButton
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: item.id) { sheet = await WallpaperSheet.load(for: item) }
@@ -76,6 +78,14 @@ struct WallpaperSettingsCard: View {
                  ? "Every other wallpaper in this playlist gets this wallpaper’s settings. Each keeps its own scene properties."
                  : "Every other wallpaper on this display gets this wallpaper’s settings. Each keeps its own scene properties.")
         }
+        .confirmationDialog("Reset these settings to their defaults?", isPresented: $confirmingReset) {
+            Button("Reset to Defaults", role: .destructive, action: reset)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(inPlaylist
+                 ? "Every setting of this wallpaper in this playlist goes back to its default."
+                 : "Every setting of this wallpaper on this display and the display’s energy settings go back to their defaults.")
+        }
         .alert("No Wallpaper Settings on the Clipboard", isPresented: $pasteFailed) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -85,8 +95,8 @@ struct WallpaperSettingsCard: View {
 
     // MARK: Presets
 
-    /// Wallpaper Engine's "your presets": load, save, apply to all wallpapers, share as JSON, reset. Presets, shared
-    /// JSON and Reset cover the display's energy settings too.
+    /// Wallpaper Engine's "your presets": load, save, apply to all wallpapers, share as JSON. Presets and shared JSON
+    /// hold the display's energy settings too.
     private var presetButtons: some View {
         let saved = model.presets(for: item)
         return VStack(alignment: .leading, spacing: 18) {
@@ -126,19 +136,10 @@ struct WallpaperSettingsCard: View {
                     .help(inPlaylist
                           ? "Gives every other wallpaper in this playlist this wallpaper’s settings, apart from scene properties."
                           : "Gives every other wallpaper on this display this wallpaper’s settings, apart from scene properties.")
-                    HStack(spacing: 8) {
-                        Button(action: copyJSON) {
-                            Label("Share JSON", systemImage: "doc.on.doc").frame(maxWidth: .infinity)
-                        }
-                        .help("Copies this wallpaper’s settings to the clipboard as JSON.")
-                        Button(action: reset) {
-                            Label("Reset", systemImage: "arrow.counterclockwise").frame(maxWidth: .infinity)
-                        }
-                        .disabled(isDefault)
-                        .help(inPlaylist
-                              ? "Put every setting of this wallpaper back to its default."
-                              : "Put every setting of this wallpaper and this display’s energy settings back to their defaults.")
+                    Button(action: copyJSON) {
+                        Label("Share JSON", systemImage: "doc.on.doc").frame(maxWidth: .infinity)
                     }
+                    .help("Copies this wallpaper’s settings to the clipboard as JSON.")
                 }
                 .controlSize(.small)
             }
@@ -432,6 +433,21 @@ struct WallpaperSettingsCard: View {
     }
 
     // MARK: Reset
+
+    /// Reset to Defaults on its own at the end, without a heading; it asks first.
+    private var resetButton: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Divider()
+            Button { confirmingReset = true } label: {
+                Label("Reset to Defaults", systemImage: "arrow.counterclockwise").frame(maxWidth: .infinity)
+            }
+            .controlSize(.small)
+            .disabled(isDefault)
+            .help(inPlaylist
+                  ? "Put every setting of this wallpaper back to its default."
+                  : "Put every setting of this wallpaper and this display’s energy settings back to their defaults.")
+        }
+    }
 
     /// True when nothing differs from the defaults, a display's energy settings included (the scene's own properties
     /// count as default when they equal project.json's values).

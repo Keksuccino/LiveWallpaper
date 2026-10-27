@@ -12396,6 +12396,172 @@
         }
       }
     },
+    "Every setting of this wallpaper in this playlist goes back to its default." : {
+      "comment" : "Message of the Reset to Defaults confirmation in the playlist editor's inspector.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle Einstellungen dieses Hintergrundbilds in dieser Playlist werden auf die Standardwerte zurückgesetzt."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Όλες οι ρυθμίσεις αυτής της ταπετσαρίας σε αυτή τη λίστα αναπαραγωγής θα επανέλθουν στις προεπιλογές τους."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todos los ajustes de este fondo en esta lista de reproducción vuelven a sus valores por omisión."
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toda la configuración de este fondo en esta playlist vuelve a sus valores predeterminados."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tous les réglages de ce fond d’écran dans cette liste de lecture reprennent leurs valeurs par défaut."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このプレイリストでのこの壁紙のすべての設定がデフォルトに戻ります。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 재생목록에서 이 배경화면의 모든 설정이 기본값으로 돌아갑니다."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wszystkie ustawienia tej tapety w tej playliście wrócą do wartości domyślnych."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todos os ajustes deste papel de parede nesta playlist voltam ao padrão."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Все настройки этих обоев в этом плейлисте вернутся к значениям по умолчанию."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu duvar kâğıdının bu oynatma listesindeki tüm ayarları varsayılan değerlerine döner."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Усі параметри цієї шпалери в цій підбірці повернуться до типових значень."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此墙纸在此播放列表中的所有设置都将恢复为默认值。"
+          }
+        }
+      }
+    },
+    "Every setting of this wallpaper on this display and the display’s energy settings go back to their defaults." : {
+      "comment" : "Message of the Reset to Defaults confirmation in the Home inspector.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle Einstellungen dieses Hintergrundbilds auf diesem Display und die Energieeinstellungen des Displays werden auf die Standardwerte zurückgesetzt."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Όλες οι ρυθμίσεις αυτής της ταπετσαρίας σε αυτή την οθόνη και οι ρυθμίσεις ενέργειας της οθόνης θα επανέλθουν στις προεπιλογές τους."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todos los ajustes de este fondo en esta pantalla y los ajustes de energía de la pantalla vuelven a sus valores por omisión."
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toda la configuración de este fondo en esta pantalla y la configuración de energía de la pantalla vuelven a sus valores predeterminados."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tous les réglages de ce fond d’écran sur cet écran et les réglages d’énergie de l’écran reprennent leurs valeurs par défaut."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このディスプレイでのこの壁紙のすべての設定と、ディスプレイのエネルギー設定がデフォルトに戻ります。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 디스플레이에서 이 배경화면의 모든 설정과 디스플레이의 에너지 설정이 기본값으로 돌아갑니다."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wszystkie ustawienia tej tapety na tym monitorze oraz ustawienia energii monitora wrócą do wartości domyślnych."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Todos os ajustes deste papel de parede nesta tela e os ajustes de energia da tela voltam ao padrão."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Все настройки этих обоев на этом дисплее и настройки энергии дисплея вернутся к значениям по умолчанию."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu duvar kâğıdının bu ekrandaki tüm ayarları ve ekranın enerji ayarları varsayılan değerlerine döner."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Усі параметри цієї шпалери на цьому дисплеї та параметри енергії дисплея повернуться до типових значень."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此墙纸在此显示器上的所有设置以及此显示器的能耗设置都将恢复为默认值。"
+          }
+        }
+      }
+    },
     "Every wallpaper in your library is already in this playlist." : {
       "comment" : "Shown in the “Add to Playlist” sheet when nothing is left to add.",
       "localizations" : {
@@ -23545,7 +23711,7 @@
       }
     },
     "Put every setting of this wallpaper and this display’s energy settings back to their defaults." : {
-      "comment" : "Tooltip of the Reset button in a display's wallpaper settings: it also resets the display's Energy section.",
+      "comment" : "Tooltip of the Reset to Defaults button in the Home inspector: it also resets the display's Energy section.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -23628,7 +23794,7 @@
       }
     },
     "Put every setting of this wallpaper back to its default." : {
-      "comment" : "Tooltip of the Reset button in a playlist's wallpaper settings.",
+      "comment" : "Tooltip of the Reset to Defaults button in the playlist editor's inspector.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -25038,85 +25204,168 @@
         }
       }
     },
-    "Reset" : {
-      "comment" : "Button that puts all settings of the wallpaper back to their defaults.",
+    "Reset these settings to their defaults?" : {
+      "comment" : "Title of the confirmation before Reset to Defaults puts a wallpaper's settings back to their defaults.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Zurücksetzen"
+            "value" : "Diese Einstellungen auf die Standardwerte zurücksetzen?"
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Επαναφορά"
+            "value" : "Επαναφορά αυτών των ρυθμίσεων στις προεπιλογές τους;"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Restablecer"
+            "value" : "¿Restablecer estos ajustes a sus valores por omisión?"
           }
         },
         "es-MX" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Restablecer"
+            "value" : "¿Restablecer esta configuración a sus valores predeterminados?"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Réinitialiser"
+            "value" : "Rétablir les valeurs par défaut de ces réglages ?"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "リセット"
+            "value" : "これらの設定をデフォルトに戻しますか？"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "재설정"
+            "value" : "이 설정을 기본값으로 재설정하겠습니까?"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Resetuj"
+            "value" : "Przywrócić te ustawienia do wartości domyślnych?"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Redefinir"
+            "value" : "Restaurar estes ajustes para o padrão?"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Сбросить"
+            "value" : "Сбросить эти настройки к значениям по умолчанию?"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sıfırla"
+            "value" : "Bu ayarlar varsayılan değerlerine döndürülsün mü?"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Скинути"
+            "value" : "Відновити типові значення цих параметрів?"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "重置"
+            "value" : "要将这些设置恢复为默认值吗？"
+          }
+        }
+      }
+    },
+    "Reset to Defaults" : {
+      "comment" : "Button below a wallpaper's settings (and the button of its confirmation): puts all of its settings, on a display also the display's energy settings, back to their defaults.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf Standardwerte zurücksetzen"
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Επαναφορά προεπιλογών"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restablecer valores por omisión"
+          }
+        },
+        "es-MX" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restablecer valores predeterminados"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rétablir les valeurs par défaut"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "デフォルトに戻す"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "기본값으로 재설정"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Przywróć domyślne"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restaurar Padrões"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Восстановить настройки по умолчанию"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Varsayılanlara Sıfırla"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Відновити типові"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复默认设置"
           }
         }
       }
