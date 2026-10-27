@@ -396,7 +396,9 @@ enum WorkshopListState: Equatable {
     @Published var searchText: String = ""
     @Published var sort: WorkshopSort = .trending
     @Published var kindFilter: WorkshopKindFilter = .all
-    @Published var includeMature: Bool = false            // false = hide Questionable and Mature
+    @Published var includeMature: Bool = !WorkshopKit.Prefs.includeMature.value.isEmpty {   // false = hide Questionable and Mature
+        didSet { WorkshopKit.Prefs.includeMature.value = includeMature ? "1" : "" }
+    }
     @Published private(set) var results: [WorkshopItem] = []
     @Published private(set) var listState: WorkshopListState = .idle
     @Published private(set) var canLoadMore: Bool = false
@@ -839,13 +841,15 @@ enum WorkshopKit {
         pairs.map { "\(encode($0.0))=\(encode($0.1))" }.joined(separator: "&")
     }
 
-    /// The values the user typed in the Steam settings (never a password).
+    /// The values the user set in the Steam settings and the Workshop browser (never a password).
+    /// Flags store "1" when on and "" when off.
     enum Prefs: String {
         case username = "WallpaperMage.steam.username"
         case steamcmd = "WallpaperMage.steam.steamcmdPath"
         case apiKey = "WallpaperMage.steam.apiKey"
         case signedOut = "WallpaperMage.steam.signedOut"       // the user signed out; ignore a token that is still around
         case tokenShared = "WallpaperMage.steam.tokenShared"   // SteamCMD keeps its login outside the app's own HOME
+        case includeMature = "WallpaperMage.workshop.includeMature"   // the browser's NSFW toggle
 
         var value: String {
             get { UserDefaults.standard.string(forKey: rawValue) ?? "" }
