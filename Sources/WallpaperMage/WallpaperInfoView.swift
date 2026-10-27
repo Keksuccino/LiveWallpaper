@@ -4,7 +4,7 @@ import Core
 
 // The Info box: what a wallpaper is, in the Workshop's detail pane (from Steam's record of the item) and at the top of
 // a library wallpaper's inspector, Home's and the playlist editor's (from its files and the tags it was downloaded
-// with).
+// with); what a playlist holds and how it plays, in Home's inspector.
 
 /// What a wallpaper's files say about it, read off the main actor once per library item.
 struct WallpaperFacts: Sendable {
@@ -23,6 +23,35 @@ struct WallpaperFacts: Sendable {
         let facts = await Task.detached(priority: .userInitiated) { await read(item) }.value
         cache[item.id] = facts
         return facts
+    }
+
+    /// The facts of several wallpapers, in their order; the ones not cached yet are read a few at a time.
+    @MainActor static func load(for items: [VideoItem]) async -> [WallpaperFacts] {
+        let missing = items.filter { cache[$0.id] == nil }
+        if !missing.isEmpty {
+            let read = await Task.detached(priority: .userInitiated) { await readAll(missing) }.value
+            for (id, facts) in read { cache[id] = facts }
+        }
+        return items.compactMap { cache[$0.id] }
+    }
+
+    private static func readAll(_ items: [VideoItem]) async -> [(UUID, WallpaperFacts)] {
+        await withTaskGroup(of: (UUID, WallpaperFacts).self) { group in
+            var pending = items.makeIterator()
+            func next() {
+                guard let item = pending.next() else { return }
+                group.addTask { (item.id, await read(item)) }
+            }
+            // Each read walks a wallpaper's folder or opens a video: a few at once keep the disk busy without
+            // opening every video of a long playlist together.
+            for _ in 0..<4 { next() }
+            var results: [(UUID, WallpaperFacts)] = []
+            for await result in group {
+                results.append(result)
+                next()
+            }
+            return results
+        }
     }
 
     private static func read(_ item: VideoItem) async -> WallpaperFacts {
@@ -190,5 +219,72 @@ struct WallpaperInfoSection: View {
         }
         if let added = item.updated { rows.append(InfoRow(title: "Added", value: WallpaperInfoBox.date(added))) }
         return rows
+    }
+}
+
+/// A playlist's Info box: its wallpapers by kind and what their files take on disk, how long each stays and all of them
+/// take, its transition, and when it was made and last edited (Playlist.created, Playlist.updated).
+@MainActor
+struct PlaylistInfoSection: View {
+    let playlist: Playlist
+    /// Its wallpapers in the library, in the order they play.
+    let items: [VideoItem]
+    @State private var loaded: (ids: [VideoItem.ID], facts: [WallpaperFacts])?
+
+    /// The wallpapers' facts; nil while their files are being read.
+    private var facts: [WallpaperFacts]? {
+        if let loaded, loaded.ids.elementsEqual(items.lazy.map(\.id)) { return loaded.facts }
+        let cached = items.compactMap { WallpaperFacts.cache[$0.id] }
+        return cached.count == items.count ? cached : nil
+    }
+
+    var body: some View {
+        WallpaperInfoBox(rows: rows, tags: [])
+            .task(id: items.map(\.id)) {
+                let ids = items.map(\.id)
+                let facts = await WallpaperFacts.load(for: items)
+                loaded = (ids, facts)
+            }
+    }
+
+    private var rows: [InfoRow] {
+        var rows = [InfoRow(title: "Type", value: String(localized: "Playlist")),
+                    InfoRow(title: "Wallpapers", value: Self.contents(items))]
+        // A placeholder while the files are read, no row when none of them can be.
+        if let facts {
+            let sizes = facts.compactMap(\.bytes)
+            if !sizes.isEmpty { rows.append(InfoRow(title: "Size", value: WallpaperInfoBox.bytes(sizes.reduce(0, +)))) }
+        } else {
+            rows.append(InfoRow(title: "Size", value: nil))
+        }
+        rows.append(InfoRow(title: "Interval", value: Self.duration(playlist.intervalSeconds)))
+        if items.count > 1 {
+            rows.append(InfoRow(title: "Full Cycle",
+                                value: Self.duration(playlist.intervalSeconds * Double(items.count))))
+        }
+        let transition = PlaylistText.name(of: playlist.transition)
+        rows.append(InfoRow(title: "Transition", value: playlist.transition == .cut ? transition
+            : String(localized: "\(transition) (\(PlaylistText.transitionLength(playlist.transitionDuration)))")))
+        if let created = playlist.created { rows.append(InfoRow(title: "Created", value: WallpaperInfoBox.date(created))) }
+        if let updated = playlist.updated, updated != playlist.created {
+            rows.append(InfoRow(title: "Last Edited", value: WallpaperInfoBox.date(updated)))
+        }
+        return rows
+    }
+
+    /// What the playlist holds by kind, e.g. "8 scenes and 4 videos"; "0 wallpapers" when it is empty.
+    private static func contents(_ items: [VideoItem]) -> String {
+        let scenes = items.count(where: \.isScene)
+        let videos = items.count - scenes
+        var parts: [String] = []
+        if scenes > 0 { parts.append(String(localized: "\(scenes) scenes")) }
+        if videos > 0 { parts.append(String(localized: "\(videos) videos")) }
+        return parts.isEmpty ? String(localized: "\(0) wallpapers") : parts.formatted(.list(type: .and))
+    }
+
+    /// A length of time written out, e.g. "5 minutes" or "1 hour, 30 minutes".
+    private static func duration(_ seconds: TimeInterval) -> String {
+        Duration.seconds(seconds).formatted(.units(allowed: [.days, .hours, .minutes, .seconds], width: .wide,
+                                                   maximumUnitCount: 2))
     }
 }

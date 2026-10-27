@@ -922,7 +922,7 @@ struct InspectorHeader<Picture: View>: View {
     }
 }
 
-/// A display's playlist in its inspector: what it shows now and how the playlist plays, with the way to its editor.
+/// A display's playlist in its inspector: what it shows now and the playlist's Info box, with the way to its editor.
 @MainActor
 private struct PlaylistSummary: View {
     @ObservedObject var model: SettingsModel
@@ -947,23 +947,15 @@ private struct PlaylistSummary: View {
                     }
                 }
             }
-            InspectorSection(title: "Playlist") {
-                VStack(alignment: .leading, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label(String(localized: "\(items.count) wallpapers"), systemImage: "rectangle.stack")
-                        Label(PlaylistText.eachFor(playlist), systemImage: "timer")
-                        Label(PlaylistText.name(of: playlist.transition), systemImage: "square.on.square")
-                    }
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    Button {
-                        model.editPlaylist(playlist.id)
-                    } label: {
-                        Label("Edit Playlist", systemImage: "pencil").frame(maxWidth: .infinity)
-                    }
-                    .controlSize(.small)
-                    .help("Change the playlist’s wallpapers, their order and settings, its timing and its transition.")
+            VStack(alignment: .leading, spacing: 10) {
+                PlaylistInfoSection(playlist: playlist, items: items)
+                Button {
+                    model.editPlaylist(playlist.id)
+                } label: {
+                    Label("Edit Playlist", systemImage: "pencil").frame(maxWidth: .infinity)
                 }
+                .controlSize(.small)
+                .help("Change the playlist’s wallpapers, their order and settings, its timing and its transition.")
             }
         }
     }

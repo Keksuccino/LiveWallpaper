@@ -94,13 +94,9 @@ enum PlaylistText {
         }
     }
 
-    /// How long each wallpaper stays, e.g. "Each for 5 minutes".
-    static func eachFor(_ playlist: Playlist) -> String {
-        let formatter = DateComponentsFormatter()
-        formatter.unitsStyle = .full
-        formatter.allowedUnits = [.hour, .minute, .second]
-        let duration = formatter.string(from: playlist.intervalSeconds) ?? ""
-        return String(localized: "Each for \(duration)")
+    /// How long a transition takes, e.g. "0.5 s".
+    static func transitionLength(_ seconds: Double) -> String {
+        String(localized: "\(seconds.formatted(.number.precision(.fractionLength(0...2)))) s")
     }
 }
 
@@ -188,7 +184,7 @@ private struct PlaylistDetailsCard: View {
                                 .controlSize(.small)
                                 .frame(width: 150)
                                 .accessibilityLabel("Transition length")
-                            Text("\(playlist.transitionDuration.formatted(.number.precision(.fractionLength(0...2)))) s")
+                            Text(PlaylistText.transitionLength(playlist.transitionDuration))
                                 .monospacedDigit()
                                 .foregroundStyle(.secondary)
                                 .frame(width: 44, alignment: .trailing)
