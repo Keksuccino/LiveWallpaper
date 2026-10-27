@@ -560,18 +560,6 @@ private struct EntryArtwork: View {
     }
 }
 
-/// A scene entry's chip: that it is a scene, or that only its preview can be shown. Nothing for other entries.
-@MainActor
-private struct EntryBadge: View {
-    let entry: LibraryEntry
-
-    var body: some View {
-        if case .wallpaper(let item) = entry, let info = item.scene {
-            SceneSupportBadge(info: info, marksPartial: false)
-        }
-    }
-}
-
 /// Marks the entry the selected display shows, in the top-left corner of its picture: a bold white checkmark on an
 /// accent circle that pops in and out with the selection.
 @MainActor
@@ -636,9 +624,6 @@ private struct LibraryCard: View {
                                startPoint: .center, endPoint: .bottom)
                     .allowsHitTesting(false)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                EntryBadge(entry: entry)
-                    .padding(7)
 
                 if hovering {
                     HStack(spacing: 6) {
@@ -725,11 +710,8 @@ private struct LibraryListRow: View {
                         .padding(4)
                 }
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(entry.name).font(.callout.weight(.medium)).lineLimit(1).truncationMode(.middle)
-                        .opacity(broken ? 0.6 : 1)
-                    EntryBadge(entry: entry).fixedSize()
-                }
+                Text(entry.name).font(.callout.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                    .opacity(broken ? 0.6 : 1)
                 Text(entryMeta(entry, broken: broken))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -913,13 +895,11 @@ private struct PlaylistSummary: View {
 @MainActor
 struct SceneSupportBadge: View {
     let info: SceneInfo
-    /// Off: a scene that plays with some of its features missing is labelled like any other scene.
-    var marksPartial = true
 
     private var title: String {
         switch info.support {
         case .full: return String(localized: "Scene")
-        case .partial: return marksPartial ? String(localized: "Partial") : String(localized: "Scene")
+        case .partial: return String(localized: "Partial")
         case .previewOnly: return String(localized: "Preview")
         }
     }
