@@ -255,25 +255,6 @@ struct DataReader {
         return value
     }
 
-    /// One little-endian float32.
-    mutating func readFloat32() -> Float? {
-        guard position + 4 <= data.count else { isGoneWrong = true; return nil }
-        let bits = UInt32(data[position]) | UInt32(data[position + 1]) << 8
-            | UInt32(data[position + 2]) << 16 | UInt32(data[position + 3]) << 24
-        position += 4
-        return Float(bitPattern: bits)
-    }
-
-    /// A single byte, nil at the end of the data (used for C strings that have no length prefix).
-    mutating func readSingleByte() -> Int? {
-        guard position < data.count else { isGoneWrong = true; return nil }
-        let value = Int(data[position])
-        position += 1
-        return value
-    }
-
-    var remaining: Int { data.count - position }
-
     /// A length-prefixed string field; at most `max` bytes.
     mutating func readBytes(max: Int) -> Data? {
         guard let length = readInt32(), length >= 0, length <= max else { isGoneWrong = true; return nil }

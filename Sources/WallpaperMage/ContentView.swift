@@ -890,28 +890,6 @@ private struct PlaylistSummary: View {
     }
 }
 
-// MARK: - Badges
-
-@MainActor
-struct SceneSupportBadge: View {
-    let info: SceneInfo
-
-    private var title: String {
-        switch info.support {
-        case .full: return String(localized: "Scene")
-        case .partial: return String(localized: "Partial")
-        case .previewOnly: return String(localized: "Preview")
-        }
-    }
-
-    private var tint: Color { info.support == .previewOnly ? .orange : .secondary }
-
-    var body: some View {
-        WMChip(text: title, tint: tint, icon: "sparkles")
-            .help(info.localizedNotes.joined(separator: "\n"))
-    }
-}
-
 // MARK: - Preview player
 
 @MainActor
@@ -960,15 +938,13 @@ struct ItemPreviewPane: View {
     let item: VideoItem?
     let broken: Bool
     let openSteamSetup: () -> Void
-    var showsNotes = true
     @StateObject private var preview = PreviewPlayer()
     @State private var sceneImage: NSImage?
 
-    init(item: VideoItem?, broken: Bool, openSteamSetup: @escaping () -> Void, showsNotes: Bool = true) {
+    init(item: VideoItem?, broken: Bool, openSteamSetup: @escaping () -> Void) {
         self.item = item
         self.broken = broken
         self.openSteamSetup = openSteamSetup
-        self.showsNotes = showsNotes
     }
 
     private var playbackURL: URL? { broken || item?.isScene == true ? nil : item?.url }
@@ -976,7 +952,7 @@ struct ItemPreviewPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             stage
-            if showsNotes, let info = item?.scene { SceneNotes(info: info, openSteamSetup: openSteamSetup) }
+            if let info = item?.scene { SharedFilesHint(info: info, openSteamSetup: openSteamSetup) }
         }
     }
 
@@ -1008,9 +984,6 @@ private struct MediaStage: View {
         ZStack {
             Color.black
             content
-        }
-        .overlay(alignment: .topLeading) {
-            if let info = item?.scene { SceneSupportBadge(info: info).padding(9) }
         }
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .accessibilityElement(children: .ignore)
@@ -1049,19 +1022,16 @@ private struct MediaStage: View {
     }
 }
 
-/// What a scene cannot do yet, as a short list, plus the way to get Wallpaper Engine's shared files.
+/// Below a scene's preview: the way to Wallpaper Engine's shared files while they are missing or the scene uses them.
 @MainActor
-fileprivate struct SceneNotes: View {
+fileprivate struct SharedFilesHint: View {
     let info: SceneInfo
     let openSteamSetup: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            ForEach(Array(info.localizedNotes.enumerated()), id: \.offset) { entry in
-                Text("• " + entry.element).font(.callout).foregroundStyle(.secondary)
-            }
             if !SceneImporter.hasSharedAssets {
-                Text("• Scenes need Wallpaper Engine’s shared files to play.").font(.callout).foregroundStyle(.secondary)
+                Text("Scenes need Wallpaper Engine’s shared files to play.").font(.callout).foregroundStyle(.secondary)
             }
             if info.needsSharedAssets || !SceneImporter.hasSharedAssets {
                 Button("Get Wallpaper Engine’s shared files", action: openSteamSetup).buttonStyle(.link)

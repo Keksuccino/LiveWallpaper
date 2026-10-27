@@ -3,7 +3,7 @@ import Core
 import SceneFormat
 
 // Imports a downloaded scene-type Workshop item into the library: copies scene.pkg (or the loose scene files),
-// project.json and the preview into Library/<id>/, runs the SceneFormat analyzer for the support badge and builds
+// project.json and the preview into Library/<id>/, runs the SceneFormat analyzer for the scene's record and builds
 // the VideoItem. Called by the import step of Workshop.swift when
 // project.json says type "scene". The video import path is unchanged. Foundation + Core + SceneFormat only.
 
@@ -18,8 +18,6 @@ struct SceneImportInput {
 
 enum SceneImporter {
     private static let sizeCap: Int64 = 3_000_000_000
-    /// Stored in English like SceneAnalyzer's notes and translated when shown (SceneInfo.localizedNotes).
-    private static let unreadableNote = "This scene’s files couldn’t be read, so only its preview is shown."
     private static let previewTypes = ["jpg": "jpg", "jpeg": "jpg", "png": "png", "gif": "gif"]
 
     /// Where a scene's files are: one package, or a folder with `scene.json` (a loose scene).
@@ -105,8 +103,8 @@ enum SceneImporter {
         }
     }
 
-    /// Re-runs the analyzer for an already imported scene (after an engine update raised
-    /// SceneAnalysis.revision or EngineCapabilities.current changed). Returns the item with a fresh `scene` record.
+    /// Re-runs the analyzer for an already imported scene (after an update raised SceneAnalysis.revision). Returns
+    /// the item with a fresh `scene` record.
     static func reanalyze(_ item: VideoItem) -> VideoItem {
         guard item.scene != nil else { return item }
         let url = item.url
@@ -118,24 +116,22 @@ enum SceneImporter {
 
     // MARK: Analysis
 
-    /// The SceneFormat verdict as a library record; nil when the files cannot be read at all.
+    /// The SceneFormat analysis as a library record; nil when the files cannot be read at all.
     private static func analyze(_ source: Source) -> SceneInfo? {
         let assets = sharedAssets()
-        let loaded: LoadedScene?
+        let analysis: SceneAnalysis?
         switch source {
-        case .package(let url): loaded = try? SceneLoader.load(packageAt: url, sharedAssets: assets)
-        case .loose(let json): loaded = try? SceneLoader.load(directory: json.deletingLastPathComponent(), sharedAssets: assets)
+        case .package(let url): analysis = try? SceneLoader.analyze(packageAt: url, sharedAssets: assets)
+        case .loose(let json): analysis = try? SceneLoader.analyze(directory: json.deletingLastPathComponent(), sharedAssets: assets)
         }
-        guard let analysis = loaded?.analysis else { return nil }
-        return SceneInfo(
-            support: SceneSupport(rawValue: analysis.support.rawValue) ?? .previewOnly, notes: analysis.notes,
-            designWidth: analysis.designWidth, designHeight: analysis.designHeight, loopSeconds: analysis.loopSeconds,
-            needsSharedAssets: analysis.needsSharedAssets, analysisRevision: SceneAnalysis.revision)
+        guard let analysis else { return nil }
+        return SceneInfo(designWidth: analysis.designWidth, designHeight: analysis.designHeight,
+                         needsSharedAssets: analysis.needsSharedAssets, analysisRevision: SceneAnalysis.revision)
     }
 
+    /// The record of a scene whose files cannot be read.
     private static func unreadableInfo(needsSharedAssets: Bool) -> SceneInfo {
-        SceneInfo(support: .previewOnly, notes: [unreadableNote], needsSharedAssets: needsSharedAssets,
-                  analysisRevision: SceneAnalysis.revision)
+        SceneInfo(needsSharedAssets: needsSharedAssets, analysisRevision: SceneAnalysis.revision)
     }
 
     /// The scene renderer won't start any scene without these, so the UI asks for them while they are missing.
@@ -152,13 +148,5 @@ enum SceneImporter {
         let base = folder.resolvingSymlinksInPath().path + "/"
         let path = file.resolvingSymlinksInPath().path
         return path.hasPrefix(base) ? String(path.dropFirst(base.count)) : file.lastPathComponent
-    }
-}
-
-extension SceneInfo {
-    /// The notes in the app's language. The library stores them in English, as SceneAnalyzer and SceneImporter write
-    /// them, and every one of those sentences is a manual key of the String Catalog (Resources/Localizable.xcstrings).
-    var localizedNotes: [String] {
-        notes.map { Bundle.main.localizedString(forKey: $0, value: nil, table: nil) }
     }
 }

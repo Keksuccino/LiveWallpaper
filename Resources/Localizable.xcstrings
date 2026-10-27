@@ -1880,90 +1880,6 @@
         }
       }
     },
-    "A blend mode isn’t supported and is drawn as normal." : {
-      "comment" : "Note about a scene wallpaper (what the app can't show yet), listed below its preview and in the tooltip of its badge.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Eine Füllmethode wird nicht unterstützt und als „Normal“ dargestellt."
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Μια λειτουργία ανάμειξης δεν υποστηρίζεται και αποδίδεται ως κανονική."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hay un modo de fusión no compatible que se muestra como normal."
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hay un modo de fusión no compatible que se dibuja como normal."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Un mode de fusion n’est pas pris en charge et s’affiche en mode normal."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "対応していないブレンドモードがあるため、「通常」として描画されます。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "지원되지 않는 혼합 모드는 일반 모드로 표시됩니다."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jeden z trybów mieszania nie jest obsługiwany i zostaje zastąpiony trybem zwykłym."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Um modo de mesclagem não é compatível e é renderizado como normal."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Один из режимов наложения не поддерживается и отображается как обычный."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bir karışım modu desteklenmediği için normal olarak çiziliyor."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Один із режимів накладання не підтримується, тому відображається як звичайний."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "某种混合模式不受支持，将按正常模式绘制。"
-          }
-        }
-      }
-    },
     "A download is running. Wait for it to finish, then try again." : {
       "comment" : "Error message in the Steam setup.",
       "localizations" : {
@@ -3646,90 +3562,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "动物"
-          }
-        }
-      }
-    },
-    "Animated textures show their first frame only." : {
-      "comment" : "Note about a scene wallpaper (what the app can't show yet), listed below its preview and in the tooltip of its badge.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Animierte Texturen zeigen nur ihr erstes Bild."
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Οι κινούμενες υφές εμφανίζουν μόνο το πρώτο τους καρέ."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Las texturas animadas solo muestran su primer fotograma."
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Las texturas animadas solo muestran su primer cuadro."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les textures animées n’affichent que leur première image."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "アニメーションテクスチャは最初のフレームのみ表示されます。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "애니메이션 텍스처는 첫 프레임만 표시됩니다."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Animowane tekstury pokazują tylko pierwszą klatkę."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Texturas animadas mostram apenas o primeiro quadro."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "У анимированных текстур показывается только первый кадр."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hareketli dokularda yalnızca ilk kare gösteriliyor."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Для анімованих текстур показується лише перший кадр."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "动画纹理仅显示第一帧。"
           }
         }
       }
@@ -5556,90 +5388,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "更改播放列表的墙纸、其顺序和设置、显示时长以及过渡效果。"
-          }
-        }
-      }
-    },
-    "Character animation isn’t supported yet." : {
-      "comment" : "Note about a scene wallpaper (what the app can't show yet), listed below its preview and in the tooltip of its badge.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Figurenanimation wird noch nicht unterstützt."
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Η κίνηση χαρακτήρων δεν υποστηρίζεται ακόμη."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La animación de personajes aún no es compatible."
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La animación de personajes aún no es compatible."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "L’animation de personnages n’est pas encore prise en charge."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "キャラクターアニメーションにはまだ対応していません。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "캐릭터 애니메이션은 아직 지원되지 않습니다."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Animacja postaci nie jest jeszcze obsługiwana."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "A animação de personagens ainda não é compatível."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Анимация персонажей пока не поддерживается."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Karakter animasyonu henüz desteklenmiyor."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Анімація персонажів поки не підтримується."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "尚不支持角色动画。"
           }
         }
       }
@@ -11460,90 +11208,6 @@
         }
       }
     },
-    "Effects (water, glow, …) are not supported yet and are skipped." : {
-      "comment" : "Note about a scene wallpaper (what the app can't show yet), listed below its preview and in the tooltip of its badge.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Effekte (Wasser, Leuchten …) werden noch nicht unterstützt und übersprungen."
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Τα εφέ (νερό, λάμψη, …) δεν υποστηρίζονται ακόμη και παραλείπονται."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Los efectos (agua, resplandor, …) aún no son compatibles y se omiten."
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Los efectos (agua, brillo, …) aún no son compatibles y se omiten."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les effets (eau, lueur, …) ne sont pas encore pris en charge et sont ignorés."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "エフェクト（水、グロー、…）にはまだ対応していないため、省略されます。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "효과(물, 글로우, …)는 아직 지원되지 않아 생략됩니다."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Efekty (woda, poświata, …) nie są jeszcze obsługiwane i są pomijane."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Efeitos (água, brilho, …) ainda não são compatíveis e são ignorados."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Эффекты (вода, свечение, …) пока не поддерживаются и пропускаются."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Efektler (su, parlama, …) henüz desteklenmiyor ve atlanıyor."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ефекти (вода, світіння, …) поки не підтримуються й пропускаються."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "效果（水面、光晕…）尚不受支持，将被跳过。"
-          }
-        }
-      }
-    },
     "Energy" : {
       "comment" : "Section title in the display inspector (shown in capitals) above the battery settings of scenes, like macOS’s Energy settings.",
       "localizations" : {
@@ -13366,90 +13030,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "将此墙纸的声音、速度、对齐方式和颜色设置应用到此显示器上的其他所有墙纸。"
-          }
-        }
-      }
-    },
-    "Glow and colour post-processing are skipped." : {
-      "comment" : "Note about a scene wallpaper (what the app can't show yet), listed below its preview and in the tooltip of its badge.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Leuchten und Farbnachbearbeitung werden übersprungen."
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Η λάμψη και η χρωματική μετεπεξεργασία παραλείπονται."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Se omiten el resplandor y el posprocesado de color."
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Se omiten el brillo y el posprocesamiento de color."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La lueur et le post-traitement des couleurs sont ignorés."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "グローと色のポストプロセスは省略されます。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "글로우 및 색 후처리는 생략됩니다."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Poświata i końcowa korekcja kolorów są pomijane."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O brilho e o pós-processamento de cor são ignorados."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Свечение и цветовая постобработка пропускаются."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Parlama ve renk son işleme efektleri atlanıyor."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Світіння й кольорова постобробка пропускаються."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "光晕和颜色后期处理将被跳过。"
           }
         }
       }
@@ -20260,90 +19840,6 @@
         }
       }
     },
-    "Only the preview image is shown." : {
-      "comment" : "Note about a scene wallpaper (what the app can't show yet), listed below its preview and in the tooltip of its badge.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nur das Vorschaubild wird angezeigt."
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Εμφανίζεται μόνο η εικόνα προεπισκόπησης."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Solo se muestra la imagen de vista previa."
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Solo se muestra la imagen de vista previa."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Seule l’image d’aperçu est affichée."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "プレビュー画像のみ表示されます。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "미리보기 이미지만 표시됩니다."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wyświetlany jest tylko obraz podglądu."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Apenas a imagem de pré-visualização é mostrada."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Показывается только превью."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Yalnızca önizleme resmi gösteriliyor."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Показується лише передогляд."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "仅显示预览图片。"
-          }
-        }
-      }
-    },
     "Only video and scene wallpapers can play here." : {
       "comment" : "Error message.",
       "localizations" : {
@@ -21419,173 +20915,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "浏览网格的排序方式"
-          }
-        }
-      }
-    },
-    "Partial" : {
-      "comment" : "Badge of a scene the app can play only in part.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Teilweise"
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Μερική"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Parcial"
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Parcial"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Partiel"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "一部対応"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "부분 지원"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Częściowo"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Parcial"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Частично"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kısmi"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Частково"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "部分支持"
-          }
-        }
-      }
-    },
-    "Particles are not supported yet." : {
-      "comment" : "Note about a scene wallpaper (what the app can't show yet), listed below its preview and in the tooltip of its badge.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Partikel werden noch nicht unterstützt."
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Τα σωματίδια δεν υποστηρίζονται ακόμη."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Las partículas aún no son compatibles."
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Las partículas aún no son compatibles."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les particules ne sont pas encore prises en charge."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "パーティクルにはまだ対応していません。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "파티클은 아직 지원되지 않습니다."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cząsteczki nie są jeszcze obsługiwane."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Partículas ainda não são compatíveis."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Частицы пока не поддерживаются."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Parçacıklar henüz desteklenmiyor."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Частинки поки не підтримуються."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "尚不支持粒子。"
           }
         }
       }
@@ -22748,89 +22077,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "预设"
-          }
-        }
-      }
-    },
-    "Preview" : {
-      "comment" : "Badge of a scene the app can only show as its still preview picture.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vorschau"
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Προεπισκόπηση"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vista previa"
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vista previa"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aperçu"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "プレビュー"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "미리보기"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Podgląd"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Prévia"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Превью"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Önizleme"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Передогляд"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "预览"
           }
         }
       }
@@ -25767,7 +25013,7 @@
       }
     },
     "Scene" : {
-      "comment" : "A Wallpaper Engine scene wallpaper (as opposed to a video): library card label, badge and Workshop chip.",
+      "comment" : "A Wallpaper Engine scene wallpaper (as opposed to a video): the line below a library entry's name, the playlist editor's chip and the Workshop chip.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -26098,86 +25344,85 @@
         }
       }
     },
-    "Scripted behaviour isn’t supported yet." : {
-      "comment" : "Note about a scene wallpaper (what the app can't show yet), listed below its preview and in the tooltip of its badge.",
-      "extractionState" : "manual",
+    "Scenes need Wallpaper Engine’s shared files to play." : {
+      "comment" : "Below a scene's preview while Wallpaper Engine's shared files are missing.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Skriptgesteuertes Verhalten wird noch nicht unterstützt."
+            "value" : "Szenen benötigen zum Abspielen die gemeinsamen Dateien von Wallpaper Engine."
           }
         },
         "el" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Η συμπεριφορά μέσω σεναρίων δεν υποστηρίζεται ακόμη."
+            "value" : "Οι σκηνές χρειάζονται τα κοινόχρηστα αρχεία του Wallpaper Engine για να αναπαραχθούν."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "El comportamiento mediante scripts aún no es compatible."
+            "value" : "Las escenas necesitan los archivos compartidos de Wallpaper Engine para reproducirse."
           }
         },
         "es-MX" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "El comportamiento con scripts aún no es compatible."
+            "value" : "Las escenas necesitan los archivos compartidos de Wallpaper Engine para reproducirse."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les comportements scriptés ne sont pas encore pris en charge."
+            "value" : "Les scènes nécessitent les fichiers communs de Wallpaper Engine pour fonctionner."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "スクリプトによる動作にはまだ対応していません。"
+            "value" : "シーンの再生にはWallpaper Engineの共有ファイルが必要です。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "스크립트 동작은 아직 지원되지 않습니다."
+            "value" : "씬을 재생하려면 Wallpaper Engine 공유 파일이 필요합니다."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Zachowania oparte na skryptach nie są jeszcze obsługiwane."
+            "value" : "Do odtwarzania scen potrzebne są wspólne pliki Wallpaper Engine."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "O comportamento por script ainda não é compatível."
+            "value" : "As cenas precisam dos arquivos compartilhados do Wallpaper Engine para serem reproduzidas."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Скриптовое поведение пока не поддерживается."
+            "value" : "Для воспроизведения сцен нужны общие файлы Wallpaper Engine."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Betikli davranışlar henüz desteklenmiyor."
+            "value" : "Sahnelerin oynatılması için Wallpaper Engine’in ortak dosyaları gerekir."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Поведінка на основі скриптів поки не підтримується."
+            "value" : "Для відтворення сцен потрібні спільні файли Wallpaper Engine."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "尚不支持脚本行为。"
+            "value" : "场景需要 Wallpaper Engine 的共享文件才能播放。"
           }
         }
       }
@@ -29030,174 +28275,6 @@
         }
       }
     },
-    "Some images are missing or unreadable." : {
-      "comment" : "Note about a scene wallpaper (what the app can't show yet), listed below its preview and in the tooltip of its badge.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Einige Bilder fehlen oder sind unlesbar."
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ορισμένες εικόνες λείπουν ή δεν είναι αναγνώσιμες."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Faltan algunas imágenes o no se pueden leer."
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Faltan algunas imágenes o no se pueden leer."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Certaines images sont manquantes ou illisibles."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "一部の画像が見つからないか、読み込めません。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "일부 이미지가 없거나 읽을 수 없습니다."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Niektórych obrazów brakuje lub nie można ich odczytać."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Algumas imagens estão ausentes ou ilegíveis."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Некоторые изображения отсутствуют или не читаются."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bazı resimler eksik veya okunamıyor."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Деякі зображення відсутні або не читаються."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "部分图片缺失或无法读取。"
-          }
-        }
-      }
-    },
-    "Some objects (text, lights, 3D) are skipped." : {
-      "comment" : "Note about a scene wallpaper (what the app can't show yet), listed below its preview and in the tooltip of its badge.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Einige Objekte (Text, Lichter, 3D) werden übersprungen."
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ορισμένα αντικείμενα (κείμενο, φώτα, 3D) παραλείπονται."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Se omiten algunos objetos (texto, luces, 3D)."
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Se omiten algunos objetos (texto, luces, 3D)."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Certains objets (texte, lumières, 3D) sont ignorés."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "一部のオブジェクト（テキスト、ライト、3D）は省略されます。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "일부 객체(텍스트, 조명, 3D)는 생략됩니다."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Niektóre obiekty (tekst, światła, 3D) są pomijane."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Alguns objetos (texto, luzes, 3D) são ignorados."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Некоторые объекты (текст, источники света, 3D) пропускаются."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bazı nesneler (metin, ışıklar, 3B) atlanıyor."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Деякі обʼєкти (текст, освітлення, 3D) пропускаються."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "部分对象（文本、光源、3D）将被跳过。"
-          }
-        }
-      }
-    },
     "Some scenes need files that come with Wallpaper Engine. Without them those scenes show their preview only." : {
       "comment" : "Explanation of the shared files card.",
       "localizations" : {
@@ -29443,90 +28520,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "声音"
-          }
-        }
-      }
-    },
-    "Sound isn’t supported yet." : {
-      "comment" : "Note about a scene wallpaper (what the app can't show yet), listed below its preview and in the tooltip of its badge.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ton wird noch nicht unterstützt."
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ο ήχος δεν υποστηρίζεται ακόμη."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "El sonido aún no es compatible."
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "El sonido aún no es compatible."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le son n’est pas encore pris en charge."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "サウンドにはまだ対応していません。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "사운드는 아직 지원되지 않습니다."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dźwięk nie jest jeszcze obsługiwany."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O som ainda não é compatível."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Звук пока не поддерживается."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ses henüz desteklenmiyor."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Звук поки не підтримується."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "尚不支持声音。"
           }
         }
       }
@@ -36752,90 +35745,6 @@
         }
       }
     },
-    "This scene’s files couldn’t be read, so only its preview is shown." : {
-      "comment" : "Note about a scene wallpaper (what the app can't show yet), listed below its preview and in the tooltip of its badge.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Die Dateien dieser Szene konnten nicht gelesen werden, daher wird nur ihre Vorschau angezeigt."
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Δεν ήταν δυνατή η ανάγνωση των αρχείων αυτής της σκηνής, γι’ αυτό εμφανίζεται μόνο η προεπισκόπησή της."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No se han podido leer los archivos de esta escena, así que solo se muestra su vista previa."
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No se pudieron leer los archivos de esta escena, así que solo se muestra su vista previa."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les fichiers de cette scène n’ont pas pu être lus : seul son aperçu est affiché."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このシーンのファイルを読み込めなかったため、プレビューのみ表示されます。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "이 씬의 파일을 읽을 수 없어 미리보기만 표시됩니다."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nie udało się odczytać plików tej sceny, dlatego wyświetlany jest tylko jej podgląd."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Não foi possível ler os arquivos desta cena, por isso só a pré-visualização é mostrada."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Не удалось прочитать файлы этой сцены, поэтому показывается только превью."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bu sahnenin dosyaları okunamadığı için yalnızca önizlemesi gösteriliyor."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Не вдалося прочитати файли цієї сцени, тому показується лише передогляд."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "无法读取此场景的文件，因此仅显示其预览。"
-          }
-        }
-      }
-    },
     "This video can’t be played" : {
       "comment" : "Error title.",
       "localizations" : {
@@ -38911,90 +37820,6 @@
         }
       }
     },
-    "User settings of this wallpaper aren’t supported yet." : {
-      "comment" : "Note about a scene wallpaper (what the app can't show yet), listed below its preview and in the tooltip of its badge.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Benutzereinstellungen dieses Hintergrundbilds werden noch nicht unterstützt."
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Οι ρυθμίσεις χρήστη αυτής της ταπετσαρίας δεν υποστηρίζονται ακόμη."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Los ajustes de usuario de este fondo de pantalla aún no son compatibles."
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La configuración de usuario de este fondo aún no es compatible."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les réglages utilisateur de ce fond d’écran ne sont pas encore pris en charge."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この壁紙のユーザ設定にはまだ対応していません。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "이 배경화면의 사용자 설정은 아직 지원되지 않습니다."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ustawienia użytkownika tej tapety nie są jeszcze obsługiwane."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Os ajustes de usuário deste papel de parede ainda não são compatíveis."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Пользовательские настройки этих обоев пока не поддерживаются."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bu duvar kâğıdının kullanıcı ayarları henüz desteklenmiyor."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Користувацькі параметри цієї шпалери поки не підтримуються."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "尚不支持此墙纸的用户设置。"
-          }
-        }
-      }
-    },
     "Username" : {
       "comment" : "Placeholder of the Steam account name field.",
       "localizations" : {
@@ -39245,7 +38070,7 @@
       }
     },
     "Video" : {
-      "comment" : "A video wallpaper (as opposed to a scene): library card label and chip.",
+      "comment" : "A video wallpaper (as opposed to a scene): the line below a library entry's name and the playlist editor's chip.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -48201,89 +47026,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "更新于 %@"
-          }
-        }
-      }
-    },
-    "• Scenes need Wallpaper Engine’s shared files to play." : {
-      "comment" : "Note below a scene's preview. Starts with a bullet (•).",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "• Szenen benötigen zum Abspielen die gemeinsamen Dateien von Wallpaper Engine."
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "• Οι σκηνές χρειάζονται τα κοινόχρηστα αρχεία του Wallpaper Engine για να αναπαραχθούν."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "• Las escenas necesitan los archivos compartidos de Wallpaper Engine para reproducirse."
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "• Las escenas necesitan los archivos compartidos de Wallpaper Engine para reproducirse."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "• Les scènes nécessitent les fichiers communs de Wallpaper Engine pour fonctionner."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "• シーンの再生にはWallpaper Engineの共有ファイルが必要です。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "• 씬을 재생하려면 Wallpaper Engine 공유 파일이 필요합니다."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "• Do odtwarzania scen potrzebne są wspólne pliki Wallpaper Engine."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "• As cenas precisam dos arquivos compartilhados do Wallpaper Engine para serem reproduzidas."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "• Для воспроизведения сцен нужны общие файлы Wallpaper Engine."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "• Sahnelerin oynatılması için Wallpaper Engine’in ortak dosyaları gerekir."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "• Для відтворення сцен потрібні спільні файли Wallpaper Engine."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "• 场景需要 Wallpaper Engine 的共享文件才能播放。"
           }
         }
       }

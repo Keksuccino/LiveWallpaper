@@ -346,11 +346,7 @@ private struct PlaylistItemsCard: View {
                     .font(.callout.weight(.medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                if let info = item.scene {
-                    SceneSupportBadge(info: info)
-                } else {
-                    WMChip(text: String(localized: "Video"))
-                }
+                ItemKindChip(item: item)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -478,6 +474,19 @@ private struct PlaylistItemInspector: View {
     }
 }
 
+/// A wallpaper's type as a chip: Scene or Video.
+private struct ItemKindChip: View {
+    let item: VideoItem
+
+    var body: some View {
+        if item.isScene {
+            WMChip(text: String(localized: "Scene"), icon: "sparkles")
+        } else {
+            WMChip(text: String(localized: "Video"))
+        }
+    }
+}
+
 // MARK: - Add sheet
 
 /// Picks wallpapers of the library to add to a playlist.
@@ -571,11 +580,7 @@ private struct PlaylistAddSheet: View {
                     .truncationMode(.middle)
                     .foregroundStyle(.primary)
                 Spacer(minLength: 8)
-                if let info = item.scene {
-                    SceneSupportBadge(info: info)
-                } else {
-                    WMChip(text: String(localized: "Video"))
-                }
+                ItemKindChip(item: item)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 6)

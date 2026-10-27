@@ -92,30 +92,18 @@ public enum ItemKind: String, Codable, Sendable {
     case video, scene
 }
 
-/// How much of a scene the engine can show (the badge in the UI). Decided by SceneFormat's analyzer when the
-/// scene is imported and stored here, so the UI and the agent never need the SceneFormat module.
-public enum SceneSupport: String, Codable, Sendable {
-    case full          // everything the scene uses is supported
-    case partial       // plays, but some effects, particles, sounds or scripts are ignored
-    case previewOnly   // the preview image is shown instead
-}
-
+/// What the library keeps about a scene. Decided by SceneFormat's analyzer when the scene is imported and stored
+/// here, so the UI and the agent never need the SceneFormat module.
 public struct SceneInfo: Codable, Hashable, Sendable {
-    public var support: SceneSupport
-    public var notes: [String]            // short user-facing reasons, e.g. "Particles are not supported yet."
     public var designWidth: Int           // scene design resolution (orthogonal projection)
     public var designHeight: Int
-    public var loopSeconds: Double?       // the scene's own period if the analyzer found one
     public var needsSharedAssets: Bool    // references files that only Wallpaper Engine's shared assets have
     public var analysisRevision: Int      // SceneFormat analyzer revision that produced this record
 
-    public init(support: SceneSupport, notes: [String] = [], designWidth: Int = 1920, designHeight: Int = 1080,
-                loopSeconds: Double? = nil, needsSharedAssets: Bool = false, analysisRevision: Int = 1) {
-        self.support = support
-        self.notes = notes
+    public init(designWidth: Int = 1920, designHeight: Int = 1080, needsSharedAssets: Bool = false,
+                analysisRevision: Int = 1) {
         self.designWidth = designWidth
         self.designHeight = designHeight
-        self.loopSeconds = loopSeconds
         self.needsSharedAssets = needsSharedAssets
         self.analysisRevision = analysisRevision
     }

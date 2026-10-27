@@ -115,9 +115,16 @@ final class CoreTests: XCTestCase {
         XCTAssertNil(written?["playlist"])
     }
 
+    /// A scene record may hold keys this version does not know (`support`, `notes`); decoding ignores them.
+    func testSceneRecordWithUnknownKeysDecodes() throws {
+        let json = #"{"support": "partial", "notes": ["Particles are not supported yet."], "designWidth": 2560, "designHeight": 1440, "needsSharedAssets": true, "analysisRevision": 1}"#
+        let info = try JSONDecoder().decode(SceneInfo.self, from: Data(json.utf8))
+        XCTAssertEqual(info, SceneInfo(designWidth: 2560, designHeight: 1440, needsSharedAssets: true))
+    }
+
     func testRoundTripKeepsEverything() throws {
         let item = VideoItem(path: "/L/1/scene.pkg", title: "T", workshopID: "1",
-                             scene: SceneInfo(support: .partial, notes: ["Particles are not supported yet."]))
+                             scene: SceneInfo(designWidth: 2560, designHeight: 1440, needsSharedAssets: true))
         var config = DisplayConfig(content: .wallpaper(item.id))
         config.wallpaperOptions[item.id.uuidString] = WallpaperOptions(
             volume: 0.3, muted: true, rate: 1.5, alignment: .free, position: 0.2, alignX: 0.1, alignY: 0.9, zoom: 1.5, flip: true,

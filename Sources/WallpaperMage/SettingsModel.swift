@@ -495,8 +495,8 @@ import SceneFormat
         send(.commit(state))   // the service writes state.json and bumps the revision
     }
 
-    /// Scenes analysed by an older analyzer get a fresh support verdict (off the main thread; the files are tiny
-    /// to read but can be large to scan).
+    /// Scenes analysed by an older analyzer get a fresh record (off the main thread; the files are tiny to read but
+    /// can be large to scan).
     private func reanalyzeStaleScenes() {
         let stale = videos.filter { ($0.scene?.analysisRevision).map { $0 != SceneAnalysis.revision } ?? false }
         guard !stale.isEmpty else { return }

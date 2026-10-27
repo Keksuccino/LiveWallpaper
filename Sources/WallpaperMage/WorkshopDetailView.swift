@@ -4,7 +4,7 @@ import Core
 
 // The Workshop detail pane: opens when a result is clicked. Large preview that ANIMATES (Workshop
 // previews are often GIFs), title, tags, size, description, Download; after the download the pane shows the
-// library item's own preview (the muted looping video, or the scene preview with its support badge).
+// library item's own preview (the muted looping video, or the scene preview).
 
 /// NSImageView with `animates = true`, so animated GIF previews play. SwiftUI's Image and AsyncImage show frame 1.
 struct AnimatedImageView: NSViewRepresentable {

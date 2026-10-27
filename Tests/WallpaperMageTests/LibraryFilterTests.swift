@@ -7,8 +7,7 @@ import Core
 final class LibraryFilterTests: XCTestCase {
     private let workshopVideo = VideoItem(path: "/v/ocean.mp4", title: "Ocean", author: "Nami", workshopID: "1")
     private let ownVideo = VideoItem(path: "/v/forest.mov")
-    private let scene = VideoItem(path: "/s/scene.pkg", title: "City", workshopID: "2",
-                                  scene: SceneInfo(support: .full))
+    private let scene = VideoItem(path: "/s/scene.pkg", title: "City", workshopID: "2", scene: SceneInfo())
     private lazy var playlist = Playlist(name: "Evening", items: [scene.id, ownVideo.id])
 
     private func library(search: String = "", hiding hidden: Set<LibraryKind> = []) -> [LibraryEntry] {
