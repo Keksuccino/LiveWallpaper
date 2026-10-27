@@ -560,17 +560,14 @@ private struct EntryArtwork: View {
     }
 }
 
-/// An entry's chip: a scene's support, or that it is a playlist.
+/// A scene entry's chip: that it is a scene, or that only its preview can be shown. Nothing for other entries.
 @MainActor
 private struct EntryBadge: View {
     let entry: LibraryEntry
 
     var body: some View {
-        switch entry {
-        case .playlist:
-            WMChip(text: String(localized: "Playlist"), icon: "rectangle.stack")
-        case .wallpaper(let item):
-            if let info = item.scene { SceneSupportBadge(info: info) }
+        if case .wallpaper(let item) = entry, let info = item.scene {
+            SceneSupportBadge(info: info, marksPartial: false)
         }
     }
 }
@@ -600,15 +597,24 @@ private struct CurrentBadge: View {
     }
 }
 
-/// The line under a card's name.
+/// The line under an entry's name: its type, then what else there is to know about it ("Scene · Workshop"). A wallpaper
+/// of the user's own that plays has only its type.
 private func entryMeta(_ entry: LibraryEntry, broken: Bool) -> String {
+    let detail: String?
     switch entry {
     case .playlist(_, let items):
-        return String(localized: "\(items.count) wallpapers")
+        detail = String(localized: "\(items.count) wallpapers")
     case .wallpaper(let item):
-        if broken { return String(localized: "Missing or unreadable") }
-        if item.isWorkshop { return String(localized: "Workshop") }
-        return item.isScene ? String(localized: "Scene") : String(localized: "Video")
+        detail = broken ? String(localized: "Missing or unreadable")
+                        : item.isWorkshop ? String(localized: "Workshop") : nil
+    }
+    switch (entry.kind, detail) {
+    case (.playlist, let detail?): return String(localized: "Playlist · \(detail)")
+    case (.scene, let detail?): return String(localized: "Scene · \(detail)")
+    case (.video, let detail?): return String(localized: "Video · \(detail)")
+    case (.playlist, nil): return String(localized: "Playlist")
+    case (.scene, nil): return String(localized: "Scene")
+    case (.video, nil): return String(localized: "Video")
     }
 }
 
@@ -719,8 +725,15 @@ private struct LibraryListRow: View {
                         .padding(4)
                 }
             VStack(alignment: .leading, spacing: 3) {
-                Text(entry.name).font(.callout.weight(.medium)).lineLimit(1).truncationMode(.middle)
-                EntryBadge(entry: entry)
+                HStack(spacing: 6) {
+                    Text(entry.name).font(.callout.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                        .opacity(broken ? 0.6 : 1)
+                    EntryBadge(entry: entry).fixedSize()
+                }
+                Text(entryMeta(entry, broken: broken))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             Spacer(minLength: 8)
             if let edit = actions.edit {
@@ -900,11 +913,13 @@ private struct PlaylistSummary: View {
 @MainActor
 struct SceneSupportBadge: View {
     let info: SceneInfo
+    /// Off: a scene that plays with some of its features missing is labelled like any other scene.
+    var marksPartial = true
 
     private var title: String {
         switch info.support {
         case .full: return String(localized: "Scene")
-        case .partial: return String(localized: "Partial")
+        case .partial: return marksPartial ? String(localized: "Partial") : String(localized: "Scene")
         case .previewOnly: return String(localized: "Preview")
         }
     }

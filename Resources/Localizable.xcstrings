@@ -1082,7 +1082,7 @@
       }
     },
     "%lld wallpapers" : {
-      "comment" : "Size of a playlist, on its library card and in the Home inspector. %lld = the number of wallpapers in it.",
+      "comment" : "Size of a playlist, below its name in the library (after “Playlist ·”) and in the Home inspector. %lld = the number of wallpapers in it.",
       "localizations" : {
         "de" : {
           "variations" : {
@@ -17024,7 +17024,7 @@
       }
     },
     "Missing or unreadable" : {
-      "comment" : "Kind line of a library card whose file was moved, deleted or is broken.",
+      "comment" : "Line below a library entry whose file was moved, deleted or is broken (after its type, e.g. “Video · Missing or unreadable”).",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -22421,7 +22421,7 @@
       }
     },
     "Playlist" : {
-      "comment" : "A playlist: the chip on a playlist's library card and the heading of a playlist's section in the Home inspector.",
+      "comment" : "A playlist: the line below a playlist's name in the library and the heading of a playlist's section in the Home inspector.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -22504,7 +22504,7 @@
       }
     },
     "Playlist · %@" : {
-      "comment" : "Below the playlist's name in the Home inspector. %@ = the display's name.",
+      "comment" : "Below the playlist's name in the Home inspector, %@ = the display's name. Also the line below a library entry's name, %@ = what else there is to know about it (e.g. “Workshop”, “Missing or unreadable”, “3 wallpapers”).",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -25933,7 +25933,7 @@
       }
     },
     "Scene · %@" : {
-      "comment" : "Below a scene's name in an inspector. %@ = the display's name, or in the playlist editor the playlist's name.",
+      "comment" : "Below a scene's name in an inspector, %@ = the display's name, or in the playlist editor the playlist's name. Also the line below a library entry's name, %@ = what else there is to know about it (e.g. “Workshop”, “Missing or unreadable”, “3 wallpapers”).",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -39743,7 +39743,7 @@
       }
     },
     "Video · %@" : {
-      "comment" : "Below a video's name in an inspector. %@ = the display's name, or in the playlist editor the playlist's name.",
+      "comment" : "Below a video's name in an inspector, %@ = the display's name, or in the playlist editor the playlist's name. Also the line below a library entry's name, %@ = what else there is to know about it (e.g. “Workshop”, “Missing or unreadable”, “3 wallpapers”).",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -41652,7 +41652,7 @@
       }
     },
     "Workshop" : {
-      "comment" : "Sidebar item and page title for the Steam Workshop; also the label of a library card for a wallpaper downloaded from it. Keep the name “Workshop” recognisable.",
+      "comment" : "Sidebar item and page title for the Steam Workshop; also the line below a library entry downloaded from it (after its type, e.g. “Video · Workshop”). Keep the name “Workshop” recognisable.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
