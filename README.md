@@ -24,7 +24,7 @@
 - **Every display its own**: each display gets its own wallpaper and settings, picked on a map of your display arrangement. Works with and without separate Spaces per display.
 - **Lock screen and menu bar to match**: each display's system wallpaper becomes a still of the live wallpaper, framed the same way, so the lock screen, the menu bar background and Mission Control show it too.
 - **Playlists**: named playlists of the wallpapers you pick, in your order, each wallpaper with its own settings in the playlist. Choose how long each one stays (minimum 5 seconds) and how the next one comes in: hard switch, fade, fade through black, blur, zoom or slide. A playlist shows a picture of your own or a collage of its first wallpapers.
-- **Battery-friendly**: a frame rate and render scale per wallpaper, "pause on battery", "skip repeated frames", "update only when the scene changes", pause while the screen is locked or the desktop is covered.
+- **Battery-friendly**: a frame rate and render scale per wallpaper, "pause on battery", no redrawing while nothing in a scene moves, pause while the screen is locked or the desktop is covered.
 - **Menu bar control**: pause, mute and quit from a background service that keeps running after Settings closes.
 - **In your language**: English, German, French, Spanish (Spain and Mexico), Brazilian Portuguese, Polish, Russian, Ukrainian, Turkish, Greek, Japanese, Korean and Simplified Chinese. It follows your Mac's language, or the one you pick in Settings.
 - **Native and small**: SwiftUI settings app plus an AppKit background service. No Electron, no web view, no Homebrew libraries.

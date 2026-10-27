@@ -11545,7 +11545,7 @@
       }
     },
     "Energy" : {
-      "comment" : "Section title in the display inspector (shown in capitals) above the battery and render-saving settings of scenes, like macOS’s Energy settings.",
+      "comment" : "Section title in the display inspector (shown in capitals) above the battery settings of scenes, like macOS’s Energy settings.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -28506,89 +28506,6 @@
         }
       }
     },
-    "Skip repeated frames" : {
-      "comment" : "Toggle in the display's Scenes settings (power saving).",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wiederholte Bilder überspringen"
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Παράλειψη επαναλαμβανόμενων καρέ"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Omitir fotogramas repetidos"
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Omitir cuadros repetidos"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ignorer les images répétées"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "重複フレームをスキップ"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "반복 프레임 건너뛰기"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pomijaj powtarzające się klatki"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pular quadros repetidos"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Пропускать повторяющиеся кадры"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tekrarlanan kareleri atla"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Пропускати повторювані кадри"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "跳过重复帧"
-          }
-        }
-      }
-    },
     "Skipped %lld files that aren’t wallpapers." : {
       "comment" : "Alert after importing. %lld = number of files that are neither videos nor Wallpaper Engine scenes.",
       "localizations" : {
@@ -34013,89 +33930,6 @@
         }
       }
     },
-    "Stops idle scenes completely until something in them moves." : {
-      "comment" : "Tooltip of “Update only when the scene changes”.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hält ruhende Szenen komplett an, bis sich etwas in ihnen bewegt."
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Σταματά εντελώς τις ανενεργές σκηνές μέχρι να κινηθεί κάτι σε αυτές."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Detiene por completo las escenas inactivas hasta que algo se mueva en ellas."
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Detiene por completo las escenas inactivas hasta que algo en ellas se mueva."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Arrête complètement les scènes inactives jusqu’à ce qu’un élément bouge."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "動きのないシーンは、何かが動くまで完全に停止します。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "움직임이 없는 씬은 무언가 움직일 때까지 완전히 정지합니다."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Całkowicie zatrzymuje bezczynne sceny, dopóki coś się w nich nie poruszy."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Interrompe completamente as cenas ociosas até que algo nelas se mova."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Полностью останавливает неподвижные сцены, пока в них что-нибудь не сдвинется."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Boşta kalan sahneleri, içlerinde bir şey hareket edene kadar tamamen durdurur."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Повністю зупиняє нерухомі сцени, доки в них щось не почне рухатися."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "完全停止闲置的场景，直到其中有内容移动。"
-          }
-        }
-      }
-    },
     "System Default (%@)" : {
       "comment" : "Option of the app language: follow the Mac's languages. %@ = the name of the language that gives, written in that language (e.g. Deutsch).",
       "localizations" : {
@@ -38492,89 +38326,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "更新延迟"
-          }
-        }
-      }
-    },
-    "Update only when the scene changes" : {
-      "comment" : "Toggle in the display's Scenes settings (power saving).",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nur bei Szenenänderung aktualisieren"
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ενημέρωση μόνο όταν αλλάζει η σκηνή"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Actualizar solo cuando cambie la escena"
-          }
-        },
-        "es-MX" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Actualizar solo cuando la escena cambie"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Actualiser seulement si la scène change"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "シーンが変化したときのみ更新"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "씬이 바뀔 때만 업데이트"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aktualizuj tylko przy zmianie sceny"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Atualizar só quando a cena mudar"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Обновлять только при изменении сцены"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Yalnızca sahne değiştiğinde güncelle"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Оновлювати, лише коли сцена змінюється"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "仅在场景变化时更新"
           }
         }
       }

@@ -445,7 +445,7 @@ struct WallpaperSettingsCard: View {
     }
 }
 
-/// A display's "Energy" rows (battery rule, render optimisations); lives inside its settings card.
+/// A display's "Energy" rows (the battery rule); lives inside its settings card.
 @MainActor
 struct ScenePowerRows: View {
     @ObservedObject var model: SettingsModel
@@ -482,9 +482,6 @@ struct ScenePowerRows: View {
                     }.labelsHidden().columnControl()
                 }
             }
-            WMSwitchRow("Skip repeated frames", isOn: binding(\.skipRepeatedFrames))
-            WMSwitchRow("Update only when the scene changes", isOn: binding(\.renderOnlyOnChange))
-                .help("Stops idle scenes completely until something in them moves.")
         }
     }
 }

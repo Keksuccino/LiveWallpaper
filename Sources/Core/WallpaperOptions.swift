@@ -216,16 +216,11 @@ public struct PowerOptions: Codable, Equatable, Sendable {
     public var batteryMode: BatteryMode
     public var batteryRenderScale: Double      // 0.25...1, used in reduced quality
     public var batteryFPS: Int                 // used in reduced quality
-    public var skipRepeatedFrames: Bool        // scene render optimisation
-    public var renderOnlyOnChange: Bool        // "update only when the scene changes" (stops idle scenes)
 
-    public init(batteryMode: BatteryMode = .reducedQuality, batteryRenderScale: Double = 0.5, batteryFPS: Int = 24,
-                skipRepeatedFrames: Bool = true, renderOnlyOnChange: Bool = false) {
+    public init(batteryMode: BatteryMode = .reducedQuality, batteryRenderScale: Double = 0.5, batteryFPS: Int = 24) {
         self.batteryMode = batteryMode
         self.batteryRenderScale = min(max(batteryRenderScale, 0.25), 1)
         self.batteryFPS = min(max(batteryFPS, 10), 120)
-        self.skipRepeatedFrames = skipRepeatedFrames
-        self.renderOnlyOnChange = renderOnlyOnChange
     }
 
     public static let standard = PowerOptions()

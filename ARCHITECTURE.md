@@ -162,7 +162,7 @@ Each display's `DisplayConfig` stores:
 
 - `content: DisplayContent?` (JSON key `wallpaperID` or `playlistID`) — what the display shows: a wallpaper, a playlist or nothing.
 - `wallpaperOptions: [String: WallpaperOptions]` (JSON key `sceneOptions`) — per wallpaper the display shows on its own, keyed by the item's UUID: Wallpaper Engine's own options, which every wallpaper has (volume, playback rate, alignment with position/horizontal/vertical/zoom, flip, blurred bars, colour options, image filter, mouse parallax), and for scenes the frame rate, render scale, antialiasing, audio response and the scene's own property values.
-- `power: PowerOptions` — the display's battery mode, battery render scale/FPS, `skipRepeatedFrames` and `renderOnlyOnChange`.
+- `power: PowerOptions` — the display's battery mode and battery render scale/FPS.
 
 Each `Playlist` in `LibraryState.playlists` stores its name, its wallpapers in order (`items`, each at most once), `wallpaperOptions` of its own for them (used on every display that plays it), how long each wallpaper stays (`intervalValue`/`intervalUnit`, at least 5 seconds), its `transition` and `transitionDuration`, and the file name of its own picture (`image`, in `PlaylistImages/`; without one Settings shows a collage of its first wallpapers' previews).
 
@@ -185,7 +185,6 @@ The Settings app lists a wallpaper's options the way Wallpaper Engine does (`Wal
 | Audio response | `set_audio_response`, plus `set_audio_spectrum` from `SystemAudioTap` | — |
 | Scene properties | `apply_property` (JSON value); scripts hear of it through `applyUserProperties` | — |
 | Battery rule "Pause", app pause | `pause` / `play` | `pause` / `play` |
-| Skip repeated frames, update only when changed | nothing: a scene in which nothing moves is never redrawn | — |
 
 The stills follow the same options: a scene's still is rendered with its framing, grade and properties; a video's frame is graded and placed like the player shows it.
 
