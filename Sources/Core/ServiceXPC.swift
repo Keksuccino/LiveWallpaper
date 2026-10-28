@@ -12,8 +12,9 @@ public enum ServiceCommand: Codable, Equatable, Sendable {
     case pause
     case resume
     case setMuted(Bool)                          // the whole app's mute (LibraryState.muted)
+    case setStartsAtLogin(Bool)                  // the service's own login item (ServiceStatus.startsAtLogin)
     case quit                                    // stop and terminate the service
-    case status                                  // no-op: just reply with the current status
+    case status                                  // reply with the current status (the login item read again)
     /// Previews of library wallpapers (LibraryPreview). The ones made again on request go first; the others replace
     /// those asked for before that are still waiting, in the order given.
     case makePreviews([PreviewRequest])
@@ -77,15 +78,18 @@ public struct ServiceStatus: Codable, Equatable, Sendable {
     public var message: String?           // latest user-facing message about the service as a whole
     /// The library's previews; nil from a service that makes none.
     public var previews: PreviewStatus?
+    /// The service opens when the user logs in (Start on Launch); nil from a service that cannot say.
+    public var startsAtLogin: Bool?
 
     public init(paused: Bool = false, muted: Bool = false, displays: [DisplayStatus] = [], stateRevision: Int = 0,
-                message: String? = nil, previews: PreviewStatus? = nil) {
+                message: String? = nil, previews: PreviewStatus? = nil, startsAtLogin: Bool? = nil) {
         self.paused = paused
         self.muted = muted
         self.displays = displays
         self.stateRevision = stateRevision
         self.message = message
         self.previews = previews
+        self.startsAtLogin = startsAtLogin
     }
 
     public func display(_ id: String) -> DisplayStatus? { displays.first { $0.id == id } }

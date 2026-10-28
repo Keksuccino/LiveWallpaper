@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds build/WallpaperMage.app (the UI) with the background service nested inside it at
 #   Contents/Library/LoginItems/WallpaperMageService.app   (plays wallpapers, menu bar item, Unix socket server;
-#                                                           launched by the UI, optionally an SMAppService login item)
+#                                                           launched by the UI, and at login while Start on Launch is on)
 # The scene renderer is a static Rust library linked into the service, so nothing else is bundled.
 # Everything is signed ad hoc, inner bundles first.
 #   CONFIG=debug ./build.sh      debug build (default: release)
@@ -57,6 +57,9 @@ printf 'APPL????' > "$APP/Contents/PkgInfo"
 cp "$BIN_DIR/WallpaperMageService" "$SERVICE/Contents/MacOS/WallpaperMageService"
 cp Resources/Service-Info.plist "$SERVICE/Contents/Info.plist"
 cp Resources/MenuBarIcon.png Resources/MenuBarIcon@2x.png "$SERVICE/Contents/Resources/"  # scripts/make-icons.py
+# The app icon for System Settings > Login Items, which lists the service while Start on Launch is on. Assets.car alone
+# (CFBundleIconName): every macOS the service runs on reads it, so the flat AppIcon.icns would only add size.
+cp Resources/Assets.car "$SERVICE/Contents/Resources/Assets.car"
 printf 'APPL????' > "$SERVICE/Contents/PkgInfo"
 
 # Translations: each String Catalog becomes <language>.lproj/<table>.strings(dict) in both bundles (Localizable: the

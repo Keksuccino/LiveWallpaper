@@ -436,10 +436,18 @@ final class CoreTests: XCTestCase {
         XCTAssertNil(LibraryPreview.itemID(ofFile: ".DS_Store"))
     }
 
-    func testStatusOfAServiceWithoutPreviewsDecodes() throws {
+    func testStatusOfAServiceWithoutPreviewsOrLoginItemDecodes() throws {
         let status = try JSONDecoder().decode(
             ServiceStatus.self, from: Data(#"{"paused":false,"muted":true,"displays":[],"stateRevision":4}"#.utf8))
         XCTAssertEqual(status, ServiceStatus(muted: true, stateRevision: 4))
         XCTAssertNil(status.previews)
+        XCTAssertNil(status.startsAtLogin)
+    }
+
+    func testStartsAtLoginRoundTrips() {
+        let command = ServiceCommand.setStartsAtLogin(true)
+        XCTAssertEqual(ServiceCoding.decode(ServiceCommand.self, from: ServiceCoding.encode(command)), command)
+        let status = ServiceStatus(startsAtLogin: true)
+        XCTAssertEqual(ServiceCoding.decode(ServiceStatus.self, from: ServiceCoding.encode(status)), status)
     }
 }

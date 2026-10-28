@@ -98,12 +98,31 @@ private struct GeneralSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
+            startup
             languageSection
             sound
             lockScreen
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Start on Launch can change in System Settings while the app is open.
+        .onAppear { model.refreshStartsAtLogin() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            model.refreshStartsAtLogin()
+        }
+    }
+
+    private var startup: some View {
+        InspectorSection(title: "Startup") {
+            VStack(alignment: .leading, spacing: 6) {
+                WMSwitchRow("Start on launch",
+                            isOn: Binding(get: { model.startsAtLogin }, set: { model.setStartsAtLogin($0) }))
+                Text("Opens Wallpaper Mage when you log in to your Mac, so your live wallpapers are back right away.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     private var languageSection: some View {

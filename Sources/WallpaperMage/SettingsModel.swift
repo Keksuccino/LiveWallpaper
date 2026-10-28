@@ -27,6 +27,9 @@ import SceneFormat
     /// Every wallpaper is silent (LibraryState.muted). The service owns it (its menu toggles it too): it changes
     /// through `setMuted`, never by a commit.
     @Published private(set) var muted = false
+    /// Start on Launch: the service opens when the user logs in (ServiceStatus.startsAtLogin). The service owns it (its
+    /// menu toggles it too, and System Settings can turn it off): it changes through `setStartsAtLogin`.
+    @Published private(set) var startsAtLogin = false
 
     /// The connected displays, as arranged in System Settings > Displays. UI state only.
     @Published private(set) var screens: [ScreenInfo] = []
@@ -120,6 +123,17 @@ import SceneFormat
         written.muted = muted
         send(.setMuted(muted))
     }
+
+    /// Turns Start on Launch on or off; the service's reply says whether it worked.
+    func setStartsAtLogin(_ enabled: Bool) {
+        guard startsAtLogin != enabled else { return }
+        startsAtLogin = enabled
+        send(.setStartsAtLogin(enabled))
+    }
+
+    /// Asks the service for the status again, which reads its login item again: it may have changed in System
+    /// Settings.
+    func refreshStartsAtLogin() { send(.status) }
 
     func options(in scope: OptionsScope, for id: UUID) -> WallpaperOptions {
         switch scope {
@@ -647,7 +661,8 @@ import SceneFormat
         if case .commit = command { lastCommit = task }
     }
 
-    /// A status arrived (reply or push): the service owns the app's `muted` (its menu can toggle it).
+    /// A status arrived (reply or push): the service owns the app's `muted` and Start on Launch (its menu can toggle
+    /// both).
     private func statusReceived(_ status: ServiceStatus) {
         if commitPending {
             commitPending = false
@@ -655,6 +670,7 @@ import SceneFormat
         }
         muted = status.muted
         written.muted = status.muted
+        startsAtLogin = status.startsAtLogin ?? false
     }
 
     // MARK: Screens

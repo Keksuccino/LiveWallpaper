@@ -37,7 +37,7 @@ struct ServiceError: LocalizedError {
     private var connection: ServiceSocketClient?
     private var connecting: Task<Void, Never>?
     private var retry: Task<Void, Never>?
-    private var loginItemTried = false
+    private var legacyLoginItemChecked = false
     private var quitRequested = false   // the service was asked to quit (restart): its going away is no crash
 
     /// <WallpaperMage.app>/Contents/Library/LoginItems/WallpaperMageService.app
@@ -121,7 +121,7 @@ struct ServiceError: LocalizedError {
         }
         connection = client
         await refreshStatus()
-        registerLoginItem()
+        removeLegacyLoginItem()
     }
 
     /// False (and `.unavailable`) when the service app cannot be found or opened.
@@ -139,17 +139,18 @@ struct ServiceError: LocalizedError {
         return true
     }
 
-    /// Best effort: start the service at login. The UI launches it anyway, so a failure only gets logged.
-    private func registerLoginItem() {
-        guard !loginItemTried else { return }
-        loginItemTried = true
-        let item = SMAppService.loginItem(identifier: "com.noob3301.WallpaperMage.service")
-        guard item.status == .notRegistered else {
-            if item.status != .enabled { NSLog("WallpaperMage: service login item status \(item.status.rawValue)") }
-            return
-        }
-        do { try item.register() } catch {
-            NSLog("WallpaperMage: couldn’t register the service as a login item: \(error.localizedDescription)")
+    /// The service opens at login only through its own login item, which the user turns on (Start on Launch,
+    /// LoginItem in the service). Older versions registered the service as a login item of this app on every launch;
+    /// that one is removed, checked once per launch in the background (a read of its status takes about 15 ms).
+    private func removeLegacyLoginItem() {
+        guard !legacyLoginItemChecked else { return }
+        legacyLoginItemChecked = true
+        Task.detached(priority: .utility) {
+            let item = SMAppService.loginItem(identifier: AppIdentity.serviceBundleID)
+            guard item.status == .enabled || item.status == .requiresApproval else { return }
+            do { try await item.unregister() } catch {
+                NSLog("WallpaperMage: couldn’t remove the service’s old login item: \(error.localizedDescription)")
+            }
         }
     }
 

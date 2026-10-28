@@ -16,16 +16,16 @@ flowchart TB
     subgraph APP["WallpaperMage.app"]
         direction LR
         UI["WallpaperMage Settings<br/>SwiftUI · no playback · no runtime state writes"]
-        CLIENT["ServiceClient<br/>launch · SMAppService registration<br/>ServiceCommand / ServiceStatus"]
+        CLIENT["ServiceClient<br/>launch<br/>ServiceCommand / ServiceStatus"]
         UI --> CLIENT
     end
 
     subgraph SERVICE["WallpaperMageService.app / executable<br/>AppKit · menu bar · login item"]
         direction TB
-        ENTRY["ServiceEntry / ServiceDelegate<br/>NSApplicationDelegate"]
+        ENTRY["ServiceEntry / ServiceDelegate<br/>NSApplicationDelegate<br/>LoginItem (Start on Launch)"]
         SOCK["SocketServer"]
         ORCH["Orchestrator<br/>bootstrap · commit<br/>setPaused · setMuted<br/>a DisplayPlayer per display + stills"]
-        MENU["Menu bar status item<br/>pause · mute · quit"]
+        MENU["Menu bar status item<br/>pause · mute · start on launch · quit"]
 
         subgraph PLAY["Per display"]
             direction LR
@@ -83,7 +83,9 @@ flowchart TB
 
 ## Processes and IPC
 
-Settings starts the nested service with `NSWorkspace.openApplication` when nothing answers on the socket, and registers it as an `SMAppService` login item. The service also enforces a single running instance: if a live service answers on the socket, a second copy exits.
+Settings starts the nested service with `NSWorkspace.openApplication` when nothing answers on the socket. The service also enforces a single running instance: if a live service answers on the socket, a second copy exits.
+
+The service opens at login only while Start on Launch is on (off by default; Settings > General and the menu bar). It registers itself (`LoginItem`, `SMAppService.mainApp` of the service's bundle, listed under Open at Login in System Settings > General > Login Items) and reports the registration as `ServiceStatus.startsAtLogin`; Settings changes it with `.setStartsAtLogin`. The choice is stored nowhere else: the service reads the registration again when its menu opens and on every `.status`, which Settings sends when its General tab appears and whenever it becomes active, so a change made in System Settings shows in both. Settings removes the login item that older versions registered for the service from Settings' own bundle (`SMAppService.loginItem`).
 
 The transport is a Unix domain socket, not NSXPC or launchd:
 
@@ -142,7 +144,7 @@ Both render services draw into a `DisplayWindow`: one desktop-level window on th
 
 `Orchestrator` owns a `DisplayPlayer` for every connected display that has a wallpaper or a playlist, and one `WallpaperStills`. It follows displays as they come and go, keeps each display's still in step with what it shows, and is the normal writer of `state.json`.
 
-`ServiceDelegate` owns the socket server, the menu bar item and the orchestrator. Settings has no playback classes and never imports `SceneBridge`. Its Home page shows the displays as arranged in System Settings (`DisplayPicker`, from `NSScreen` frames); clicking one picks the display the library and the inspector work on. The library lists the playlists and the wallpapers (`LibraryEntry.library`) in the order its title row's sort menu and order picker choose (`LibraryOrder`: last added or updated, by type, or by creation date, with one direction for every sort, descending by default; both remembered in UserDefaults), without the kinds its filter buttons hide (`SettingsModel.hiddenLibraryKinds`: playlists, scenes, videos; UI state only); a click puts one on that display, and a checkmark marks the one it shows. A playlist's editor (`PlaylistEditorView`) takes the library's place while it is open, with the settings of the wallpaper selected in it in the inspector. Its edits are committed live; `SettingsModel` keeps the playlist as it was when the editor opened, so Done keeps the edit and every other way out of the editor (Cancel, another page, Settings, quitting) undoes it, after asking when there is something to undo (`leaveEditor`). The window's close button is off while the editor is open. A display's tile shows its system wallpaper, which the service reports per display (`DisplayStatus.systemWallpaper`, with the item it is a still of), so the tile looks like the display itself; a new still fades in over the one it replaces.
+`ServiceDelegate` owns the socket server, the menu bar item, the login item and the orchestrator. Settings has no playback classes and never imports `SceneBridge`. Its Home page shows the displays as arranged in System Settings (`DisplayPicker`, from `NSScreen` frames); clicking one picks the display the library and the inspector work on. The library lists the playlists and the wallpapers (`LibraryEntry.library`) in the order its title row's sort menu and order picker choose (`LibraryOrder`: last added or updated, by type, or by creation date, with one direction for every sort, descending by default; both remembered in UserDefaults), without the kinds its filter buttons hide (`SettingsModel.hiddenLibraryKinds`: playlists, scenes, videos; UI state only); a click puts one on that display, and a checkmark marks the one it shows. A playlist's editor (`PlaylistEditorView`) takes the library's place while it is open, with the settings of the wallpaper selected in it in the inspector. Its edits are committed live; `SettingsModel` keeps the playlist as it was when the editor opened, so Done keeps the edit and every other way out of the editor (Cancel, another page, Settings, quitting) undoes it, after asking when there is something to undo (`leaveEditor`). The window's close button is off while the editor is open. A display's tile shows its system wallpaper, which the service reports per display (`DisplayStatus.systemWallpaper`, with the item it is a still of), so the tile looks like the display itself; a new still fades in over the one it replaces.
 
 ## Scene renderer
 

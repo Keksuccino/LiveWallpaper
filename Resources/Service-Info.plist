@@ -29,6 +29,9 @@
 	</array>
 	<key>CFBundleExecutable</key>
 	<string>WallpaperMageService</string>
+	<!-- The app's icon (Assets.car, copied by build.sh), shown in System Settings > Login Items for Start on Launch. -->
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleInfoDictionaryVersion</key>

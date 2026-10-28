@@ -2,7 +2,8 @@ import AppKit
 import Core
 
 // Entry point, socket server and status item of the background service.
-// The UI launches it when nothing answers on ServiceSocket.path; it may also be registered as a login item.
+// The UI launches it when nothing answers on ServiceSocket.path; it opens at login too while Start on Launch is on
+// (LoginItem).
 // AppKit only: never import SwiftUI or Combine here.
 
 @main
@@ -16,16 +17,18 @@ enum ServiceEntry {
     }
 }
 
-@MainActor final class ServiceDelegate: NSObject, NSApplicationDelegate {
+@MainActor final class ServiceDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private static let bundleID = "com.noob3301.WallpaperMage.service"
 
     private let orchestrator = Orchestrator()
     private let server = SocketServer()
+    private let loginItem = LoginItem()
     private var statusItem: NSStatusItem?
     private let menu = NSMenu()
     private let messageItem = NSMenuItem()
     private let pauseItem = NSMenuItem()
     private let muteItem = NSMenuItem()
+    private let startsAtLoginItem = NSMenuItem()
     private var signalSources: [DispatchSourceSignal] = []
     private var isActive = false
     private var handlingCommand = false
@@ -38,7 +41,7 @@ enum ServiceEntry {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard isActive else { return .terminateNow }
         orchestrator.shutdown()
-        server.push(orchestrator.status())
+        server.push(status())
         server.stop()
         return .terminateNow
     }
@@ -60,6 +63,7 @@ enum ServiceEntry {
         buildStatusItem()
         orchestrator.bootstrap()
         orchestrator.onChange = { [weak self] in self?.orchestratorChanged() }
+        loginItem.onChange = { [weak self] in self?.loginItemChanged() }
         server.perform = { [weak self] command in self?.perform(command) ?? (ServiceStatus(), nil) }
         do { try server.start() } catch {
             NSLog("WallpaperMageService: can’t listen on \(ServiceSocket.path): \(error.localizedDescription)")
@@ -88,7 +92,10 @@ enum ServiceEntry {
 
     /// Runs one command; returns the status to reply with and an error message (nil = done).
     private func perform(_ command: ServiceCommand) -> (ServiceStatus, String?) {
-        if case .status = command { return (orchestrator.status(), nil) }
+        if case .status = command {
+            loginItem.refresh()  // System Settings may have changed it; a change is pushed
+            return (status(), nil)
+        }
         // The reply carries the result, so the changes the command causes are not pushed on their own.
         handlingCommand = true
         defer { handlingCommand = false }
@@ -99,20 +106,35 @@ enum ServiceEntry {
         case .pause: orchestrator.setPaused(true)
         case .resume: orchestrator.setPaused(false)
         case .setMuted(let muted): orchestrator.setMuted(muted)
+        case .setStartsAtLogin(let enabled):
+            error = loginItem.set(enabled)
+            refreshMenu()
         case .makePreviews(let requests): orchestrator.makePreviews(requests)
         case .status: break
         case .quit:
             // After the reply has gone out.
             DispatchQueue.main.async { [weak self] in self?.quitService() }
         }
-        let status = orchestrator.status()
+        let status = self.status()
         server.push(status)  // other connected windows learn about it too
         return (status, error)
     }
 
+    /// The orchestrator's status with what the service knows on its own.
+    private func status() -> ServiceStatus {
+        var status = orchestrator.status()
+        status.startsAtLogin = loginItem.isEnabled
+        return status
+    }
+
     private func orchestratorChanged() {
         refreshMenu()
-        if !handlingCommand { server.push(orchestrator.status()) }
+        if !handlingCommand { server.push(status()) }
+    }
+
+    private func loginItemChanged() {
+        refreshMenu()
+        server.push(status())
     }
 
     /// Only the service quits (`.quit`, which Settings sends to restart it).
@@ -137,6 +159,8 @@ enum ServiceEntry {
         messageItem.isHidden = true
         configure(pauseItem, title: String(localized: "Pause Wallpapers"), action: #selector(togglePause))
         configure(muteItem, title: String(localized: "Mute Sound"), action: #selector(toggleMute))
+        configure(startsAtLoginItem, title: String(localized: "Start on Launch"), action: #selector(toggleStartsAtLogin))
+        startsAtLoginItem.toolTip = String(localized: "Opens Wallpaper Mage when you log in to your Mac, so your live wallpapers are back right away.")
         let settings = NSMenuItem(title: String(localized: "Open Settings"), action: #selector(openSettings),
                                   keyEquivalent: ",")
         settings.target = self
@@ -145,7 +169,8 @@ enum ServiceEntry {
         quit.target = self
         quit.toolTip = String(localized: "Closes Wallpaper Mage. Your live wallpapers stop, and each display keeps a still picture of its wallpaper.")
         [header, messageItem, .separator(), settings, .separator(),
-         pauseItem, muteItem, .separator(), quit].forEach(menu.addItem)
+         pauseItem, muteItem, .separator(), startsAtLoginItem, quit].forEach(menu.addItem)
+        menu.delegate = self
         item.menu = menu
     }
 
@@ -170,10 +195,22 @@ enum ServiceEntry {
                                                 : String(localized: "Pause Wallpapers")
         pauseItem.isEnabled = orchestrator.isLive || orchestrator.isPaused
         muteItem.state = orchestrator.muted ? .on : .off
+        startsAtLoginItem.state = loginItem.isEnabled ? .on : .off
+    }
+
+    /// The login item can change in System Settings, so it is read again whenever the menu opens; a change shows in
+    /// the open menu.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        loginItem.refresh()
     }
 
     @objc private func togglePause() { orchestrator.setPaused(!orchestrator.isPaused) }
     @objc private func toggleMute() { orchestrator.setMuted(!orchestrator.muted) }
+    /// A failure is only logged (LoginItem.set): the checkmark stays as it was.
+    @objc private func toggleStartsAtLogin() {
+        _ = loginItem.set(!loginItem.isEnabled)
+        loginItemChanged()
+    }
     /// Quits the whole app: Settings first, so it does not start the service again, then the service. Settings is
     /// asked through a notification rather than a quit event: macOS refuses quit events while Settings shows a sheet,
     /// and Settings closes its sheet before it quits.

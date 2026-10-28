@@ -27,6 +27,7 @@ plist() { /usr/libexec/PlistBuddy -c "Print :$2" "$1/Contents/Info.plist"; }
 [[ "$(plist "$APP" CFBundleDisplayName)" == "$(basename "$APP" .app)" ]] || fail "Settings CFBundleDisplayName differs from the bundle's file name, so the Dock and Finder show the bare file name"
 test -s "$APP/Contents/Resources/Assets.car" || fail "missing app icon (Assets.car)"
 test -s "$APP/Contents/Resources/AppIcon.icns" || fail "missing app icon (AppIcon.icns)"
+test -s "$SERVICE/Contents/Resources/Assets.car" || fail "missing the service's app icon (Assets.car)"
 for icon in MenuBarIcon.png MenuBarIcon@2x.png; do
   test -s "$SERVICE/Contents/Resources/$icon" || fail "missing menu bar icon ($icon)"
 done
